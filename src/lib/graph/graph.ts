@@ -1,9 +1,9 @@
-import { StateGraph, START } from '@langchain/langgraph';
-import { GraphAnnotation, GraphState } from './state';
+import { StateGraph, START, END } from '@langchain/langgraph';
+import { GraphAnnotation } from './state';
 import { optimisticNode, pessimisticNode } from './nodes';
 
 export const createGraph = () => {
-  const graph = new StateGraph({ annotation: GraphAnnotation })
+  const graph = new StateGraph(GraphAnnotation)
     .addNode('optimistic', optimisticNode)
     .addNode('pessimistic', pessimisticNode)
     .addEdge(START, 'optimistic')

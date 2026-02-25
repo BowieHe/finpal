@@ -1,5 +1,8 @@
 'use client';
 
+import MessageBubble from './MessageBubble';
+import PersonaCard from './PersonaCard';
+
 interface MessageListProps {
   messages: Array<{
     id: string;
@@ -8,50 +11,75 @@ interface MessageListProps {
     pessimisticAnswer: string;
     timestamp: number;
   }>;
+  isLoading?: boolean;
 }
 
-export default function MessageList({ messages }: MessageListProps) {
-  if (messages.length === 0) {
+export default function MessageList({ messages, isLoading }: MessageListProps) {
+  if (messages.length === 0 && !isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="text-center text-slate-400">
-          <div className="text-6xl mb-4">💭</div>
-          <p className="text-xl">提出一个问题，看看两种人格的不同回答</p>
+      <div className="flex-1 flex items-center justify-center px-6 py-10">
+        <div className="text-center max-w-md">
+          <div className="w-20 h-20 rounded-3xl bg-indigo-600/10 dark:bg-indigo-400/10 mx-auto mb-5 flex items-center justify-center">
+            <span className="text-5xl">💭</span>
+          </div>
+          <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+            说说你正在纠结什么
+          </p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            我会用“乐观派”和“悲观派”两种视角同时回答，帮你看清机会与风险。
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto space-y-6 p-4">
-      {messages.map((message) => (
-        <div key={message.id}>
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 mb-4">
-            <div className="text-slate-400 text-sm mb-2">
-              {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div className="text-white text-lg font-semibold">{message.question}</div>
-          </div>
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        {messages.map((message) => (
+          <div key={message.id} className="mb-8">
+            <MessageBubble question={message.question} timestamp={message.timestamp} />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-gradient-to-br from-green-900/30 to-green-800/20 backdrop-blur-sm rounded-xl p-6 border border-green-700/30">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-2xl">😊</span>
-                <h3 className="text-green-400 font-bold text-lg">乐观派</h3>
-              </div>
-              <p className="text-green-100 whitespace-pre-wrap leading-relaxed">{message.optimisticAnswer}</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-red-900/30 to-red-800/20 backdrop-blur-sm rounded-xl p-6 border border-red-700/30">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-2xl">😟</span>
-                <h3 className="text-red-400 font-bold text-lg">悲观派</h3>
-              </div>
-              <p className="text-red-100 whitespace-pre-wrap leading-relaxed">{message.pessimisticAnswer}</p>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <PersonaCard
+                emoji="😊"
+                name="乐观派"
+                answer={message.optimisticAnswer}
+                theme="optimistic"
+              />
+              <PersonaCard
+                emoji="😟"
+                name="悲观派"
+                answer={message.pessimisticAnswer}
+                theme="pessimistic"
+              />
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+
+        {isLoading && (
+          <div className="flex justify-center py-6">
+            <div className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              <span className="font-medium">思考中...</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
