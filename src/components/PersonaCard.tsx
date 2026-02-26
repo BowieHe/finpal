@@ -4,10 +4,11 @@ interface PersonaCardProps {
   emoji: string;
   name: string;
   answer: string;
+  thinking?: string;
   theme: 'optimistic' | 'pessimistic';
 }
 
-export default function PersonaCard({ emoji, name, answer, theme }: PersonaCardProps) {
+export default function PersonaCard({ emoji, name, answer, theme, thinking }: PersonaCardProps) {
   const isOptimistic = theme === 'optimistic';
 
   return (
@@ -46,6 +47,15 @@ export default function PersonaCard({ emoji, name, answer, theme }: PersonaCardP
           <div className="text-xs text-slate-500 dark:text-slate-400">{isOptimistic ? '更偏积极的视角' : '更偏谨慎的视角'}</div>
         </div>
       </div>
+
+      {thinking && (
+        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">思考过程</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300 italic border-l-2 border-slate-300 dark:border-slate-600 pl-3">
+            {thinking}
+          </div>
+        </div>
+      )}
 
       <div className="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
         {answer}

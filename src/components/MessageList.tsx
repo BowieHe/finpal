@@ -2,6 +2,7 @@
 
 import MessageBubble from './MessageBubble';
 import PersonaCard from './PersonaCard';
+import ResearchResults from './ResearchResults';
 
 interface MessageListProps {
   messages: Array<{
@@ -10,6 +11,10 @@ interface MessageListProps {
     optimisticAnswer: string;
     pessimisticAnswer: string;
     timestamp: number;
+    searchResults?: any[];
+    researchSummary?: any;
+    engineUsage?: Record<string, number>;
+    round?: number;
   }>;
   isLoading?: boolean;
 }
@@ -39,7 +44,23 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
         {messages.map((message) => (
           <div key={message.id} className="mb-8">
             <MessageBubble question={message.question} timestamp={message.timestamp} />
-
+            
+            {message.searchResults && message.researchSummary && (
+              <ResearchResults 
+                searchResults={message.searchResults}
+                researchSummary={message.researchSummary}
+                engineUsage={message.engineUsage || { brave: 0, tavily: 0 }}
+              />
+            )}
+            
+            <div className="mt-4 mb-2">
+              {message.round && message.round > 0 && (
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  辩论进行到第 {message.round} 轮
+                </div>
+              )}
+            </div>
+            
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <PersonaCard
                 emoji="😊"
@@ -56,7 +77,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
             </div>
           </div>
         ))}
-
+        
         {isLoading && (
           <div className="flex justify-center py-6">
             <div className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
@@ -72,7 +93,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                 <path
                   className="opacity-75"
                   fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3.738l3-2.647z"
                 />
               </svg>
               <span className="font-medium">思考中...</span>

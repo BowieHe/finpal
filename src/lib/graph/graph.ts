@@ -1,14 +1,13 @@
 import { StateGraph, START, END } from '@langchain/langgraph';
 import { GraphAnnotation } from './state';
-import { optimisticNode, pessimisticNode } from './nodes';
+import { optimisticInitialNode, pessimisticInitialNode, optimisticRebuttalNode, pessimisticRebuttalNode, deciderNode } from './nodes';
 
 export const createGraph = () => {
   const graph = new StateGraph(GraphAnnotation)
-    .addNode('optimistic', optimisticNode)
-    .addNode('pessimistic', pessimisticNode)
+    .addNode('optimistic', optimisticInitialNode)
+    .addNode('pessimistic', pessimisticInitialNode)
     .addEdge(START, 'optimistic')
-    .addEdge(START, 'pessimistic')
-    .addEdge('optimistic', END)
+    .addEdge('optimistic', 'pessimistic')
     .addEdge('pessimistic', END);
 
   return graph.compile();
