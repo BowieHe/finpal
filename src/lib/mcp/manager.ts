@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { MCPConfig } from '../../types/mcp';
 
 export const MCP_SERVERS: Record<string, MCPConfig> = {
@@ -34,14 +34,18 @@ export class MCPManager {
       version: '1.0.0',
     });
 
+    const defaultEnv = getDefaultEnvironment();
+    const transportEnv = {
+      ...defaultEnv,
+      TAVILY_API_KEY: config.apiKey || process.env.TAVILY_API_KEY || '',
+      HTTP_PROXY: process.env.HTTP_PROXY || process.env.http_proxy || '',
+      HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || '',
+    };
+    
     const transport = new StdioClientTransport({
       command: 'npx',
       args: ['-y', config.apiUrl],
-      env: {
-        ...(config.apiKey && { [config.name === 'tavily' ? 'TAVILY_API_KEY' : 'BRAVE_API_KEY']: config.apiKey }),
-        HTTP_PROXY: process.env.HTTP_PROXY || process.env.http_proxy || '',
-        HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || '',
-      },
+      env: transportEnv,
     });
 
     await client.connect(transport);
