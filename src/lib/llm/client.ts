@@ -3,31 +3,52 @@ import { LLMConfig } from '@/types/config';
 
 let currentLLM: ChatOpenAI | null = null;
 
-export const defaultLLMConfig: LLMConfig = {
-  apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com',
-  modelName: process.env.OPENAI_MODEL || 'deepseek-chat',
-  apiKey: process.env.OPENAI_API_KEY || '',
+// 安全的配置获取，提供有意义的默认值
+const getSafeConfig = (): LLMConfig => {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    console.warn('[LLM Client] Warning: OPENAI_API_KEY not set, LLM calls will fail');
+  }
+
+  return {
+    apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com',
+    modelName: process.env.OPENAI_MODEL || 'deepseek-chat',
+    apiKey: apiKey || '',
+  };
 };
 
+export const defaultLLMConfig: LLMConfig = getSafeConfig();
+
+/**
+ * 创建 LLM 客户端
+ * 注意：如果 apiKey 为空，会抛出错误
+ */
 export function createLLMClient(config: LLMConfig): ChatOpenAI {
-  console.log('[LLM Client] Creating client with config:', {
-    hasApiKey: !!config.apiKey,
-    apiKeyLength: config.apiKey?.length,
+  if (!config.apiKey) {
+    throw new Error(
+      '[LLM Client] API Key is required. Please set OPENAI_API_KEY environment variable.'
+    );
+  }
+
+  console.log('[LLM Client] Creating client:', {
+    hasApiKey: true,
+    apiKeyLength: config.apiKey.length,
     apiUrl: config.apiUrl,
     modelName: config.modelName,
   });
 
   const client = new ChatOpenAI({
     apiKey: config.apiKey,
-    openAIApiKey: config.apiKey,
     configuration: {
       baseURL: config.apiUrl,
     },
     temperature: 0.7,
     model: config.modelName,
+    maxRetries: 3, // LangChain 内置重试
+    timeout: 60000, // 60 秒超时
   });
 
-  console.log('[LLM Client] Client created successfully');
   return client;
 }
 
@@ -42,4 +63,40 @@ export function getLLMInstance(): ChatOpenAI {
   return currentLLM;
 }
 
-export const llm = getLLMInstance();
+/**
+ * 带指数退避的重试调用
+ * @param operation 要执行的操作
+ * @param maxRetries 最大重试次数
+ * @param baseDelay 基础延迟（毫秒）
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt === maxRetries) {
+        throw new Error(
+          `[Retry] Failed after ${maxRetries + 1} attempts: ${lastError.message}`
+        );
+      }
+
+      // 指数退避：1s, 2s, 4s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+// 注意：不要在模块加载时初始化，改为按需获取
+// export const llm = getLLMInstance(); // 已移除

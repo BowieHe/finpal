@@ -3,6 +3,7 @@
 import MessageBubble from './MessageBubble';
 import PersonaCard from './PersonaCard';
 import ResearchResults from './ResearchResults';
+import DeciderResult from './DeciderResult';
 
 interface MessageListProps {
   messages: Array<{
@@ -10,11 +11,15 @@ interface MessageListProps {
     question: string;
     optimisticAnswer: string;
     pessimisticAnswer: string;
-    timestamp: number;
+    optimisticRebuttal?: string;
+    pessimisticRebuttal?: string;
+    debateWinner?: string;
+    debateSummary?: string;
     searchResults?: any[];
     researchSummary?: any;
     engineUsage?: Record<string, number>;
     round?: number;
+    timestamp: number;
   }>;
   isLoading?: boolean;
 }
@@ -31,7 +36,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
             说说你正在纠结什么
           </p>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            我会用“乐观派”和“悲观派”两种视角同时回答，帮你看清机会与风险。
+            我会用"乐观派"和"悲观派"两种视角同时回答，帮你看清机会与风险。
           </p>
         </div>
       </div>
@@ -45,36 +50,37 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           <div key={message.id} className="mb-8">
             <MessageBubble question={message.question} timestamp={message.timestamp} />
             
-            {message.searchResults && message.researchSummary && (
+            {message.searchResults && message.searchResults.length > 0 && message.researchSummary && (
               <ResearchResults 
                 searchResults={message.searchResults}
                 researchSummary={message.researchSummary}
-                engineUsage={message.engineUsage || { brave: 0, tavily: 0 }}
+                engineUsage={message.engineUsage || {}}
               />
             )}
-            
-            <div className="mt-4 mb-2">
-              {message.round && message.round > 0 && (
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                  辩论进行到第 {message.round} 轮
-                </div>
-              )}
-            </div>
-            
+
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <PersonaCard
                 emoji="😊"
                 name="乐观派"
                 answer={message.optimisticAnswer}
+                rebuttal={message.optimisticRebuttal}
                 theme="optimistic"
               />
               <PersonaCard
                 emoji="😟"
                 name="悲观派"
                 answer={message.pessimisticAnswer}
+                rebuttal={message.pessimisticRebuttal}
                 theme="pessimistic"
               />
             </div>
+
+            {message.debateWinner && (
+              <DeciderResult 
+                winner={message.debateWinner}
+                summary={message.debateSummary || ''}
+              />
+            )}
           </div>
         ))}
         
@@ -82,21 +88,10 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           <div className="flex justify-center py-6">
             <div className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
               <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <span className="font-medium">思考中...</span>
+              <span className="font-medium">正在搜索信息并分析...</span>
             </div>
           </div>
         )}

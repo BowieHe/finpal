@@ -1,21 +1,112 @@
-import { GraphState } from './state';
-import { getLLMInstance } from '../llm/client';
-import { OPTIMISTIC_PROMPT, PESSIMISTIC_PROMPT } from '../prompts';
+import { GraphState, ResearchSummary } from './state';
+import { getLLMInstance, withRetry } from '../llm/client';
 import { smartSearch } from '../mcp/unified-search';
+import { SearchEngine } from '@/types/mcp';
 
-function extractJSONFromText(text: string): any {
-  try {
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return null;
-  } catch (e) {
-    console.error('[JSON Parser] Failed to parse JSON from text:', text);
-    return null;
+/**
+ * 安全的 JSON 解析
+ * 处理 LLM 可能返回的 markdown 代码块包裹的 JSON
+ */
+export function getContentString(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map(c => {
+      if (typeof c === 'string') return c;
+      if (typeof c === 'object' && c !== null && 'text' in c) return String((c as { text: string }).text);
+      return '';
+    }).join('');
   }
+  if (typeof content === 'object' && content !== null && 'text' in content) {
+    return String((content as { text: string }).text);
+  }
+  return '';
 }
 
+/**
+ * 从文本中提取 JSON
+ * 处理 LLM 返回的非标准格式（如 markdown 代码块）
+ */
+export function extractJSONFromText(text: string): Record<string, unknown> | null {
+  // 首先尝试直接解析
+  try {
+    return JSON.parse(text);
+  } catch {
+    // 忽略直接解析失败
+  }
+
+  // 尝试从 markdown 代码块中提取
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch {
+      // 继续尝试其他方法
+    }
+  }
+
+  // 尝试从文本中提取第一个 JSON 对象
+  const jsonMatch = text.match(/\{[\s\S]*?\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      console.error('[JSON Parser] Failed to parse JSON from text');
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 安全解析 LLM 响应
+ */
+async function safeJsonParse(response: { content: unknown }): Promise<Record<string, unknown>> {
+  const contentStr = getContentString(response.content);
+
+  const result = extractJSONFromText(contentStr);
+  if (result) {
+    return result;
+  }
+
+  throw new Error(`Failed to parse LLM response as JSON: ${contentStr.substring(0, 200)}...`);
+}
+
+/**
+ * 搜索结果类型
+ */
+interface SearchAnalysis {
+  search_queries: string[];
+  reasoning: string;
+}
+
+/**
+ * 观点输出类型
+ */
+interface PersonaOutput {
+  thinking: string;
+  answer: string;
+}
+
+/**
+ * 裁决结果类型
+ */
+interface DeciderOutput {
+  should_continue: boolean;
+  reason: string;
+  winner: 'optimistic' | 'pessimistic' | 'draw';
+  summary: string;
+}
+
+// 常量配置
+const MAX_SEARCH_RESULTS_LENGTH = 4000; // 增加到 4000 字符以获取更完整的上下文
+const DEFAULT_FALLBACK_ANSWER = {
+  optimistic: '乐观派分析暂时不可用，请稍后重试。',
+  pessimistic: '悲观派分析暂时不可用，请稍后重试。',
+};
+
+/**
+ * 研究员节点：分析用户问题，生成搜索查询，执行搜索，总结结果
+ */
 export const researcherNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting researcher node');
@@ -28,37 +119,51 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
 
 请分析这个问题，并生成 2-3 个有效的搜索查询。
 
-请以 JSON 格式返回：
-{
-  "search_queries": [
-    "搜索查询1",
-    "搜索查询2",
-    "搜索查询3"
-  ],
-  "reasoning": "你的推理过程"
-}`;
+请严格以 JSON 格式返回（不要有其他文字）：
+{"search_queries": ["查询1", "查询2"], "reasoning": "推理过程"}`;
 
-  const analysisResponse = await llm.invoke(analysisPrompt);
-  
-  let analysis: { search_queries: string[]; reasoning: string };
+  let analysis: SearchAnalysis;
   try {
-    analysis = JSON.parse(analysisResponse.content as string);
-  } catch (parseError) {
-    console.error('[Researcher] Failed to parse analysis as JSON, attempting to extract JSON from text');
-    analysis = extractJSONFromText(analysisResponse.content as string);
-    if (!analysis) {
-      console.error('[Researcher] Could not extract JSON from analysis response');
-      analysis = { search_queries: ['搜索查询1', '搜索查询2'], reasoning: '解析失败，使用默认查询' };
-    }
+    const analysisResponse = await withRetry(
+      () => llm.invoke(analysisPrompt),
+      2, // 最多重试 2 次
+      1000
+    );
+    const parsed = await safeJsonParse(analysisResponse);
+    analysis = {
+      search_queries: Array.isArray(parsed.search_queries)
+        ? (parsed.search_queries as string[])
+        : [state.question],
+      reasoning: String(parsed.reasoning || ''),
+    };
+  } catch (error) {
+    console.error('[Researcher] Analysis failed, using fallback:', error);
+    analysis = {
+      search_queries: [state.question],
+      reasoning: 'LLM 解析失败，使用原始问题作为查询',
+    };
   }
 
   console.log('[Researcher] Generated search queries:', analysis.search_queries);
 
-  const searchPromises = analysis.search_queries.map(async (query) => {
-    return await smartSearch(query);
-  });
-
-  const searchResults = await Promise.all(searchPromises);
+  const searchResults = [];
+  for (const query of analysis.search_queries) {
+    try {
+      const result = await smartSearch(query);
+      searchResults.push(result);
+      // 添加延迟避免速率限制
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error('[Researcher] Search failed for query:', query, error);
+      searchResults.push({
+        query,
+        engine: 'error' as SearchEngine,
+        results: [],
+        timestamp: Date.now(),
+        reasoning: `搜索失败: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
 
   const engineUsage = searchResults.reduce((acc, r) => {
     if (r.engine !== 'error') {
@@ -69,21 +174,39 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
 
   console.log('[Researcher] Search engine usage:', engineUsage);
 
-  const summaryPrompt = `以下是来自不同搜索引擎的搜索结果：
+  let summary: ResearchSummary = {
+    key_facts: [],
+    data_points: [],
+    summary: '搜索完成',
+  };
 
-${JSON.stringify(searchResults, null, 2)}
+  try {
+    const searchResultsText = JSON.stringify(searchResults, null, 2);
+    const truncatedResults = searchResultsText.length > MAX_SEARCH_RESULTS_LENGTH
+      ? searchResultsText.substring(0, MAX_SEARCH_RESULTS_LENGTH) + '\n... (truncated)'
+      : searchResultsText;
 
-请总结关键事实和数据，并标注信息来源。
+    const summaryPrompt = `以下是搜索结果：
 
-请以 JSON 格式返回：
-{
-  "key_facts": ["事实1", "事实2", ...],
-  "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}, ...],
-  "summary": "整体总结"
-}`;
+${truncatedResults}
 
-  const summaryResponse = await llm.invoke(summaryPrompt);
-  const summary = JSON.parse(summaryResponse.content as string);
+请总结关键事实。严格以 JSON 格式返回：
+{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
+
+    const summaryResponse = await withRetry(() => llm.invoke(summaryPrompt), 2, 1000);
+    const parsed = await safeJsonParse(summaryResponse);
+    summary = {
+      key_facts: Array.isArray(parsed.key_facts) ? (parsed.key_facts as string[]) : [],
+      data_points: Array.isArray(parsed.data_points)
+        ? (parsed.data_points as Array<{ source: string; value: string; context: string }>)
+        : [],
+      summary: String(parsed.summary || '搜索完成'),
+    };
+  } catch (error) {
+    console.error('[Researcher] Summary failed:', error);
+    // 即使总结失败，也保留搜索结果的原始数据
+    summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
 
   const duration = Date.now() - startTime;
   console.log('[Graph] Researcher node completed:', {
@@ -98,208 +221,260 @@ ${JSON.stringify(searchResults, null, 2)}
   };
 };
 
+/**
+ * 乐观派初始节点
+ */
 export const optimisticInitialNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting optimistic initial node');
 
   const llm = getLLMInstance();
 
-  const prompt = `你是一个乐观派的人格。
+  const factsText = state.researchSummary?.key_facts?.map(f => `- ${f}`).join('\n') || '无';
+  const dataText = state.researchSummary?.data_points?.map(d => `- ${d.context}: ${d.value}`).join('\n') || '无';
+
+  const prompt = `你是一个乐观派分析师。
 
 用户问题：${state.question}
 
-**背景信息：**
-${state.researchSummary?.summary || '无'}
+背景信息：
+${state.researchSummary?.summary || '无背景信息'}
 
-**关键事实：**
-${state.researchSummary?.key_facts?.map(f => `- ${f}`).join('\n') || '无'}
+关键事实：
+${factsText}
 
-**数据点：**
-${state.researchSummary?.data_points?.map(d => `- ${d.context}: ${d.value} (来源: ${d.source})`).join('\n') || '无'}
+数据点：
+${dataText}
 
-请基于以上事实和数据，从乐观角度分析这个问题。
+请从乐观角度分析这个问题。严格以 JSON 格式返回：
+{"thinking": "思考过程", "answer": "乐观观点"}`;
 
-请以 JSON 格式返回：
-{
-  "thinking": "你的思考过程，如何基于事实进行分析",
-  "answer": "你的乐观观点",
-  "data_used": ["使用了哪些具体的数据点"]
-}`;
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    const output: PersonaOutput = {
+      thinking: String(parsed.thinking || ''),
+      answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.optimistic),
+    };
 
-  const response = await llm.invoke(prompt);
-  const parsed = JSON.parse(response.content as string);
+    console.log('[Graph] Optimistic initial node completed:', { duration: `${Date.now() - startTime}ms` });
 
-  const duration = Date.now() - startTime;
-  console.log('[Graph] Optimistic initial node completed:', {
-    duration: `${duration}ms`,
-    responseLength: response.content.length,
-  });
-
-  return {
-    optimisticThinking: parsed.thinking,
-    optimisticAnswer: parsed.answer,
-    round: 1,
-  };
+    return {
+      optimisticThinking: output.thinking,
+      optimisticAnswer: output.answer,
+      round: 1,
+    };
+  } catch (error) {
+    console.error('[Optimistic] Failed:', error);
+    return {
+      optimisticThinking: '',
+      optimisticAnswer: DEFAULT_FALLBACK_ANSWER.optimistic,
+      round: 1,
+    };
+  }
 };
 
+/**
+ * 悲观派初始节点
+ */
 export const pessimisticInitialNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting pessimistic initial node');
 
   const llm = getLLMInstance();
 
-  const prompt = `你是一个悲观派的人格。
+  const factsText = state.researchSummary?.key_facts?.map(f => `- ${f}`).join('\n') || '无';
+  const dataText = state.researchSummary?.data_points?.map(d => `- ${d.context}: ${d.value}`).join('\n') || '无';
+
+  const prompt = `你是一个悲观派分析师。
 
 用户问题：${state.question}
 
-**背景信息：**
-${state.researchSummary?.summary || '无'}
+背景信息：
+${state.researchSummary?.summary || '无背景信息'}
 
-**关键事实：**
-${state.researchSummary?.key_facts?.map((f: string) => `- ${f}`).join('\n') || '无'}
+关键事实：
+${factsText}
 
-**数据点：**
-${state.researchSummary?.data_points?.map((d: { source: string; value: string; context: string }) => `- ${d.context}: ${d.value} (来源: ${d.source})`).join('\n') || '无'}
+数据点：
+${dataText}
 
-请基于以上事实和数据，从悲观角度分析这个问题。
+请从悲观角度分析这个问题。严格以 JSON 格式返回：
+{"thinking": "思考过程", "answer": "悲观观点"}`;
 
-请以 JSON 格式返回：
-{
-  "thinking": "你的思考过程，如何基于事实进行分析",
-  "answer": "你的悲观观点",
-  "data_used": ["使用了哪些具体的数据点"]
-}`;
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    const output: PersonaOutput = {
+      thinking: String(parsed.thinking || ''),
+      answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.pessimistic),
+    };
 
-  const response = await llm.invoke(prompt);
-  const parsed = JSON.parse(response.content as string);
+    console.log('[Graph] Pessimistic initial node completed:', { duration: `${Date.now() - startTime}ms` });
 
-  const duration = Date.now() - startTime;
-  console.log('[Graph] Pessimistic initial node completed:', {
-    duration: `${duration}ms`,
-    responseLength: response.content.length,
-  });
-
-  return {
-    pessimisticThinking: parsed.thinking,
-    pessimisticAnswer: parsed.answer,
-  };
+    return {
+      pessimisticThinking: output.thinking,
+      pessimisticAnswer: output.answer,
+    };
+  } catch (error) {
+    console.error('[Pessimistic] Failed:', error);
+    return {
+      pessimisticThinking: '',
+      pessimisticAnswer: DEFAULT_FALLBACK_ANSWER.pessimistic,
+    };
+  }
 };
 
+/**
+ * 乐观派反驳节点
+ */
 export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting optimistic rebuttal node');
 
   const llm = getLLMInstance();
 
-  const prompt = `你是一个乐观派的人格。
+  const prompt = `你是一个乐观派分析师，正在进行辩论。
 
 用户问题：${state.question}
 
-**你的观点：**
+你的初始观点：
 ${state.optimisticAnswer}
 
-**悲观派的观点：**
+对方（悲观派）的观点：
 ${state.pessimisticAnswer}
 
-请针对悲观派的观点进行反驳，补充新的内容。不要重复之前的观点。
+请针对悲观派的观点进行反驳，补充新内容。严格以 JSON 格式返回：
+{"rebuttal": "反驳内容"}`;
 
-请以 JSON 格式返回：
-{
-  "rebuttal": "你的反驳内容",
-  "data_used": ["新使用的数据点"]
-}`;
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    const rebuttal = String(parsed.rebuttal || '');
 
-  const response = await llm.invoke(prompt);
-  const parsed = JSON.parse(response.content as string);
+    console.log('[Graph] Optimistic rebuttal node completed:', { duration: `${Date.now() - startTime}ms` });
 
-  const duration = Date.now() - startTime;
-  console.log('[Graph] Optimistic rebuttal node completed:', {
-    duration: `${duration}ms`,
-    responseLength: response.content.length,
-  });
-
-  return {
-    optimisticRebuttal: parsed.rebuttal,
-    optimisticAnswer: state.optimisticAnswer + '\n\n[反驳]\n' + parsed.rebuttal,
-  };
+    return {
+      optimisticRebuttal: rebuttal,
+      optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + rebuttal,
+    };
+  } catch (error) {
+    console.error('[Optimistic Rebuttal] Failed:', error);
+    const fallbackRebuttal = '乐观派反驳暂时不可用。';
+    return {
+      optimisticRebuttal: fallbackRebuttal,
+      optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + fallbackRebuttal,
+    };
+  }
 };
 
+/**
+ * 悲观派反驳节点
+ */
 export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting pessimistic rebuttal node');
 
   const llm = getLLMInstance();
 
-  const prompt = `你是一个悲观派的人格。
+  const prompt = `你是一个悲观派分析师，正在进行辩论。
 
 用户问题：${state.question}
 
-**悲观派的观点：**
+你的初始观点：
 ${state.pessimisticAnswer}
 
-**乐观派的观点（含反驳）：**
+对方（乐观派，含反驳）的观点：
 ${state.optimisticAnswer}
 
-请针对乐观派的观点进行反驳，补充新的内容。不要重复之前的观点。
+请针对乐观派的观点进行反驳，补充新内容。严格以 JSON 格式返回：
+{"rebuttal": "反驳内容"}`;
 
-请以 JSON 格式返回：
-{
-  "rebuttal": "你的反驳内容",
-  "data_used": ["新使用的数据点"]
-}`;
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    const rebuttal = String(parsed.rebuttal || '');
 
-  const response = await llm.invoke(prompt);
-  const parsed = JSON.parse(response.content as string);
+    console.log('[Graph] Pessimistic rebuttal node completed:', { duration: `${Date.now() - startTime}ms` });
 
-  const duration = Date.now() - startTime;
-  console.log('[Graph] Pessimistic rebuttal node completed:', {
-    duration: `${duration}ms`,
-    responseLength: response.content.length,
-  });
-
-  return {
-    pessimisticRebuttal: parsed.rebuttal,
-    pessimisticAnswer: state.pessimisticAnswer + '\n\n[反驳]\n' + parsed.rebuttal,
-  };
+    return {
+      pessimisticRebuttal: rebuttal,
+      pessimisticAnswer: state.pessimisticAnswer + '\n\n【反驳】\n' + rebuttal,
+    };
+  } catch (error) {
+    console.error('[Pessimistic Rebuttal] Failed:', error);
+    const fallbackRebuttal = '悲观派反驳暂时不可用。';
+    return {
+      pessimisticRebuttal: fallbackRebuttal,
+      pessimisticAnswer: state.pessimisticAnswer + '\n\n【反驳】\n' + fallbackRebuttal,
+    };
+  }
 };
 
+/**
+ * 裁决者节点
+ * 使用完整论点进行裁决，而非截取前 300 字符
+ */
 export const deciderNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   console.log('[Graph] Starting decider node');
 
   const llm = getLLMInstance();
 
-  const prompt = `你是辩论的裁决者。
+  // 使用完整论点进行裁决，而非截取
+  const optimisticView = state.optimisticAnswer;
+  const pessimisticView = state.pessimisticAnswer;
+
+  // 如果内容太长，提供结构化的摘要提示
+  const formatArgument = (view: string, maxLen: number = 3000): string => {
+    if (view.length <= maxLen) return view;
+    return view.substring(0, maxLen) + '\n... (内容已截断)';
+  };
+
+  const prompt = `你是辩论裁决者。
 
 用户问题：${state.question}
 
-背景：
-- 当前轮数：${state.round}/${state.maxRounds}
-- 乐观派观点：${state.optimisticAnswer.substring(0, 200)}...
-- 悲观派观点：${state.pessimisticAnswer.substring(0, 200)}...
+当前轮数：${state.round}/${state.maxRounds}
 
-判断是否需要继续辩论：
-1. 双方观点是否已经充分表达
-2. 是否有新的有价值的内容产生
-3. 是否达到最大轮数
+乐观派观点：
+${formatArgument(optimisticView)}
 
-请以 JSON 格式返回：
-{
-  "should_continue": true/false,
-  "reason": "判断理由"
-}`;
+悲观派观点：
+${formatArgument(pessimisticView)}
 
-  const response = await llm.invoke(prompt);
-  const parsed = JSON.parse(response.content as string);
+请全面分析双方观点，判断是否需要继续辩论。严格以 JSON 格式返回：
+{"should_continue": false, "reason": "判断理由", "winner": "optimistic/pessimistic/draw", "summary": "辩论总结"}`;
 
-  const duration = Date.now() - startTime;
-  console.log('[Graph] Decider node completed:', {
-    duration: `${duration}ms`,
-    shouldContinue: parsed.should_continue,
-  });
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    const output: DeciderOutput = {
+      should_continue: Boolean(parsed.should_continue),
+      reason: String(parsed.reason || ''),
+      winner: (parsed.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw',
+      summary: String(parsed.summary || ''),
+    };
 
-  return {
-    shouldContinue: parsed.should_continue,
-    round: state.round + 1,
-  };
+    console.log('[Graph] Decider node completed:', {
+      duration: `${Date.now() - startTime}ms`,
+      shouldContinue: output.should_continue,
+      winner: output.winner,
+    });
+
+    return {
+      shouldContinue: output.should_continue,
+      round: state.round + 1,
+      debateWinner: output.winner,
+      debateSummary: output.summary,
+    };
+  } catch (error) {
+    console.error('[Decider] Failed:', error);
+    return {
+      shouldContinue: false,
+      round: state.round + 1,
+      debateWinner: 'draw',
+      debateSummary: '裁决暂时不可用，请重试。',
+    };
+  }
 };

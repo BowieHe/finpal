@@ -11,5 +11,13 @@ export interface Message {
   question: string;
   optimisticAnswer: string;
   pessimisticAnswer: string;
+  optimisticRebuttal?: string;
+  pessimisticRebuttal?: string;
+  debateWinner?: string;
+  debateSummary?: string;
+  searchResults?: any[];
+  researchSummary?: any;
+  engineUsage?: Record<string, number>;
+  round?: number;
   timestamp: number;
 }

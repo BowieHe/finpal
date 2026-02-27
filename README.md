@@ -121,4 +121,47 @@ pnpm dev
 - 支持流式响应
 - 添加人格对比分析
 - 打包成桌面应用（Electron/Tauri）
+## 后续扩展
+
+- 添加更多人格类型
+- 实现对话历史记录
+- 支持流式响应
+- 添加人格对比分析
+- 打包成桌面应用（Electron/Tauri）
 - 打包成移动应用（Capacitor）
+
+## 架构说明
+
+### 核心流程
+
+FinPal 使用 LangGraph 实现了一个 **2 轮辩论流程**：
+
+```
+用户提问
+    ↓
+researcher (搜索信息) → DuckDuckGo/Tavily
+    ↓
+optimistic (乐观派初始观点)
+    ↓
+pessimistic (悲观派初始观点)
+    ↓
+optimisticRebuttal (乐观派反驳)
+    ↓
+pessimisticRebuttal (悲观派反驳)
+    ↓
+decider (裁决胜者)
+    ↓
+展示结果
+```
+
+### 关键文件
+
+- `src/lib/graph/graph.ts` - 流程图定义
+- `src/lib/graph/nodes.ts` - 6 个节点实现
+- `src/lib/graph/state.ts` - 状态管理
+- `src/lib/search/duckduckgo.ts` - DuckDuckGo 搜索
+- `src/lib/mcp/unified-search.ts` - 统一搜索接口
+
+### 搜索策略
+
+优先使用 **DuckDuckGo**（免费），失败时回退到 **Tavily**（需要 API Key）。

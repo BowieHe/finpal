@@ -94,17 +94,25 @@ export default function Home() {
         body: JSON.stringify({ question, config: llmConfig }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || 'Failed to get response');
+      }
 
       const newMessage: Message = {
         id: generateId(),
         question: data.question,
         optimisticAnswer: data.optimisticAnswer,
         pessimisticAnswer: data.pessimisticAnswer,
+        optimisticRebuttal: data.optimisticRebuttal,
+        pessimisticRebuttal: data.pessimisticRebuttal,
+        debateWinner: data.debateWinner,
+        debateSummary: data.debateSummary,
+        searchResults: data.searchResults,
+        researchSummary: data.researchSummary,
+        engineUsage: data.engineUsage,
+        round: data.round,
         timestamp: Date.now(),
       };
 
@@ -118,7 +126,8 @@ export default function Home() {
       setCurrentConversation(getCurrentConversation());
     } catch (error) {
       console.error('Error:', error);
-      alert('获取回答失败，请重试');
+      const errorMsg = error instanceof Error ? error.message : '获取回答失败，请重试';
+      alert(errorMsg);
     } finally {
       setIsLoading(false);
     }
