@@ -28,6 +28,12 @@ export function getLLMConfig(): LLMConfig {
         needsUpdate = true;
       }
 
+      // Add default search strategy if not present
+      if (!config.searchStrategy) {
+        config.searchStrategy = 'smart';
+        needsUpdate = true;
+      }
+
       // Update if changed
       if (needsUpdate) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(config));

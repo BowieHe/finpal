@@ -23,16 +23,42 @@ export default function ResearchResults({ searchResults, researchSummary, engine
         <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
           搜索引擎
         </h4>
-        <div className="flex items-center gap-3">
-          {engineUsage.tavily && engineUsage.tavily > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {engineUsage.openwebsearch && engineUsage.openwebsearch > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-lg">🎯</span>
+              <span className="text-lg">🌐</span>
               <div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Tavily Search
+                  Open WebSearch
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {engineUsage.tavily} 次（精细/复杂查询）
+                  {engineUsage.openwebsearch} 次
+                </div>
+              </div>
+            </div>
+          )}
+          {engineUsage.duckduckgo && engineUsage.duckduckgo > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🦆</span>
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  DuckDuckGo
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {engineUsage.duckduckgo} 次
+                </div>
+              </div>
+            </div>
+          )}
+          {engineUsage['aliyun-websearch'] && engineUsage['aliyun-websearch'] > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-lg">☁️</span>
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  阿里云 Web Search
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {engineUsage['aliyun-websearch']} 次
                 </div>
               </div>
             </div>
@@ -48,8 +74,8 @@ export default function ResearchResults({ searchResults, researchSummary, engine
           {searchResults.map((result, idx) => (
             <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded">
               <div className="flex items-center gap-2 mb-1">
-                <span className="px-2 py-0.5 rounded bg-green-100 text-green-700">
-                  🎯 Tavily
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                  🔍 {result.engine === 'open-websearch' ? 'WebSearch' : result.engine}
                 </span>
                 <span className="font-medium text-slate-700 dark:text-slate-300">
                   {result.query}

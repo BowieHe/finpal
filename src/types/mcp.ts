@@ -1,4 +1,4 @@
-export type SearchEngine = 'open-websearch' | 'duckduckgo' | 'playwright' | 'error';
+export type SearchEngine = 'open-websearch' | 'duckduckgo' | 'aliyun-websearch' | 'playwright' | 'error';
 
 export type QueryCategory =
   | 'general'           // 一般性问题

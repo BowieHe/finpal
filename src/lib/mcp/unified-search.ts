@@ -1,7 +1,23 @@
 import { mcpManager } from '../mcp/manager';
 import { SearchResult, SearchResultItem, PLACEHOLDER_RESULT, QueryCategory } from '../../types/mcp';
 import { duckDuckGoSearch } from '../search/duckduckgo';
+import { aliyunWebSearch } from '../search/aliyun-websearch';
 import { classifyQuery, quickClassify } from '../search/query-classifier';
+import { createLogger } from '../logger';
+
+const logger = createLogger('SmartSearch');
+
+// 搜索策略类型
+export type SearchStrategy = 'smart' | 'duckduckgo' | 'aliyun-websearch' | 'open-websearch';
+
+// 默认搜索策略
+const DEFAULT_SEARCH_STRATEGY: SearchStrategy =
+  (process.env.DEFAULT_SEARCH_ENGINE as SearchStrategy) || 'smart';
+
+// 阿里云搜索是否可用
+const isAliyunAvailable = (): boolean => {
+  return !!process.env.DASHSCOPE_API_KEY;
+};
 
 interface Tool {
   name: string;
@@ -99,15 +115,20 @@ const openWebsearchMCP = async (query: string): Promise<SearchResult> => {
 };
 
 /**
- * 智能搜索 - 根据查询类型选择搜索策略
- * 简化版本：使用 MCP 或 DuckDuckGo，移除 Playwright 依赖
+ * 智能搜索 - 根据查询类型和搜索策略选择搜索方式
  */
 export const smartSearch = async (
   query: string,
-  options?: { useLLM?: boolean; category?: QueryCategory }
+  options?: {
+    useLLM?: boolean;
+    category?: QueryCategory;
+    strategy?: SearchStrategy;
+  }
 ): Promise<SearchResult> => {
   const startTime = Date.now();
-  console.log(`[Smart Search] Starting search for: "${query}"`);
+  const strategy = options?.strategy || DEFAULT_SEARCH_STRATEGY;
+
+  logger.info('Starting search', { query, strategy, options });
 
   // 确定查询类别（用于日志和统计，不影响搜索策略）
   let category: QueryCategory;
@@ -117,37 +138,129 @@ export const smartSearch = async (
     category = options.category;
     classificationReasoning = '使用指定的类别';
   } else if (options?.useLLM !== false) {
-    const classification = await classifyQuery(query);
+    const classification = await logger.timed(
+      'Query classification',
+      () => classifyQuery(query),
+      { query }
+    );
     category = classification.category;
     classificationReasoning = classification.reasoning;
-    console.log(`[Smart Search] LLM classified as: ${category} (confidence: ${classification.confidence})`);
+    logger.info('LLM classification result', {
+      category,
+      confidence: classification.confidence,
+      reasoning: classification.reasoning,
+    });
   } else {
     category = quickClassify(query);
     classificationReasoning = '基于关键词快速分类';
-    console.log(`[Smart Search] Quick classified as: ${category}`);
+    logger.info('Quick classification result', { category });
   }
 
-  // 简化策略：先尝试 MCP，失败后回退到 DuckDuckGo
-  console.log(`[Smart Search] Trying open-websearch MCP first`);
+  // 根据策略选择搜索方式
+  switch (strategy) {
+    case 'aliyun-websearch':
+      if (isAliyunAvailable()) {
+        logger.info('Using Aliyun Web Search', { query });
+        const result = await logger.timed(
+          'Aliyun Web Search',
+          () => aliyunWebSearch(query),
+          { query }
+        );
+        return {
+          ...result,
+          reasoning: `[${category}] ${classificationReasoning}. ${result.reasoning}`,
+          category,
+        };
+      } else {
+        logger.warn('Aliyun Web Search not available (DASHSCOPE_API_KEY not set), falling back to smart search');
+      }
+      // 阿里云不可用时回退到 smart 策略
+      break;
 
-  const webResult = await openWebsearchMCP(query);
-  if (!webResult.error && webResult.results.length > 0) {
-    return {
-      ...webResult,
-      reasoning: `[${category}] ${classificationReasoning}. ${webResult.reasoning}`,
-      category,
-    };
+    case 'duckduckgo':
+      logger.info('Using DuckDuckGo search', { query });
+      const ddgResult = await logger.timed(
+        'DuckDuckGo search',
+        () => duckDuckGoSearch(query),
+        { query }
+      );
+      return {
+        ...ddgResult,
+        reasoning: `[${category}] ${classificationReasoning}. DuckDuckGo: ${ddgResult.reasoning}`,
+        category,
+      };
+
+    case 'open-websearch':
+      logger.info('Using Open Websearch MCP', { query });
+      const mcpResult = await openWebsearchMCP(query);
+      if (!mcpResult.error && mcpResult.results.length > 0) {
+        return {
+          ...mcpResult,
+          reasoning: `[${category}] ${classificationReasoning}. ${mcpResult.reasoning}`,
+          category,
+        };
+      }
+      // MCP 失败时回退到 DuckDuckGo
+      logger.warn('Open Websearch MCP failed, falling back to DuckDuckGo');
+      const fallbackResult = await duckDuckGoSearch(query);
+      return {
+        ...fallbackResult,
+        reasoning: `[${category}] ${classificationReasoning}. DuckDuckGo (fallback): ${fallbackResult.reasoning}`,
+        category,
+      };
+
+    case 'smart':
+    default:
+      // 智能策略：先尝试 MCP，失败后回退到 DuckDuckGo
+      logger.info('Trying open-websearch MCP', { query });
+
+      const webResult = await openWebsearchMCP(query);
+      if (!webResult.error && webResult.results.length > 0) {
+        const duration = Date.now() - startTime;
+        logger.info('MCP search successful', {
+          query,
+          resultCount: webResult.results.length,
+          duration,
+        });
+        return {
+          ...webResult,
+          reasoning: `[${category}] ${classificationReasoning}. ${webResult.reasoning}`,
+          category,
+        };
+      }
+
+      // MCP 失败，回退到 DuckDuckGo
+      logger.warn('MCP failed or no results, falling back to DuckDuckGo', {
+        query,
+        mcpError: webResult.error,
+        mcpResultCount: webResult.results.length,
+      });
+
+      const ddgFallbackResult = await logger.timed(
+        'DuckDuckGo fallback search',
+        () => duckDuckGoSearch(query),
+        { query }
+      );
+
+      const duration = Date.now() - startTime;
+      logger.info('DuckDuckGo fallback completed', {
+        query,
+        resultCount: ddgFallbackResult.results.length,
+        duration,
+      });
+
+      return {
+        ...ddgFallbackResult,
+        reasoning: `[${category}] ${classificationReasoning}. DuckDuckGo: ${ddgFallbackResult.reasoning} (总耗时 ${duration}ms)`,
+        category,
+      };
   }
 
-  // MCP 失败，回退到 DuckDuckGo
-  console.log(`[Smart Search] MCP failed or no results, falling back to DuckDuckGo`);
-  const ddgResult = await duckDuckGoSearch(query);
-
-  const duration = Date.now() - startTime;
-
+  // 默认回退到 DuckDuckGo
+  const defaultResult = await duckDuckGoSearch(query);
   return {
-    ...ddgResult,
-    reasoning: `[${category}] ${classificationReasoning}. DuckDuckGo: ${ddgResult.reasoning} (总耗时 ${duration}ms)`,
+    ...defaultResult,
+    reasoning: `[${category}] ${classificationReasoning}. DuckDuckGo (default): ${defaultResult.reasoning}`,
     category,
   };
 };
@@ -167,7 +280,7 @@ export const unifiedSearch = async (
 export const batchSearch = async (
   queries: string[]
 ): Promise<SearchResult[]> => {
-  console.log(`[Batch Search] Starting search for ${queries.length} queries`);
+  logger.info('Starting batch search', { queryCount: queries.length, queries });
 
   const results: SearchResult[] = [];
   for (const query of queries) {
@@ -179,7 +292,8 @@ export const batchSearch = async (
     }
   }
 
-  console.log(`[Batch Search] Completed ${results.length} searches`);
+  const stats = getSearchStats(results);
+  logger.info('Batch search completed', { stats });
   return results;
 };
 

@@ -1,5 +1,8 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { LLMConfig } from '@/types/config';
+import { createLogger } from '../logger';
+
+const logger = createLogger('LLMClient');
 
 let currentLLM: ChatOpenAI | null = null;
 
@@ -8,13 +11,14 @@ const getSafeConfig = (): LLMConfig => {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    console.warn('[LLM Client] Warning: OPENAI_API_KEY not set, LLM calls will fail');
+    logger.warn('OPENAI_API_KEY not set, LLM calls will fail');
   }
 
   return {
     apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com',
     modelName: process.env.OPENAI_MODEL || 'deepseek-chat',
     apiKey: apiKey || '',
+    searchStrategy: (process.env.DEFAULT_SEARCH_ENGINE as LLMConfig['searchStrategy']) || 'smart',
   };
 };
 
@@ -31,7 +35,7 @@ export function createLLMClient(config: LLMConfig): ChatOpenAI {
     );
   }
 
-  console.log('[LLM Client] Creating client:', {
+  logger.info('Creating LLM client', {
     hasApiKey: true,
     apiKeyLength: config.apiKey.length,
     apiUrl: config.apiUrl,
@@ -90,7 +94,7 @@ export async function withRetry<T>(
 
       // 指数退避：1s, 2s, 4s
       const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+      logger.warn(`Attempt ${attempt + 1} failed, retrying`, { delay, error: lastError.message });
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

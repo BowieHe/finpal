@@ -139,7 +139,7 @@ FinPal 使用 LangGraph 实现了一个 **2 轮辩论流程**：
 ```
 用户提问
     ↓
-researcher (搜索信息) → DuckDuckGo/Tavily
+researcher (搜索信息) → DuckDuckGo/Open WebSearch
     ↓
 optimistic (乐观派初始观点)
     ↓

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { LLMConfig } from '@/types/config';
+import { LLMConfig, SearchStrategy } from '@/types/config';
 
 interface SettingsFormProps {
   config: LLMConfig;
@@ -9,8 +9,18 @@ interface SettingsFormProps {
   onCancel: () => void;
 }
 
+const searchStrategyOptions: { value: SearchStrategy; label: string; description: string }[] = [
+  { value: 'smart', label: '智能路由', description: '自动选择最佳搜索引擎' },
+  { value: 'duckduckgo', label: 'DuckDuckGo', description: '免费、快速的搜索引擎' },
+  { value: 'aliyun-websearch', label: '阿里云 Web Search', description: '需要 DASHSCOPE_API_KEY' },
+  { value: 'open-websearch', label: 'Open Websearch', description: '基于 MCP 的搜索' },
+];
+
 export default function SettingsForm({ config, onSave, onCancel }: SettingsFormProps) {
-  const [formData, setFormData] = useState<LLMConfig>(config);
+  const [formData, setFormData] = useState<LLMConfig>({
+    ...config,
+    searchStrategy: config.searchStrategy || 'smart',
+  });
   const [errors, setErrors] = useState<Partial<Record<keyof LLMConfig, string>>>({});
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -141,6 +151,26 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
             {errors.apiKey}
           </p>
         )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
+          搜索策略
+        </label>
+        <select
+          value={formData.searchStrategy}
+          onChange={(e) => setFormData((prev) => ({ ...prev, searchStrategy: e.target.value as SearchStrategy }))}
+          className="w-full rounded-xl px-4 py-3 border bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500"
+        >
+          {searchStrategyOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} - {option.description}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs mt-1.5 text-slate-500 dark:text-slate-400">
+          选择信息搜索时使用的搜索引擎策略
+        </p>
       </div>
 
       <div className="flex gap-3 pt-4">

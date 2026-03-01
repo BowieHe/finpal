@@ -3,6 +3,9 @@ import { chatGraph } from '@/lib/graph/graph';
 import { setLLMInstance } from '@/lib/llm/client';
 import { LLMConfig } from '@/types/config';
 import { checkRateLimit, getClientIdentifier, getRateLimitHeaders } from '@/lib/rate-limit';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('ChatAPI');
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +17,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!rateLimitResult.allowed) {
-      console.warn('[Chat API] Rate limit exceeded:', { clientId });
+      logger.warn('Rate limit exceeded', { clientId });
       return NextResponse.json(
         {
           error: 'Rate limit exceeded',
@@ -54,9 +57,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Chat API] Request started:', {
+    logger.info('Request started', {
       apiUrl: llmConfig.apiUrl,
       modelName: llmConfig.modelName,
+      searchStrategy: llmConfig.searchStrategy,
       question: question.substring(0, 100),
     });
 
@@ -66,6 +70,7 @@ export async function POST(request: NextRequest) {
 
     const result = await chatGraph.invoke({
       question,
+      searchStrategy: llmConfig.searchStrategy || 'smart',
       searchResults: [],
       researchSummary: null,
       engineUsage: {},
@@ -84,8 +89,8 @@ export async function POST(request: NextRequest) {
 
     const duration = Date.now() - startTime;
 
-    console.log('[Chat API] Request completed:', {
-      duration: `${duration}ms`,
+    logger.info('Request completed', {
+      duration,
       hasOptimistic: !!result.optimisticAnswer,
       hasPessimistic: !!result.pessimisticAnswer,
       hasRebuttal: !!result.optimisticRebuttal,
@@ -99,8 +104,8 @@ export async function POST(request: NextRequest) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
-    console.error('[Chat API] Error:', {
-      message: errorMessage,
+    logger.error('Request failed', {
+      error: errorMessage,
       stack: errorStack,
     });
 

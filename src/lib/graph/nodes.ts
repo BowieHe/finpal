@@ -2,6 +2,9 @@ import { GraphState, ResearchSummary } from './state';
 import { getLLMInstance, withRetry } from '../llm/client';
 import { smartSearch } from '../mcp/unified-search';
 import { SearchEngine } from '@/types/mcp';
+import { createLogger } from '../logger';
+
+const logger = createLogger('GraphNodes');
 
 /**
  * 安全的 JSON 解析
@@ -50,7 +53,7 @@ export function extractJSONFromText(text: string): Record<string, unknown> | nul
     try {
       return JSON.parse(jsonMatch[0]);
     } catch {
-      console.error('[JSON Parser] Failed to parse JSON from text');
+      logger.error('Failed to parse JSON from text', { textPreview: text.substring(0, 100) });
     }
   }
 
@@ -109,7 +112,7 @@ const DEFAULT_FALLBACK_ANSWER = {
  */
 export const researcherNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting researcher node');
+  logger.info('Starting researcher node', { question: state.question });
 
   const llm = getLLMInstance();
 
@@ -137,24 +140,24 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
       reasoning: String(parsed.reasoning || ''),
     };
   } catch (error) {
-    console.error('[Researcher] Analysis failed, using fallback:', error);
+    logger.error('Analysis failed, using fallback', { error: error instanceof Error ? error.message : String(error) });
     analysis = {
       search_queries: [state.question],
       reasoning: 'LLM 解析失败，使用原始问题作为查询',
     };
   }
 
-  console.log('[Researcher] Generated search queries:', analysis.search_queries);
+  logger.info('Generated search queries', { queries: analysis.search_queries, reasoning: analysis.reasoning });
 
   const searchResults = [];
   for (const query of analysis.search_queries) {
     try {
-      const result = await smartSearch(query);
+      const result = await smartSearch(query, { strategy: state.searchStrategy });
       searchResults.push(result);
       // 添加延迟避免速率限制
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
-      console.error('[Researcher] Search failed for query:', query, error);
+      logger.error('Search failed for query', { query, error: error instanceof Error ? error.message : String(error) });
       searchResults.push({
         query,
         engine: 'error' as SearchEngine,
@@ -172,7 +175,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
     return acc;
   }, {} as Record<string, number>);
 
-  console.log('[Researcher] Search engine usage:', engineUsage);
+  logger.info('Search engine usage', engineUsage);
 
   let summary: ResearchSummary = {
     key_facts: [],
@@ -203,15 +206,17 @@ ${truncatedResults}
       summary: String(parsed.summary || '搜索完成'),
     };
   } catch (error) {
-    console.error('[Researcher] Summary failed:', error);
+    logger.error('Summary failed', { error: error instanceof Error ? error.message : String(error) });
     // 即使总结失败，也保留搜索结果的原始数据
     summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
 
   const duration = Date.now() - startTime;
-  console.log('[Graph] Researcher node completed:', {
-    duration: `${duration}ms`,
+  logger.info('Researcher node completed', {
+    duration,
     searchCount: searchResults.length,
+    keyFactsCount: summary.key_facts.length,
+    dataPointsCount: summary.data_points.length,
   });
 
   return {
@@ -226,7 +231,7 @@ ${truncatedResults}
  */
 export const optimisticInitialNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting optimistic initial node');
+  logger.info('Starting optimistic initial node', { question: state.question });
 
   const llm = getLLMInstance();
 
@@ -257,7 +262,7 @@ ${dataText}
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.optimistic),
     };
 
-    console.log('[Graph] Optimistic initial node completed:', { duration: `${Date.now() - startTime}ms` });
+    logger.info('Optimistic initial node completed', { duration: Date.now() - startTime });
 
     return {
       optimisticThinking: output.thinking,
@@ -265,7 +270,7 @@ ${dataText}
       round: 1,
     };
   } catch (error) {
-    console.error('[Optimistic] Failed:', error);
+    logger.error('Optimistic initial node failed', { error: error instanceof Error ? error.message : String(error) });
     return {
       optimisticThinking: '',
       optimisticAnswer: DEFAULT_FALLBACK_ANSWER.optimistic,
@@ -279,7 +284,7 @@ ${dataText}
  */
 export const pessimisticInitialNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting pessimistic initial node');
+  logger.info('Starting pessimistic initial node', { question: state.question });
 
   const llm = getLLMInstance();
 
@@ -310,14 +315,14 @@ ${dataText}
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.pessimistic),
     };
 
-    console.log('[Graph] Pessimistic initial node completed:', { duration: `${Date.now() - startTime}ms` });
+    logger.info('Pessimistic initial node completed', { duration: Date.now() - startTime });
 
     return {
       pessimisticThinking: output.thinking,
       pessimisticAnswer: output.answer,
     };
   } catch (error) {
-    console.error('[Pessimistic] Failed:', error);
+    logger.error('Pessimistic node failed', { error: error instanceof Error ? error.message : String(error) });
     return {
       pessimisticThinking: '',
       pessimisticAnswer: DEFAULT_FALLBACK_ANSWER.pessimistic,
@@ -330,7 +335,7 @@ ${dataText}
  */
 export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting optimistic rebuttal node');
+  logger.info('Starting optimistic rebuttal node', { round: state.round });
 
   const llm = getLLMInstance();
 
@@ -352,14 +357,14 @@ ${state.pessimisticAnswer}
     const parsed = await safeJsonParse(response);
     const rebuttal = String(parsed.rebuttal || '');
 
-    console.log('[Graph] Optimistic rebuttal node completed:', { duration: `${Date.now() - startTime}ms` });
+    logger.info('Optimistic rebuttal node completed', { duration: Date.now() - startTime });
 
     return {
       optimisticRebuttal: rebuttal,
       optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + rebuttal,
     };
   } catch (error) {
-    console.error('[Optimistic Rebuttal] Failed:', error);
+    logger.error('Optimistic rebuttal failed', { error: error instanceof Error ? error.message : String(error) });
     const fallbackRebuttal = '乐观派反驳暂时不可用。';
     return {
       optimisticRebuttal: fallbackRebuttal,
@@ -373,7 +378,7 @@ ${state.pessimisticAnswer}
  */
 export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting pessimistic rebuttal node');
+  logger.info('Starting pessimistic rebuttal node', { round: state.round });
 
   const llm = getLLMInstance();
 
@@ -395,14 +400,14 @@ ${state.optimisticAnswer}
     const parsed = await safeJsonParse(response);
     const rebuttal = String(parsed.rebuttal || '');
 
-    console.log('[Graph] Pessimistic rebuttal node completed:', { duration: `${Date.now() - startTime}ms` });
+    logger.info('Pessimistic rebuttal node completed', { duration: Date.now() - startTime });
 
     return {
       pessimisticRebuttal: rebuttal,
       pessimisticAnswer: state.pessimisticAnswer + '\n\n【反驳】\n' + rebuttal,
     };
   } catch (error) {
-    console.error('[Pessimistic Rebuttal] Failed:', error);
+    logger.error('Pessimistic rebuttal failed', { error: error instanceof Error ? error.message : String(error) });
     const fallbackRebuttal = '悲观派反驳暂时不可用。';
     return {
       pessimisticRebuttal: fallbackRebuttal,
@@ -417,7 +422,7 @@ ${state.optimisticAnswer}
  */
 export const deciderNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  console.log('[Graph] Starting decider node');
+  logger.info('Starting decider node', { round: state.round });
 
   const llm = getLLMInstance();
 
@@ -456,8 +461,8 @@ ${formatArgument(pessimisticView)}
       summary: String(parsed.summary || ''),
     };
 
-    console.log('[Graph] Decider node completed:', {
-      duration: `${Date.now() - startTime}ms`,
+    logger.info('Decider node completed', {
+      duration: Date.now() - startTime,
       shouldContinue: output.should_continue,
       winner: output.winner,
     });
@@ -469,7 +474,7 @@ ${formatArgument(pessimisticView)}
       debateSummary: output.summary,
     };
   } catch (error) {
-    console.error('[Decider] Failed:', error);
+    logger.error('Decider node failed', { error: error instanceof Error ? error.message : String(error) });
     return {
       shouldContinue: false,
       round: state.round + 1,
