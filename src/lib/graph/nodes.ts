@@ -483,3 +483,273 @@ ${formatArgument(pessimisticView)}
     };
   }
 };
+
+// ==================== Deep Research Nodes ====================
+
+import { parallelMCPWebSearch } from '../search/qwen-mcp-websearch';
+import type { ResearchSubTask, ResearchFinding, DataPoint } from './state';
+
+/**
+ * Planner Node: 生成研究计划
+ * 将用户问题分解为多个子研究问题
+ */
+export const plannerNode = async (state: GraphState): Promise<Partial<GraphState>> => {
+  const startTime = Date.now();
+  logger.info('Starting Planner node', { question: state.question, breadth: state.breadth });
+
+  const llm = getLLMInstance();
+
+  const prompt = `你是研究规划专家。请将以下问题分解为 ${state.breadth} 个具体的子研究问题。
+
+研究问题：${state.question}
+
+要求：
+1. 每个子问题针对一个独特的研究角度
+2. 子问题之间互补，覆盖问题的不同方面
+3. 子问题表述具体，适合搜索
+4. 考虑问题的深度和广度
+
+请严格以 JSON 格式返回（不要有其他文字）：
+{
+  "subQueries": [
+    {"query": "子问题1", "rationale": "为什么这个角度重要"},
+    {"query": "子问题2", "rationale": "为什么这个角度重要"}
+  ]
+}`;
+
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    
+    const subQueries = Array.isArray(parsed.subQueries) 
+      ? parsed.subQueries.map((item: { query: string; rationale?: string }) => item.query)
+      : [state.question];
+
+    const subTasks: ResearchSubTask[] = subQueries.map((query: string, index: number) => ({
+      id: `task-${Date.now()}-${index}`,
+      query,
+      depth: 1,
+      status: 'pending',
+    }));
+
+    logger.info('Planner node completed', { duration: Date.now() - startTime, subQueryCount: subQueries.length });
+
+    return {
+      researchPlan: subQueries,
+      subTasks,
+      currentDepth: 1,
+    };
+  } catch (error) {
+    logger.error('Planner node failed', { error: error instanceof Error ? error.message : String(error) });
+    
+    return {
+      researchPlan: [state.question],
+      subTasks: [{
+        id: `task-${Date.now()}-0`,
+        query: state.question,
+        depth: 1,
+        status: 'pending',
+      }],
+      currentDepth: 1,
+    };
+  }
+};
+
+/**
+ * Parallel Research Node: 并行执行搜索
+ */
+export const parallelResearchNode = async (state: GraphState): Promise<Partial<GraphState>> => {
+  const startTime = Date.now();
+  const pendingTasks = state.subTasks.filter(t => t.status === 'pending');
+  
+  if (pendingTasks.length === 0) {
+    logger.info('No pending tasks, skipping parallel research');
+    return {};
+  }
+
+  logger.info('Starting Parallel Research node', { pendingTaskCount: pendingTasks.length, currentDepth: state.currentDepth });
+
+  try {
+    const queries = pendingTasks.map(t => t.query);
+    const searchResults = await parallelMCPWebSearch(queries, { topN: 5, recencyDays: 30 });
+
+    const updatedTasks = [...state.subTasks];
+    const newFindings: ResearchFinding[] = [];
+
+    searchResults.forEach((result, index) => {
+      const task = pendingTasks[index];
+      const taskIndex = updatedTasks.findIndex(t => t.id === task.id);
+      
+      if (taskIndex !== -1) {
+        const content = result.results.map(r => `${r.title}: ${r.description}`).join('\n');
+        
+        updatedTasks[taskIndex] = {
+          ...updatedTasks[taskIndex],
+          status: result.results.length > 0 ? 'completed' : 'failed',
+          result: content,
+          sources: result.results.map(r => r.url),
+        };
+
+        if (result.results.length > 0) {
+          newFindings.push({
+            query: task.query,
+            content,
+            depth: task.depth,
+            sources: result.results.map(r => r.url),
+          });
+        }
+      }
+    });
+
+    logger.info('Parallel Research node completed', { duration: Date.now() - startTime, findingsCount: newFindings.length });
+
+    return {
+      subTasks: updatedTasks,
+      allFindings: [...state.allFindings, ...newFindings],
+    };
+  } catch (error) {
+    logger.error('Parallel Research node failed', { error: error instanceof Error ? error.message : String(error) });
+    
+    const updatedTasks = state.subTasks.map(t => 
+      t.status === 'pending' ? { ...t, status: 'failed' as const } : t
+    );
+    
+    return { subTasks: updatedTasks };
+  }
+};
+
+/**
+ * Deep Check Node: 决定是否继续深入研究
+ */
+export const deepCheckNode = async (state: GraphState): Promise<Partial<GraphState>> => {
+  const startTime = Date.now();
+  
+  if (state.currentDepth >= state.maxDepth) {
+    logger.info('Max depth reached, synthesizing findings');
+    return synthesizeFindings(state);
+  }
+
+  const completedFindings = state.allFindings.filter(f => f.depth === state.currentDepth);
+  
+  if (completedFindings.length === 0) {
+    logger.warn('No findings at current depth, synthesizing');
+    return synthesizeFindings(state);
+  }
+
+  logger.info('Starting Deep Check node', { currentDepth: state.currentDepth, maxDepth: state.maxDepth, findingCount: completedFindings.length });
+
+  const llm = getLLMInstance();
+
+  const findingsText = completedFindings
+    .map(f => `Query: ${f.query}\nContent: ${f.content.substring(0, 500)}...`)
+    .join('\n\n');
+
+  const prompt = `基于以下研究发现，判断是否需要进行更深入的子研究？
+
+当前深度：${state.currentDepth}/${state.maxDepth}
+已有发现：
+${findingsText || '暂无'}
+
+请判断：
+1. 是否需要生成新的子问题进行更深入的研究？
+2. 如果需要，列出 2-3 个新的研究角度
+
+严格以 JSON 格式返回：
+{
+  "shouldContinue": true/false,
+  "reason": "判断理由",
+  "newAngles": ["新角度1", "新角度2"]
+}`;
+
+  try {
+    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
+    const parsed = await safeJsonParse(response);
+    
+    const shouldContinue = Boolean(parsed.shouldContinue);
+    const newAngles: string[] = Array.isArray(parsed.newAngles) ? parsed.newAngles : [];
+
+    if (shouldContinue && newAngles.length > 0 && state.currentDepth < state.maxDepth) {
+      const newTasks: ResearchSubTask[] = newAngles.map((angle: string, index: number) => ({
+        id: `task-${Date.now()}-${state.currentDepth}-${index}`,
+        query: angle,
+        parentId: state.subTasks.find(t => t.status === 'completed')?.id,
+        depth: state.currentDepth + 1,
+        status: 'pending',
+      }));
+
+      logger.info('Deep Check: Continuing to next depth', { duration: Date.now() - startTime, newTaskCount: newTasks.length });
+
+      return {
+        subTasks: [...state.subTasks, ...newTasks],
+        currentDepth: state.currentDepth + 1,
+      };
+    }
+
+    logger.info('Deep Check: Synthesizing findings');
+    return synthesizeFindings(state);
+
+  } catch (error) {
+    logger.error('Deep Check node failed', { error: error instanceof Error ? error.message : String(error) });
+    return synthesizeFindings(state);
+  }
+};
+
+/**
+ * 综合研究发现
+ */
+function synthesizeFindings(state: GraphState): Partial<GraphState> {
+  const findings = state.allFindings;
+  
+  if (findings.length === 0) {
+    return {
+      researchSummary: {
+        summary: '未获取到有效研究结果',
+        key_facts: [],
+        data_points: [],
+      },
+    };
+  }
+
+  const byDepth = findings.reduce((acc, f) => {
+    acc[f.depth] = acc[f.depth] || [];
+    acc[f.depth].push(f);
+    return acc;
+  }, {} as Record<number, typeof findings>);
+
+  const keyFacts = findings.map(f => `${f.query}: ${f.content.substring(0, 200)}...`);
+  
+  const dataPoints: DataPoint[] = findings.flatMap(f => 
+    f.sources.map(url => ({
+      source: url,
+      value: f.query,
+      context: f.content.substring(0, 100),
+    }))
+  );
+
+  let summary = `## 深度研究总结\n\n`;
+  summary += `研究问题：${state.question}\n\n`;
+  summary += `研究深度：${state.currentDepth} 层\n`;
+  summary += `子查询数：${findings.length} 个\n\n`;
+
+  Object.entries(byDepth)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .forEach(([depth, items]) => {
+      summary += `### 第 ${depth} 层发现\n\n`;
+      items.forEach(item => {
+        summary += `**${item.query}**\n`;
+        summary += `${item.content.substring(0, 300)}...\n\n`;
+      });
+    });
+
+  logger.info('Findings synthesized', { totalFindings: findings.length, keyFactsCount: keyFacts.length, dataPointsCount: dataPoints.length });
+
+  return {
+    researchSummary: {
+      summary,
+      key_facts: keyFacts,
+      data_points: dataPoints,
+    },
+  };
+}
+
+// ==================== Deep Research Nodes ====================

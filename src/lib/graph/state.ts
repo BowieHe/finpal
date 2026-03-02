@@ -3,6 +3,29 @@ import { SearchResult } from '@/types/mcp';
 import { SearchStrategy } from '@/types/config';
 
 /**
+ * 研究子任务
+ */
+export interface ResearchSubTask {
+  id: string;
+  query: string;
+  parentId?: string;
+  depth: number;
+  status: 'pending' | 'researching' | 'completed' | 'failed';
+  result?: string;
+  sources?: string[];
+}
+
+/**
+ * 研究发现
+ */
+export interface ResearchFinding {
+  query: string;
+  content: string;
+  depth: number;
+  sources: string[];
+}
+
+/**
  * 研究总结数据结构
  */
 export interface DataPoint {
@@ -39,7 +62,39 @@ export const GraphAnnotation = Annotation.Root({
     default: () => 'smart',
   }),
 
-  // 搜索结果 - 使用具体类型替代 any[]
+  // Deep Research 配置
+  deepResearchEnabled: Annotation<boolean>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => false,
+  }),
+  currentDepth: Annotation<number>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => 0,
+  }),
+  maxDepth: Annotation<number>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => 2,
+  }),
+  breadth: Annotation<number>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => 3,
+  }),
+
+  // Deep Research 任务和发现
+  subTasks: Annotation<ResearchSubTask[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+  allFindings: Annotation<ResearchFinding[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+  researchPlan: Annotation<string[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+
+  // 搜索结果
   searchResults: Annotation<SearchResult[]>({
     reducer: (prev, next) => next ?? prev,
     default: () => [],
@@ -99,7 +154,7 @@ export const GraphAnnotation = Annotation.Root({
     default: () => 2,
   }),
 
-  // 辩论结果 - 使用具体类型
+  // 辩论结果
   debateWinner: Annotation<DebateWinner>({
     reducer: (prev, next) => next ?? prev,
     default: () => 'draw',

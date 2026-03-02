@@ -78,7 +78,7 @@ export default function Home() {
     return created;
   };
 
-  const handleSend = async (question: string) => {
+  const handleSend = async (question: string, deepResearch: boolean = false) => {
     const activeConversation = ensureConversation();
     if (!activeConversation) {
       return;
@@ -91,7 +91,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question, config: llmConfig }),
+        body: JSON.stringify({ question, config: llmConfig, deepResearch }),
       });
 
       const data = await response.json();

@@ -225,7 +225,7 @@ describe('smartSearch', () => {
     it('使用 LLM 分类时应调用 classifyQuery', async () => {
       mockClassifyQuery.mockResolvedValue({
         category: 'finance_data',
-        confidence: 'high',
+        confidence: 0.9,
         reasoning: 'Contains stock-related keywords',
       });
 

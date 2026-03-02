@@ -6,17 +6,16 @@ import {
   pessimisticInitialNode,
   optimisticRebuttalNode,
   pessimisticRebuttalNode,
-  deciderNode
+  deciderNode,
+  plannerNode,
+  parallelResearchNode,
+  deepCheckNode,
 } from './nodes';
 
 /**
- * 创建辩论流程图
- * 流程: START → researcher → [optimistic || pessimistic] → optimisticRebuttal → pessimisticRebuttal → decider → END
- * 共 2 轮: 初始观点（并行执行） + 1 轮反驳 + 裁决
- *
- * 优化点：乐观派和悲观派初始分析并行执行，减少响应时间
+ * 创建标准辩论流程图
  */
-export const createGraph = () => {
+export const createStandardGraph = () => {
   const graph = new StateGraph(GraphAnnotation)
     .addNode('researcher', researcherNode)
     .addNode('optimistic', optimisticInitialNode)
@@ -25,10 +24,8 @@ export const createGraph = () => {
     .addNode('pessimisticRebuttalNode', pessimisticRebuttalNode)
     .addNode('decider', deciderNode)
     .addEdge(START, 'researcher')
-    // researcher 完成后，并行启动乐观和悲观节点
     .addEdge('researcher', 'optimistic')
     .addEdge('researcher', 'pessimistic')
-    // 等待乐观和悲观都完成后，才执行反驳节点
     .addEdge('optimistic', 'optimisticRebuttalNode')
     .addEdge('pessimistic', 'optimisticRebuttalNode')
     .addEdge('optimisticRebuttalNode', 'pessimisticRebuttalNode')
@@ -38,4 +35,51 @@ export const createGraph = () => {
   return graph.compile();
 };
 
-export const chatGraph = createGraph();
+/**
+ * 创建 Deep Research 流程图
+ */
+export const createDeepResearchGraph = () => {
+  const graph = new StateGraph(GraphAnnotation)
+    .addNode('planner', plannerNode)
+    .addNode('parallelResearch', parallelResearchNode)
+    .addNode('deepCheck', deepCheckNode)
+    .addNode('optimistic', optimisticInitialNode)
+    .addNode('pessimistic', pessimisticInitialNode)
+    .addNode('optimisticRebuttalNode', optimisticRebuttalNode)
+    .addNode('pessimisticRebuttalNode', pessimisticRebuttalNode)
+    .addNode('decider', deciderNode);
+
+  // Deep Research 流程
+  graph.addEdge(START, 'planner');
+  graph.addEdge('planner', 'parallelResearch');
+  graph.addEdge('parallelResearch', 'deepCheck');
+
+  // 条件边：deepCheck 决定是否继续研究或进入双人格分析
+  graph.addConditionalEdges(
+    'deepCheck',
+    (state) => state.researchSummary ? 'research_complete' : 'continue_research',
+    { research_complete: 'optimistic', continue_research: 'parallelResearch' }
+  );
+
+  // 双人格流程
+  graph.addEdge('optimistic', 'pessimistic');
+  graph.addEdge('pessimistic', 'optimisticRebuttalNode');
+  graph.addEdge('optimisticRebuttalNode', 'pessimisticRebuttalNode');
+  graph.addEdge('pessimisticRebuttalNode', 'decider');
+  graph.addEdge('decider', END);
+
+  return graph.compile();
+};
+
+/**
+ * 根据配置创建对应的图
+ */
+export const createGraph = (options?: { deepResearch?: boolean }) => {
+  if (options?.deepResearch) return createDeepResearchGraph();
+  return createStandardGraph();
+};
+
+/**
+ * 默认使用标准图
+ */
+export const chatGraph = createStandardGraph();

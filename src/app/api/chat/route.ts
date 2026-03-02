@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chatGraph } from '@/lib/graph/graph';
+import { createGraph } from '@/lib/graph/graph';
 import { setLLMInstance } from '@/lib/llm/client';
 import { LLMConfig } from '@/types/config';
 import { checkRateLimit, getClientIdentifier, getRateLimitHeaders } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
+import type { GraphState } from '@/lib/graph/state';
 
 const logger = createLogger('ChatAPI');
 
 export async function POST(request: NextRequest) {
   try {
-    // 速率限制检查
     const clientId = getClientIdentifier(request);
     const rateLimitResult = checkRateLimit(clientId, {
-      maxRequests: 10,  // 每分钟最多 10 次请求
+      maxRequests: 10,
       windowMs: 60 * 1000,
     });
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { question, config } = body;
+    const { question, config, deepResearch, deepResearchConfig } = body;
 
     if (!question || typeof question !== 'string') {
       return NextResponse.json(
@@ -60,15 +60,17 @@ export async function POST(request: NextRequest) {
     logger.info('Request started', {
       apiUrl: llmConfig.apiUrl,
       modelName: llmConfig.modelName,
-      searchStrategy: llmConfig.searchStrategy,
+      deepResearch: !!deepResearch,
       question: question.substring(0, 100),
     });
 
     setLLMInstance(llmConfig);
 
+    const graph = createGraph({ deepResearch: !!deepResearch });
+
     const startTime = Date.now();
 
-    const result = await chatGraph.invoke({
+    const initialState: Partial<GraphState> = {
       question,
       searchStrategy: llmConfig.searchStrategy || 'smart',
       searchResults: [],
@@ -85,16 +87,29 @@ export async function POST(request: NextRequest) {
       maxRounds: 2,
       debateWinner: 'draw',
       debateSummary: '',
-    });
+    };
+
+    if (deepResearch) {
+      initialState.deepResearchEnabled = true;
+      initialState.currentDepth = 0;
+      initialState.maxDepth = deepResearchConfig?.maxDepth || 2;
+      initialState.breadth = deepResearchConfig?.breadth || 3;
+      initialState.subTasks = [];
+      initialState.allFindings = [];
+      initialState.researchPlan = [];
+    }
+
+    const result = await graph.invoke(initialState);
 
     const duration = Date.now() - startTime;
 
     logger.info('Request completed', {
       duration,
+      deepResearch: !!deepResearch,
       hasOptimistic: !!result.optimisticAnswer,
       hasPessimistic: !!result.pessimisticAnswer,
-      hasRebuttal: !!result.optimisticRebuttal,
       winner: result.debateWinner,
+      findingsCount: result.allFindings?.length || 0,
     });
 
     return NextResponse.json(result, {
@@ -102,19 +117,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
-
-    logger.error('Request failed', {
-      error: errorMessage,
-      stack: errorStack,
-    });
-
+    logger.error('Request failed', { error: errorMessage });
     return NextResponse.json(
-      {
-        error: 'Failed to process chat request',
-        details: errorMessage,
-        timestamp: new Date().toISOString(),
-      },
+      { error: 'Failed to process chat request', details: errorMessage },
       { status: 500 }
     );
   }
