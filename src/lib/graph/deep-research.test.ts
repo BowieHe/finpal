@@ -28,7 +28,6 @@ describe('Deep Research Nodes', () => {
   beforeEach(() => {
     baseState = {
       question: 'Test question',
-      searchStrategy: 'smart',
       deepResearchEnabled: true,
       currentDepth: 0,
       maxDepth: 2,

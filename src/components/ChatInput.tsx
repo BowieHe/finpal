@@ -17,7 +17,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
     if (question.trim()) {
       onSend(question, deepResearch);
       e.currentTarget.reset();
-      setDeepResearch(false);
+      // Note: deepResearch state is preserved for next message
     }
   };
 

@@ -1,8 +1,9 @@
 'use client';
 
 import MessageBubble from './MessageBubble';
-import PersonaCard from './PersonaCard';
+import DebateBubble from './DebateBubble';
 import ResearchResults from './ResearchResults';
+import ResearchProgress from './ResearchProgress';
 import DeciderResult from './DeciderResult';
 
 interface MessageListProps {
@@ -11,20 +12,31 @@ interface MessageListProps {
     question: string;
     optimisticAnswer: string;
     pessimisticAnswer: string;
+    optimisticThinking?: string;
+    pessimisticThinking?: string;
     optimisticRebuttal?: string;
     pessimisticRebuttal?: string;
     debateWinner?: string;
     debateSummary?: string;
     searchResults?: any[];
+    allFindings?: any[];
     researchSummary?: any;
     engineUsage?: Record<string, number>;
     round?: number;
     timestamp: number;
   }>;
   isLoading?: boolean;
+  currentResearch?: {
+    status: 'planning' | 'searching' | 'analyzing' | 'complete';
+    currentQuery?: string;
+    findingsCount?: number;
+    totalQueries?: number;
+    currentDepth?: number;
+    maxDepth?: number;
+  };
 }
 
-export default function MessageList({ messages, isLoading }: MessageListProps) {
+export default function MessageList({ messages, isLoading, currentResearch }: MessageListProps) {
   if (messages.length === 0 && !isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center px-6 py-10">
@@ -48,43 +60,101 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {messages.map((message) => (
           <div key={message.id} className="mb-8">
-            <MessageBubble question={message.question} timestamp={message.timestamp} />
+            {/* User Question */}
+            <DebateBubble 
+              type="user" 
+              content={message.question} 
+              timestamp={message.timestamp}
+            />
             
+            {/* Research Results */}
             {message.searchResults && message.searchResults.length > 0 && message.researchSummary && (
-              <ResearchResults 
-                searchResults={message.searchResults}
-                researchSummary={message.researchSummary}
-                engineUsage={message.engineUsage || {}}
-              />
+              <div className="my-4">
+                <ResearchResults
+                  searchResults={message.searchResults}
+                  allFindings={message.allFindings}
+                  researchSummary={message.researchSummary}
+                  engineUsage={message.engineUsage || {}}
+                />
+              </div>
+            )}
+            
+            {/* DeepResearch findings display */}
+            {message.allFindings && message.allFindings.length > 0 && !(message.searchResults && message.searchResults.length > 0) && (
+              <div className="my-4">
+                <ResearchResults
+                  searchResults={[]}
+                  allFindings={message.allFindings}
+                  researchSummary={message.researchSummary}
+                  engineUsage={message.engineUsage || {}}
+                  isDeepResearch={true}
+                />
+              </div>
             )}
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <PersonaCard
-                emoji="😊"
-                name="乐观派"
-                answer={message.optimisticAnswer}
-                rebuttal={message.optimisticRebuttal}
-                theme="optimistic"
+            {/* Debate in bubble format */}
+            <div className="space-y-2">
+              {/* Round 1: Initial positions */}
+              <DebateBubble
+                type="optimistic-initial"
+                content={message.optimisticAnswer}
+                thinking={message.optimisticThinking}
+                timestamp={message.timestamp}
               />
-              <PersonaCard
-                emoji="😟"
-                name="悲观派"
-                answer={message.pessimisticAnswer}
-                rebuttal={message.pessimisticRebuttal}
-                theme="pessimistic"
+              
+              <DebateBubble
+                type="pessimistic-initial"
+                content={message.pessimisticAnswer}
+                thinking={message.pessimisticThinking}
+                timestamp={message.timestamp}
               />
+              
+              {/* Round 2: Rebuttals */}
+              {message.optimisticRebuttal && (
+                <DebateBubble
+                  type="optimistic-rebuttal"
+                  content={message.optimisticRebuttal}
+                  timestamp={message.timestamp}
+                />
+              )}
+              
+              {message.pessimisticRebuttal && (
+                <DebateBubble
+                  type="pessimistic-rebuttal"
+                  content={message.pessimisticRebuttal}
+                  timestamp={message.timestamp}
+                />
+              )}
             </div>
 
+            {/* Final Decision */}
             {message.debateWinner && (
-              <DeciderResult 
-                winner={message.debateWinner}
-                summary={message.debateSummary || ''}
-              />
+              <div className="mt-6">
+                <DeciderResult 
+                  winner={message.debateWinner}
+                  summary={message.debateSummary || ''}
+                />
+              </div>
             )}
           </div>
         ))}
         
-        {isLoading && (
+        {/* Show research progress during streaming */}
+        {isLoading && currentResearch && (
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+            <ResearchProgress
+              status={currentResearch.status}
+              currentQuery={currentResearch.currentQuery}
+              findingsCount={currentResearch.findingsCount}
+              totalQueries={currentResearch.totalQueries}
+              currentDepth={currentResearch.currentDepth}
+              maxDepth={currentResearch.maxDepth}
+            />
+          </div>
+        )}
+        
+        {/* Default loading state */}
+        {isLoading && !currentResearch && (
           <div className="flex justify-center py-6">
             <div className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
               <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">

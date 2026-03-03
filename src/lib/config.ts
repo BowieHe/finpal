@@ -22,15 +22,9 @@ export function getLLMConfig(): LLMConfig {
         needsUpdate = true;
       }
 
-      // Fix old model name
-      if (config.modelName === 'deepseek-reasoner') {
-        config.modelName = 'deepseek-chat';
-        needsUpdate = true;
-      }
-
-      // Add default search strategy if not present
-      if (!config.searchStrategy) {
-        config.searchStrategy = 'smart';
+      // Fix old model name: deepseek-chat -> deepseek-reasoner
+      if (config.modelName === 'deepseek-chat') {
+        config.modelName = 'deepseek-reasoner';
         needsUpdate = true;
       }
 

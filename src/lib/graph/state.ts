@@ -1,6 +1,5 @@
 import { Annotation } from '@langchain/langgraph';
 import { SearchResult } from '@/types/mcp';
-import { SearchStrategy } from '@/types/config';
 
 /**
  * 研究子任务
@@ -54,12 +53,6 @@ export const GraphAnnotation = Annotation.Root({
   question: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
-  }),
-
-  // 搜索策略
-  searchStrategy: Annotation<SearchStrategy>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 'smart',
   }),
 
   // Deep Research 配置

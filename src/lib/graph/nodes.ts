@@ -59,7 +59,6 @@ export function extractJSONFromText(text: string): Record<string, unknown> | nul
 
   return null;
 }
-
 /**
  * 安全解析 LLM 响应
  */
@@ -74,6 +73,75 @@ async function safeJsonParse(response: { content: unknown }): Promise<Record<str
   throw new Error(`Failed to parse LLM response as JSON: ${contentStr.substring(0, 200)}...`);
 }
 
+/**
+
+/**
+ * 获取当前日期信息
+ * 用于让 LLM 知道当前时间，生成更准确的搜索查询
+ */
+function getCurrentDateInfo(): { date: string; year: number; month: number; day: number } {
+  const now = new Date();
+  return {
+    date: now.toISOString().split('T')[0], // YYYY-MM-DD
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+  };
+}
+
+/**
+ * 从用户问题中提取年份
+ * 如果用户明确指定了年份，则使用该年份
+ */
+function extractYearFromQuestion(question: string): number | null {
+  // 匹配常见的年份格式：2023年、2024、2025
+  const yearPatterns = [
+    /(\d{4})年/g,
+    /(\d{4})/g,
+  ];
+  
+  const years: number[] = [];
+  for (const pattern of yearPatterns) {
+    const matches = question.matchAll(pattern);
+    for (const match of matches) {
+      const year = parseInt(match[1], 10);
+      // 只接受合理的年份（2020-2030）
+      if (year >= 2020 && year <= 2030) {
+        years.push(year);
+      }
+    }
+  }
+  
+  // 返回用户明确提到的最新年份
+  return years.length > 0 ? Math.max(...years) : null;
+}
+
+/**
+ * 构建搜索查询生成 prompt
+ * 包含当前日期信息，确保搜索查询使用正确的时间
+ */
+function buildSearchQueryPrompt(question: string): string {
+  const dateInfo = getCurrentDateInfo();
+  const userSpecifiedYear = extractYearFromQuestion(question);
+  
+  // 如果用户指定了年份，使用用户的年份；否则使用当前年份
+  const targetYear = userSpecifiedYear || dateInfo.year;
+  
+  return `你是信息收集专家。当前日期：${dateInfo.date}。
+
+用户问题：${question}
+
+请分析这个问题，并生成 2-3 个有效的搜索查询。
+重要提示：
+- 当前年份是 ${dateInfo.year} 年
+- 如果用户询问的是最新/最近/当前的信息，请使用 ${dateInfo.year} 年作为时间范围
+- 如果用户在问题中明确指定了年份（如"2023年"），则使用用户指定的年份: ${userSpecifiedYear || '未指定'}
+- 避免使用过时的年份（如2023、2024），除非用户明确要求
+- 对于投资、市场、新闻类问题，优先搜索最新信息
+
+请严格以 JSON 格式返回（不要有其他文字）：
+{"search_queries": ["查询1", "查询2"], "reasoning": "推理过程"}`;
+}
 /**
  * 搜索结果类型
  */
@@ -116,14 +184,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
 
   const llm = getLLMInstance();
 
-  const analysisPrompt = `你是信息收集专家。
-
-用户问题：${state.question}
-
-请分析这个问题，并生成 2-3 个有效的搜索查询。
-
-请严格以 JSON 格式返回（不要有其他文字）：
-{"search_queries": ["查询1", "查询2"], "reasoning": "推理过程"}`;
+  const analysisPrompt = buildSearchQueryPrompt(state.question);
 
   let analysis: SearchAnalysis;
   try {
@@ -152,7 +213,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   const searchResults = [];
   for (const query of analysis.search_queries) {
     try {
-      const result = await smartSearch(query, { strategy: state.searchStrategy });
+      const result = await smartSearch(query);
       searchResults.push(result);
       // 添加延迟避免速率限制
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -499,15 +560,20 @@ export const plannerNode = async (state: GraphState): Promise<Partial<GraphState
 
   const llm = getLLMInstance();
 
+  const dateInfo = getCurrentDateInfo();
+  
   const prompt = `你是研究规划专家。请将以下问题分解为 ${state.breadth} 个具体的子研究问题。
 
 研究问题：${state.question}
+
+当前日期：${dateInfo.date}（${dateInfo.year}年）
 
 要求：
 1. 每个子问题针对一个独特的研究角度
 2. 子问题之间互补，覆盖问题的不同方面
 3. 子问题表述具体，适合搜索
 4. 考虑问题的深度和广度
+5. 如果问题涉及时效性（如投资、新闻、市场），请优先关注${dateInfo.year}年的最新信息
 
 请严格以 JSON 格式返回（不要有其他文字）：
 {

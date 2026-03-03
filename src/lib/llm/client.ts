@@ -15,10 +15,9 @@ const getSafeConfig = (): LLMConfig => {
   }
 
   return {
-    apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com',
-    modelName: process.env.OPENAI_MODEL || 'deepseek-chat',
+    apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com/v1',
+    modelName: process.env.OPENAI_MODEL || 'deepseek-reasoner',
     apiKey: apiKey || '',
-    searchStrategy: (process.env.DEFAULT_SEARCH_ENGINE as LLMConfig['searchStrategy']) || 'smart',
   };
 };
 

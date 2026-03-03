@@ -2,23 +2,27 @@
 
 interface ResearchResultsProps {
   searchResults: any[];
+  allFindings?: any[];
   researchSummary: any;
   engineUsage: Record<string, number>;
+  isDeepResearch?: boolean;
 }
 
-export default function ResearchResults({ searchResults, researchSummary, engineUsage }: ResearchResultsProps) {
+export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch }: ResearchResultsProps) {
+  const hasFindings = (allFindings && allFindings.length > 0) || (searchResults && searchResults.length > 0);
+
   return (
     <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-2xl">🔍</span>
+        <span className="text-2xl">{isDeepResearch ? '🔬' : '🔍'}</span>
         <h3 className="font-semibold text-slate-900 dark:text-slate-100 flex-1">
-          信息收集
+          {isDeepResearch ? '深度研究' : '信息收集'}
         </h3>
         <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
-          智能路由
+          {isDeepResearch ? 'Deep Research' : '智能路由'}
         </span>
       </div>
-      
+
       <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
           搜索引擎
@@ -65,8 +69,42 @@ export default function ResearchResults({ searchResults, researchSummary, engine
           )}
         </div>
       </div>
-      
-      {searchResults.length > 0 && (
+
+      {/* DeepResearch findings */}
+      {isDeepResearch && allFindings && allFindings.length > 0 && (
+        <div className="space-y-2 mb-4">
+          <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            研究发现 ({allFindings.length})
+          </h4>
+          {allFindings.map((finding: any, idx: number) => (
+            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                  深度 {finding.depth}
+                </span>
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                  {finding.query}
+                </span>
+              </div>
+              <div className="text-slate-600 dark:text-slate-400 line-clamp-3">
+                {finding.content}
+              </div>
+              {finding.sources && finding.sources.length > 0 && (
+                <div className="mt-1 flex gap-1 flex-wrap">
+                  {finding.sources.map((source: string, sidx: number) => (
+                    <span key={sidx} className="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-500">
+                      来源 {sidx + 1}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Regular search results */}
+      {!isDeepResearch && searchResults.length > 0 && (
         <div className="space-y-2 mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
             搜索路由决策
@@ -88,7 +126,7 @@ export default function ResearchResults({ searchResults, researchSummary, engine
           ))}
         </div>
       )}
-      
+
       {researchSummary?.key_facts && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
@@ -104,7 +142,7 @@ export default function ResearchResults({ searchResults, researchSummary, engine
           </ul>
         </div>
       )}
-      
+
       {researchSummary?.data_points && researchSummary.data_points.length > 0 && (
         <div>
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
@@ -129,7 +167,7 @@ export default function ResearchResults({ searchResults, researchSummary, engine
           </div>
         </div>
       )}
-      
+
       {researchSummary?.summary && (
         <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
