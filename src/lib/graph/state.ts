@@ -45,6 +45,21 @@ export interface ResearchSummary {
 export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
 
 /**
+ * 进度回调函数类型
+ */
+export type ProgressCallback = (event: {
+  type: 'searching' | 'analyzing' | 'complete';
+  data?: {
+    currentQuery?: string;
+    currentIndex?: number;
+    totalQueries?: number;
+    progress?: number;
+    [key: string]: unknown;
+  };
+}) => void;
+
+
+/**
  * LangGraph 状态定义
  * 包含整个辩论流程的所有状态字段
  */
@@ -155,6 +170,12 @@ export const GraphAnnotation = Annotation.Root({
   debateSummary: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
+  }),
+
+  // 进度回调函数
+  progressCallback: Annotation<ProgressCallback | undefined>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => undefined,
   }),
 });
 

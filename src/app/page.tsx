@@ -10,13 +10,14 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { Conversation, Message } from '@/types/conversation';
 import { LLMConfig, Theme } from '@/types/config';
 import {
-  getConversations,
-  getCurrentConversation,
-  createNewConversation,
-  setCurrentConversationId,
-  deleteConversation,
+getConversations,
+getCurrentConversation,
+createNewConversation,
+setCurrentConversationId,
+deleteConversation,
   addMessageToConversation,
-  updateConversationTitle,
+  updateMessageInConversation,
+updateConversationTitle,
 } from '@/lib/conversation';
 import { getLLMConfig, setLLMConfig as persistLLMConfig } from '@/lib/config';
 import { generateId } from '@/utils/format';
@@ -99,6 +100,18 @@ export default function Home() {
 
     setIsLoading(true);
     
+    // 立即添加用户消息到 UI（乐观更新）
+    const userMessage: Message = {
+      id: generateId(),
+      question,
+      optimisticAnswer: '',
+      pessimisticAnswer: '',
+      timestamp: Date.now(),
+    };
+    addMessageToConversation(activeConversation.id, userMessage);
+    setConversations(getConversations());
+    setCurrentConversation(getCurrentConversation());
+    
     // Initialize research state for deep research
     if (deepResearch) {
       setResearchState({
@@ -109,7 +122,6 @@ export default function Home() {
         maxDepth: 2,
       });
     }
-
     try {
       // Try streaming first
       const response = await fetch('/api/chat', {
@@ -179,9 +191,8 @@ export default function Home() {
         }
 
         if (finalResult) {
-          const newMessage: Message = {
-            id: generateId(),
-            question: finalResult.question || question,
+          // 更新现有消息而不是添加新消息
+          updateMessageInConversation(activeConversation.id, userMessage.id, {
             optimisticAnswer: finalResult.optimisticAnswer,
             pessimisticAnswer: finalResult.pessimisticAnswer,
             optimisticRebuttal: finalResult.optimisticRebuttal,
@@ -189,16 +200,14 @@ export default function Home() {
             debateWinner: finalResult.debateWinner,
             debateSummary: finalResult.debateSummary,
             searchResults: finalResult.searchResults,
-            allFindings: finalResult.allFindings,
+            allFindings: (finalResult as any).allFindings,
             researchSummary: finalResult.researchSummary,
             engineUsage: finalResult.engineUsage,
             round: finalResult.round,
-            timestamp: Date.now(),
-          };
-
-          addMessageToConversation(activeConversation.id, newMessage);
+          } as any);
           
-          if (activeConversation.messages.length === 0) {
+          // 如果是第一条消息，更新对话标题
+          if (activeConversation.messages.length === 1) {
             updateConversationTitle(activeConversation.id, question);
           }
 
@@ -209,9 +218,8 @@ export default function Home() {
         // Fallback to regular JSON response
         const data = await response.json();
 
-        const newMessage: Message = {
-          id: generateId(),
-          question: data.question,
+        // 更新现有消息
+        updateMessageInConversation(activeConversation.id, userMessage.id, {
           optimisticAnswer: data.optimisticAnswer,
           pessimisticAnswer: data.pessimisticAnswer,
           optimisticRebuttal: data.optimisticRebuttal,
@@ -219,16 +227,13 @@ export default function Home() {
           debateWinner: data.debateWinner,
           debateSummary: data.debateSummary,
           searchResults: data.searchResults,
-          allFindings: data.allFindings,
+          allFindings: (data as any).allFindings,
           researchSummary: data.researchSummary,
           engineUsage: data.engineUsage,
           round: data.round,
-          timestamp: Date.now(),
-        };
-
-        addMessageToConversation(activeConversation.id, newMessage);
+        } as any);
         
-        if (activeConversation.messages.length === 0) {
+        if (activeConversation.messages.length === 1) {
           updateConversationTitle(activeConversation.id, question);
         }
 

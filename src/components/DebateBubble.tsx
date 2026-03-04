@@ -12,14 +12,14 @@ export default function DebateBubble({ type, content, thinking, timestamp }: Deb
     return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   };
 
-  // User message (center/left aligned)
+  // User message (center aligned with Flexoki colors)
   if (type === 'user') {
     return (
       <div className="flex justify-center mb-6">
-        <div className="max-w-[85%] bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-3 text-center">
-          <p className="text-slate-800 dark:text-slate-200 text-sm">{content}</p>
+        <div className="max-w-[85%] bg-[#282726] rounded-2xl px-5 py-3 text-center border border-[#343331]">
+          <p className="text-[#CECDC3] text-sm">{content}</p>
           {timestamp && (
-            <span className="text-xs text-slate-400 mt-1 block">{formatTime(timestamp)}</span>
+            <span className="text-xs text-[#6F6E69] mt-1 block">{formatTime(timestamp)}</span>
           )}
         </div>
       </div>
@@ -29,51 +29,51 @@ export default function DebateBubble({ type, content, thinking, timestamp }: Deb
   const isOptimistic = type.includes('optimistic');
   const isRebuttal = type.includes('rebuttal');
   
-  // Configuration for different types
+  // Flexoki color configuration
   const config = {
     'optimistic-initial': {
       emoji: '😊',
       name: '乐观派',
       subtitle: '初始观点',
-      bgColor: 'bg-emerald-500',
-      lightBg: 'bg-emerald-50 dark:bg-emerald-500/10',
-      textColor: 'text-emerald-700 dark:text-emerald-300',
-      borderColor: 'border-emerald-200 dark:border-emerald-400/30',
+      bgColor: 'bg-[#879A39]',
+      lightBg: 'bg-[#879A39]/10',
+      textColor: 'text-[#879A39]',
+      borderColor: 'border-[#879A39]/30',
       align: 'justify-end',
-      bubbleColor: 'bg-emerald-500 text-white',
+      bubbleColor: 'bg-[#879A39] text-[#100F0F]',
     },
     'pessimistic-initial': {
       emoji: '😟',
       name: '悲观派',
       subtitle: '初始观点',
-      bgColor: 'bg-rose-500',
-      lightBg: 'bg-rose-50 dark:bg-rose-500/10',
-      textColor: 'text-rose-700 dark:text-rose-300',
-      borderColor: 'border-rose-200 dark:border-rose-400/30',
+      bgColor: 'bg-[#D14D41]',
+      lightBg: 'bg-[#D14D41]/10',
+      textColor: 'text-[#D14D41]',
+      borderColor: 'border-[#D14D41]/30',
       align: 'justify-start',
-      bubbleColor: 'bg-rose-500 text-white',
+      bubbleColor: 'bg-[#D14D41] text-[#100F0F]',
     },
     'optimistic-rebuttal': {
       emoji: '😊',
       name: '乐观派',
       subtitle: '反驳',
-      bgColor: 'bg-emerald-500',
-      lightBg: 'bg-emerald-50/50 dark:bg-emerald-500/5',
-      textColor: 'text-emerald-600 dark:text-emerald-400',
-      borderColor: 'border-emerald-200 dark:border-emerald-400/20',
+      bgColor: 'bg-[#879A39]/80',
+      lightBg: 'bg-[#879A39]/5',
+      textColor: 'text-[#879A39]/80',
+      borderColor: 'border-[#879A39]/20',
       align: 'justify-end',
-      bubbleColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-400/20 dark:text-emerald-200',
+      bubbleColor: 'bg-[#879A39]/20 text-[#879A39] border border-[#879A39]/30',
     },
     'pessimistic-rebuttal': {
       emoji: '😟',
       name: '悲观派',
       subtitle: '反驳',
-      bgColor: 'bg-rose-500',
-      lightBg: 'bg-rose-50/50 dark:bg-rose-500/5',
-      textColor: 'text-rose-600 dark:text-rose-400',
-      borderColor: 'border-rose-200 dark:border-rose-400/20',
+      bgColor: 'bg-[#D14D41]/80',
+      lightBg: 'bg-[#D14D41]/5',
+      textColor: 'text-[#D14D41]/80',
+      borderColor: 'border-[#D14D41]/20',
       align: 'justify-start',
-      bubbleColor: 'bg-rose-100 text-rose-800 dark:bg-rose-400/20 dark:text-rose-200',
+      bubbleColor: 'bg-[#D14D41]/20 text-[#D14D41] border border-[#D14D41]/30',
     },
   }[type];
 
@@ -106,7 +106,7 @@ export default function DebateBubble({ type, content, thinking, timestamp }: Deb
           
           {/* Timestamp */}
           {timestamp && (
-            <span className={`text-[10px] text-slate-400 mt-1 ${config.align === 'justify-end' ? 'text-right' : 'text-left'}`}>
+            <span className={`text-[10px] text-[#6F6E69] mt-1 ${config.align === 'justify-end' ? 'text-right' : 'text-left'}`}>
               {formatTime(timestamp)}
             </span>
           )}

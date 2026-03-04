@@ -1,6 +1,6 @@
-import { GraphState, ResearchSummary } from './state';
+import { GraphState, ResearchSummary, ResearchSubTask, ResearchFinding, DataPoint } from './state';
 import { getLLMInstance, withRetry } from '../llm/client';
-import { smartSearch } from '../mcp/unified-search';
+import { smartSearch, batchSearch } from '../mcp/unified-search';
 import { SearchEngine } from '@/types/mcp';
 import { createLogger } from '../logger';
 
@@ -211,7 +211,24 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   logger.info('Generated search queries', { queries: analysis.search_queries, reasoning: analysis.reasoning });
 
   const searchResults = [];
-  for (const query of analysis.search_queries) {
+  const totalQueries = analysis.search_queries.length;
+  
+  for (let i = 0; i < analysis.search_queries.length; i++) {
+    const query = analysis.search_queries[i];
+    
+    // 发送搜索进度事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'searching',
+        data: {
+          currentQuery: query,
+          currentIndex: i + 1,
+          totalQueries,
+          progress: Math.round(((i + 1) / totalQueries) * 100),
+        },
+      });
+    }
+    
     try {
       const result = await smartSearch(query);
       searchResults.push(result);
@@ -228,6 +245,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
       });
     }
   }
+
 
   const engineUsage = searchResults.reduce((acc, r) => {
     if (r.engine !== 'error') {
@@ -257,6 +275,53 @@ ${truncatedResults}
 请总结关键事实。严格以 JSON 格式返回：
 {"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
 
+    // 发送分析进度事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'analyzing',
+        data: {
+          keyFactsCount: summary.key_facts.length,
+        },
+      });
+    }
+    
+    const summaryResponse = await withRetry(() => llm.invoke(summaryPrompt), 2, 1000);
+    const parsed = await safeJsonParse(summaryResponse);
+    summary = {
+      key_facts: Array.isArray(parsed.key_facts) ? (parsed.key_facts as string[]) : [],
+      data_points: Array.isArray(parsed.data_points)
+        ? (parsed.data_points as Array<{ source: string; value: string; context: string }>)
+        : [],
+      summary: String(parsed.summary || '搜索完成'),
+    };
+  } catch (error) {
+    logger.error('Summary failed', { error: error instanceof Error ? error.message : String(error) });
+    // 即使总结失败，也保留搜索结果的原始数据
+    summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+    const searchResultsText = JSON.stringify(searchResults, null, 2);
+    const truncatedResults = searchResultsText.length > MAX_SEARCH_RESULTS_LENGTH
+      ? searchResultsText.substring(0, MAX_SEARCH_RESULTS_LENGTH) + '\n... (truncated)'
+      : searchResultsText;
+
+    const summaryPrompt = `以下是搜索结果：
+
+${truncatedResults}
+
+请总结关键事实。严格以 JSON 格式返回：
+{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
+
+  try {
+    // 发送分析进度事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'analyzing',
+        data: {
+          keyFactsCount: summary.key_facts.length,
+        },
+      });
+    }
+    
     const summaryResponse = await withRetry(() => llm.invoke(summaryPrompt), 2, 1000);
     const parsed = await safeJsonParse(summaryResponse);
     summary = {
@@ -422,12 +487,32 @@ ${state.pessimisticAnswer}
 
     return {
       optimisticRebuttal: rebuttal,
+      optimisticAnswer: state.optimisticAnswer,
+    };
+  } catch (error) {
+    logger.error('Optimistic rebuttal failed', { error: error instanceof Error ? error.message : String(error) });
+    const fallbackRebuttal = '乐观派反驳暂时不可用。';
+    return {
+      optimisticRebuttal: fallbackRebuttal,
+      optimisticAnswer: state.optimisticAnswer,
+    };
+  }
+};
+
+/**
+      optimisticRebuttal: rebuttal,
+      optimisticAnswer: state.optimisticAnswer,
+    };
+      optimisticRebuttal: rebuttal,
       optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + rebuttal,
     };
   } catch (error) {
     logger.error('Optimistic rebuttal failed', { error: error instanceof Error ? error.message : String(error) });
     const fallbackRebuttal = '乐观派反驳暂时不可用。';
     return {
+      optimisticRebuttal: fallbackRebuttal,
+      optimisticAnswer: state.optimisticAnswer,
+    };
       optimisticRebuttal: fallbackRebuttal,
       optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + fallbackRebuttal,
     };
@@ -547,8 +632,6 @@ ${formatArgument(pessimisticView)}
 
 // ==================== Deep Research Nodes ====================
 
-import { parallelMCPWebSearch } from '../search/qwen-mcp-websearch';
-import type { ResearchSubTask, ResearchFinding, DataPoint } from './state';
 
 /**
  * Planner Node: 生成研究计划
@@ -637,7 +720,7 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
 
   try {
     const queries = pendingTasks.map(t => t.query);
-    const searchResults = await parallelMCPWebSearch(queries, { topN: 5, recencyDays: 30 });
+    const searchResults = await batchSearch(queries);
 
     const updatedTasks = [...state.subTasks];
     const newFindings: ResearchFinding[] = [];

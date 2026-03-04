@@ -143,3 +143,23 @@ export function updateConversationTitle(conversationId: string, question: string
     saveConversations(conversations);
   }
 }
+
+export function updateMessageInConversation(conversationId: string, messageId: string, updates: Partial<Message>): void {
+  const conversations = getConversations();
+  const index = conversations.findIndex(c => c.id === conversationId);
+
+  if (index !== -1) {
+    const conversation = conversations[index];
+    const messageIndex = conversation.messages.findIndex(m => m.id === messageId);
+
+    if (messageIndex !== -1) {
+      conversation.messages[messageIndex] = {
+        ...conversation.messages[messageIndex],
+        ...updates,
+      };
+
+      conversation.updatedAt = Date.now();
+      saveConversations(conversations);
+    }
+  }
+}
