@@ -10,14 +10,14 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { Conversation, Message } from '@/types/conversation';
 import { LLMConfig, Theme } from '@/types/config';
 import {
-getConversations,
-getCurrentConversation,
-createNewConversation,
-setCurrentConversationId,
-deleteConversation,
+  getConversations,
+  getCurrentConversation,
+  createNewConversation,
+  setCurrentConversationId,
+  deleteConversation,
   addMessageToConversation,
   updateMessageInConversation,
-updateConversationTitle,
+  updateConversationTitle,
 } from '@/lib/conversation';
 import { getLLMConfig, setLLMConfig as persistLLMConfig } from '@/lib/config';
 import { generateId } from '@/utils/format';
@@ -38,7 +38,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
   const [theme, setTheme] = useState<Theme>('dark');
-  
+
   // Research progress state for streaming
   const [researchState, setResearchState] = useState<ResearchState | null>(null);
   const [searchResults, setSearchResults] = useState<Array<{query: string; results: any[]}>>([]);
@@ -63,7 +63,7 @@ export default function Home() {
   const handleDeleteConversation = (id: string) => {
     deleteConversation(id);
     setConversations(getConversations());
-    
+
     if (currentConversation?.id === id) {
       const updated = getCurrentConversation();
       setCurrentConversation(updated);
@@ -100,7 +100,7 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    
+
     // 立即添加用户消息到 UI（乐观更新）
     const userMessage: Message = {
       id: generateId(),
@@ -112,7 +112,7 @@ export default function Home() {
     addMessageToConversation(activeConversation.id, userMessage);
     setConversations(getConversations());
     setCurrentConversation(getCurrentConversation());
-    
+
     // Initialize research state for all searches
     setResearchState({
       status: 'planning',
@@ -140,27 +140,32 @@ export default function Home() {
 
       // Check if we got a stream or regular JSON
       const contentType = response.headers.get('content-type');
-      
+
       if (contentType?.includes('text/event-stream')) {
         // Handle SSE stream
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let finalResult: any = null;
+        let buffer = ''; // Buffer for incomplete SSE messages
 
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
+            // Use stream mode to handle multi-byte characters across chunks
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+
+            // Keep the last line in buffer if it's incomplete (no newline at end)
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 try {
-                  const data = JSON.parse(line.slice(6));
-                  
-                  switch (data.type) {
+                  const event = JSON.parse(line.slice(6));
+
+                  switch (event.type) {
                     case 'planning':
                       setResearchState(prev => prev ? { ...prev, status: 'planning' } : null);
                       break;
@@ -168,30 +173,44 @@ export default function Home() {
                       setResearchState(prev => prev ? {
                         ...prev,
                         status: 'searching',
-                        currentQuery: data.currentQuery,
+                        currentQuery: event.data.currentQuery,
                         findingsCount: (prev?.findingsCount || 0) + 1,
                       } : null);
                       break;
                     case 'search_result':
                       setSearchResults(prev => [...prev, {
-                        query: data.query,
-                        results: data.results,
+                        query: event.data.query,
+                        results: event.data.results || [],
                       }]);
                       break;
                     case 'analyzing':
                       setResearchState(prev => prev ? { ...prev, status: 'analyzing' } : null);
                       break;
                     case 'complete':
-                      finalResult = data.result;
+                      finalResult = event.data;
                       setResearchState(prev => prev ? { ...prev, status: 'complete' } : null);
                       break;
                     case 'error':
-                      throw new Error(data.error);
+                      throw new Error(event.data.error);
                   }
                 } catch (e) {
-                  console.error('Failed to parse SSE data:', e);
+                  console.error('Failed to parse SSE data:', e, 'Line:', line);
                 }
               }
+            }
+          }
+
+          // Process any remaining data in buffer
+          if (buffer.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(buffer.slice(6));
+              if (event.type === 'complete') {
+                finalResult = event.data;
+              } else if (event.type === 'error') {
+                throw new Error(event.data.error);
+              }
+            } catch (e) {
+              console.error('Failed to parse final SSE buffer:', e);
             }
           }
         }
@@ -211,7 +230,7 @@ export default function Home() {
             engineUsage: finalResult.engineUsage,
             round: finalResult.round,
           } as any);
-          
+
           // 如果是第一条消息，更新对话标题
           if (activeConversation.messages.length === 1) {
             updateConversationTitle(activeConversation.id, question);
@@ -238,7 +257,7 @@ export default function Home() {
           engineUsage: data.engineUsage,
           round: data.round,
         } as any);
-        
+
         if (activeConversation.messages.length === 1) {
           updateConversationTitle(activeConversation.id, question);
         }
@@ -249,7 +268,24 @@ export default function Home() {
     } catch (error) {
       console.error('Error:', error);
       const errorMsg = error instanceof Error ? error.message : '获取回答失败，请重试';
-      alert(errorMsg);
+
+      // Update the user message with error instead of showing alert
+      updateMessageInConversation(activeConversation.id, userMessage.id, {
+        optimisticAnswer: '',
+        pessimisticAnswer: '',
+        optimisticRebuttal: '',
+        pessimisticRebuttal: '',
+        debateWinner: 'error',
+        debateSummary: `请求失败: ${errorMsg}`,
+        searchResults: [],
+        allFindings: [],
+        researchSummary: null,
+        engineUsage: null,
+        round: 0,
+      } as any);
+
+      setConversations(getConversations());
+      setCurrentConversation(getCurrentConversation());
     } finally {
       setIsLoading(false);
       setResearchState(null);

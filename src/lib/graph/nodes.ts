@@ -749,14 +749,43 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
   logger.info('Starting Parallel Research node', { pendingTaskCount: pendingTasks.length, currentDepth: state.currentDepth });
 
   try {
-    const queries = pendingTasks.map(t => t.query);
-    const searchResults = await batchSearch(queries);
-
     const updatedTasks = [...state.subTasks];
     const newFindings: ResearchFinding[] = [];
 
-    searchResults.forEach((result, index) => {
-      const task = pendingTasks[index];
+    // 逐个搜索并发送实时事件
+    for (let i = 0; i < pendingTasks.length; i++) {
+      const task = pendingTasks[i];
+      
+      // 发送搜索开始事件
+      if (state.progressCallback) {
+        state.progressCallback({
+          type: 'searching',
+          data: {
+            currentQuery: task.query,
+            currentIndex: i + 1,
+            totalQueries: pendingTasks.length,
+            progress: Math.round((i / pendingTasks.length) * 100),
+          },
+        });
+      }
+      
+      const result = await smartSearch(task.query);
+      
+      // 发送搜索结果事件
+      if (state.progressCallback) {
+        state.progressCallback({
+          type: 'search_result',
+          data: {
+            query: task.query,
+            results: result.results.slice(0, 5).map(r => ({
+              title: r.title,
+              snippet: r.description?.substring(0, 200),
+              url: r.url,
+            })),
+          },
+        });
+      }
+      
       const taskIndex = updatedTasks.findIndex(t => t.id === task.id);
       
       if (taskIndex !== -1) {
@@ -778,7 +807,12 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
           });
         }
       }
-    });
+      
+      // 添加延迟避免速率限制
+      if (i < pendingTasks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
 
     logger.info('Parallel Research node completed', { duration: Date.now() - startTime, findingsCount: newFindings.length });
 
@@ -905,10 +939,8 @@ function synthesizeFindings(state: GraphState): Partial<GraphState> {
     }))
   );
 
-  let summary = `## 深度研究总结\n\n`;
-  summary += `研究问题：${state.question}\n\n`;
-  summary += `研究深度：${state.currentDepth} 层\n`;
-  summary += `子查询数：${findings.length} 个\n\n`;
+  // 简化总结，主要保留关键事实
+  let summary = `${state.question} 的研究发现：\n\n`;
 
   Object.entries(byDepth)
     .sort(([a], [b]) => Number(a) - Number(b))

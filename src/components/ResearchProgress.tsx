@@ -118,7 +118,7 @@ export default function ResearchProgress({
                 <span className="text-xs text-slate-500 truncate flex-1">{result.query}</span>
               </div>
               
-              {result.results.length > 0 ? (
+              {result.results?.length > 0 ? (
                 <div className="space-y-2">
                   {result.results.map((item, idx) => (
                     <div key={idx} className="p-2 bg-slate-50 dark:bg-slate-900/50 rounded text-xs">

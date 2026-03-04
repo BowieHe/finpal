@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 interface ResearchResultsProps {
   searchResults: any[];
   allFindings?: any[];
@@ -10,6 +12,17 @@ interface ResearchResultsProps {
 
 export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch }: ResearchResultsProps) {
   const hasFindings = (allFindings && allFindings.length > 0) || (searchResults && searchResults.length > 0);
+  const [expandedFindings, setExpandedFindings] = useState<Set<number>>(new Set());
+
+  const toggleFinding = (idx: number) => {
+    const newExpanded = new Set(expandedFindings);
+    if (newExpanded.has(idx)) {
+      newExpanded.delete(idx);
+    } else {
+      newExpanded.add(idx);
+    }
+    setExpandedFindings(newExpanded);
+  };
 
   return (
     <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
@@ -23,46 +36,21 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
         </span>
       </div>
 
+      {/* 搜索引擎统计 */}
       <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
           搜索引擎
         </h4>
         <div className="flex items-center gap-3 flex-wrap">
-          {engineUsage.openwebsearch && engineUsage.openwebsearch > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🌐</span>
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Open WebSearch
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {engineUsage.openwebsearch} 次
-                </div>
-              </div>
-            </div>
-          )}
-          {engineUsage.duckduckgo && engineUsage.duckduckgo > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🦆</span>
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  DuckDuckGo
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {engineUsage.duckduckgo} 次
-                </div>
-              </div>
-            </div>
-          )}
-          {engineUsage['aliyun-websearch'] && engineUsage['aliyun-websearch'] > 0 && (
+          {engineUsage['bailian-websearch'] && engineUsage['bailian-websearch'] > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-lg">☁️</span>
               <div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  阿里云 Web Search
+                  百炼搜索
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {engineUsage['aliyun-websearch']} 次
+                  {engineUsage['bailian-websearch']} 次
                 </div>
               </div>
             </div>
@@ -70,31 +58,96 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
         </div>
       </div>
 
-      {/* DeepResearch findings */}
+      {/* 研究发现 - 整合数据来源，可折叠 */}
       {isDeepResearch && allFindings && allFindings.length > 0 && (
         <div className="space-y-2 mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
             研究发现 ({allFindings.length})
           </h4>
           {allFindings.map((finding: any, idx: number) => (
-            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
+            <div key={idx} className="text-xs bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
+              {/* 头部 - 始终显示 */}
+              <div 
+                className="p-2 flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                onClick={() => toggleFinding(idx)}
+              >
+                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 flex-shrink-0">
                   深度 {finding.depth}
                 </span>
-                <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate flex-1" title={finding.query}>
                   {finding.query}
                 </span>
+                <span className="text-slate-400">
+                  {expandedFindings.has(idx) ? '▼' : '▶'}
+                </span>
               </div>
-              <div className="text-slate-600 dark:text-slate-400 line-clamp-3">
-                {finding.content}
+              
+              {/* 展开内容 */}
+              {expandedFindings.has(idx) && (
+                <div className="border-t border-slate-200 dark:border-slate-700">
+                  {/* 研究发现内容 */}
+                  <div className="p-2 text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words">
+                    {finding.content}
+                  </div>
+                  
+                  {/* 数据来源 */}
+                  {finding.sources && finding.sources.length > 0 && (
+                    <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                      <div className="text-[10px] text-slate-500 mb-1">数据来源:</div>
+                      <div className="space-y-1">
+                        {finding.sources.slice(0, 5).map((source: string, sidx: number) => (
+                          <a 
+                            key={sidx}
+                            href={source}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-[10px] text-indigo-600 hover:text-indigo-800 truncate"
+                            title={source}
+                          >
+                            {source}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 普通搜索结果 */}
+      {!isDeepResearch && searchResults.length > 0 && (
+        <div className="space-y-2 mb-4">
+          <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            搜索结果
+          </h4>
+          {searchResults.map((result, idx) => (
+            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                  {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine}
+                </span>
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate" title={result.query}>
+                  {result.query}
+                </span>
               </div>
-              {finding.sources && finding.sources.length > 0 && (
-                <div className="mt-1 flex gap-1 flex-wrap">
-                  {finding.sources.map((source: string, sidx: number) => (
-                    <span key={sidx} className="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-500">
-                      来源 {sidx + 1}
-                    </span>
+              {result.results && result.results.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {result.results.slice(0, 3).map((item: any, iidx: number) => (
+                    <div key={iidx} className="p-1.5 bg-slate-50 dark:bg-slate-900 rounded">
+                      <a 
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-indigo-600 hover:underline truncate"
+                        title={item.title}
+                      >
+                        {item.title}
+                      </a>
+                      <p className="text-slate-500 line-clamp-2 mt-0.5">{item.description}</p>
+                    </div>
                   ))}
                 </div>
               )}
@@ -103,81 +156,24 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
         </div>
       )}
 
-      {/* Regular search results */}
-      {!isDeepResearch && searchResults.length > 0 && (
-        <div className="space-y-2 mb-4">
-          <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            搜索路由决策
-          </h4>
-          {searchResults.map((result, idx) => (
-            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                  🔍 {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine}
-                </span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">
-                  {result.query}
-                </span>
-              </div>
-              <div className="text-slate-500 dark:text-slate-400 italic">
-                {result.reasoning}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {researchSummary?.key_facts && (
+      {/* 关键事实 */}
+      {researchSummary?.key_facts && researchSummary.key_facts.length > 0 && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
             关键事实
           </h4>
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {researchSummary.key_facts.map((fact: string, idx: number) => (
               <li key={idx} className="text-sm text-slate-700 dark:text-slate-300 flex items-start gap-2">
-                <span className="text-blue-500">•</span>
-                <span>{fact}</span>
+                <span className="text-blue-500 flex-shrink-0">•</span>
+                <span className="break-words">{fact}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {researchSummary?.data_points && researchSummary.data_points.length > 0 && (
-        <div>
-          <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
-            数据来源
-          </h4>
-          <div className="space-y-2">
-            {researchSummary.data_points.map((dp: any, idx: number) => (
-              <div key={idx} className="text-sm p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
-                    {dp.value}
-                  </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {dp.source}
-                  </span>
-                </div>
-                <div className="text-slate-600 dark:text-slate-400 text-xs">
-                  {dp.context}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {researchSummary?.summary && (
-        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
-          <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
-            整体总结
-          </h4>
-          <div className="text-sm text-slate-700 dark:text-slate-300">
-            {researchSummary.summary}
-          </div>
-        </div>
-      )}
+      {/* 移除整体总结部分 */}
     </div>
   );
 }
