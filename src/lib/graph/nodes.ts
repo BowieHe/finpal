@@ -64,12 +64,22 @@ export function extractJSONFromText(text: string): Record<string, unknown> | nul
  */
 async function safeJsonParse(response: { content: unknown }): Promise<Record<string, unknown>> {
   const contentStr = getContentString(response.content);
+  
+  logger.info('safeJsonParse input', { 
+    contentLength: contentStr.length,
+    contentPreview: contentStr.substring(0, 500)
+  });
 
   const result = extractJSONFromText(contentStr);
   if (result) {
+    logger.info('safeJsonParse success', { resultKeys: Object.keys(result) });
     return result;
   }
 
+  logger.error('safeJsonParse failed', { 
+    contentLength: contentStr.length,
+    fullContent: contentStr 
+  });
   throw new Error(`Failed to parse LLM response as JSON: ${contentStr.substring(0, 200)}...`);
 }
 
@@ -232,6 +242,22 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
     try {
       const result = await smartSearch(query);
       searchResults.push(result);
+      
+      // 发送搜索结果事件
+      if (state.progressCallback) {
+        state.progressCallback({
+          type: 'search_result',
+          data: {
+            query: query,
+            results: result.results.slice(0, 5).map(r => ({
+              title: r.title,
+              snippet: r.description?.substring(0, 200),
+              url: r.url,
+            })),
+          },
+        });
+      }
+      
       // 添加延迟避免速率限制
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
@@ -645,34 +671,38 @@ export const plannerNode = async (state: GraphState): Promise<Partial<GraphState
 
   const dateInfo = getCurrentDateInfo();
   
-  const prompt = `你是研究规划专家。请将以下问题分解为 ${state.breadth} 个具体的子研究问题。
+  const prompt = `你是研究规划专家。请将以下问题分解为 ${state.breadth} 个简短的子研究问题。
 
 研究问题：${state.question}
 
-当前日期：${dateInfo.date}（${dateInfo.year}年）
+当前日期：${dateInfo.date}
 
 要求：
-1. 每个子问题针对一个独特的研究角度
-2. 子问题之间互补，覆盖问题的不同方面
-3. 子问题表述具体，适合搜索
-4. 考虑问题的深度和广度
-5. 如果问题涉及时效性（如投资、新闻、市场），请优先关注${dateInfo.year}年的最新信息
+1. 每个子问题简短（不超过30字）
+2. 子问题之间互补
+3. 适合搜索
+4. 优先关注${dateInfo.year}年最新信息
 
-请严格以 JSON 格式返回（不要有其他文字）：
+请严格以 JSON 格式返回（简短回答，不要解释）：
 {
-  "subQueries": [
-    {"query": "子问题1", "rationale": "为什么这个角度重要"},
-    {"query": "子问题2", "rationale": "为什么这个角度重要"}
-  ]
+  "subQueries": ["子问题1", "子问题2", "子问题3"]
 }`;
 
   try {
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
     const parsed = await safeJsonParse(response);
     
-    const subQueries = Array.isArray(parsed.subQueries) 
-      ? parsed.subQueries.map((item: { query: string; rationale?: string }) => item.query)
-      : [state.question];
+    let subQueries: string[];
+    if (Array.isArray(parsed.subQueries)) {
+      // 新格式: ["问题1", "问题2"]
+      subQueries = parsed.subQueries.map((item: any) => 
+        typeof item === 'string' ? item : item.query
+      );
+    } else {
+      subQueries = [state.question];
+    }
+    
+    logger.info('Planner parsed subQueries', { subQueries });
 
     const subTasks: ResearchSubTask[] = subQueries.map((query: string, index: number) => ({
       id: `task-${Date.now()}-${index}`,
@@ -898,6 +928,7 @@ function synthesizeFindings(state: GraphState): Partial<GraphState> {
       key_facts: keyFacts,
       data_points: dataPoints,
     },
+    allFindings: state.allFindings,
   };
 }
 

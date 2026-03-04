@@ -1,5 +1,16 @@
 'use client';
 
+interface SearchResultItem {
+  title: string;
+  snippet?: string;
+  url?: string;
+}
+
+interface SearchResult {
+  query: string;
+  results: SearchResultItem[];
+}
+
 interface ResearchProgressProps {
   status: 'planning' | 'searching' | 'analyzing' | 'complete';
   currentQuery?: string;
@@ -7,6 +18,7 @@ interface ResearchProgressProps {
   totalQueries?: number;
   currentDepth?: number;
   maxDepth?: number;
+  searchResults?: SearchResult[];
 }
 
 export default function ResearchProgress({
@@ -16,6 +28,7 @@ export default function ResearchProgress({
   totalQueries = 0,
   currentDepth = 0,
   maxDepth = 0,
+  searchResults = [],
 }: ResearchProgressProps) {
   const getStatusText = () => {
     switch (status) {
@@ -86,17 +99,48 @@ export default function ResearchProgress({
             查询: {findingsCount}/{totalQueries}
           </span>
         )}
-        {findingsCount > 0 && (
+        {searchResults.length > 0 && (
           <span>
-            已发现: {findingsCount} 条结果
+            已搜索: {searchResults.length} 个查询
           </span>
         )}
       </div>
 
-      {/* Current query detail */}
-      {currentQuery && status === 'searching' && (
-        <div className="mt-3 p-2 bg-white dark:bg-slate-800 rounded text-xs text-slate-600 dark:text-slate-400 truncate">
-          <span className="text-indigo-600 dark:text-indigo-400">当前:</span> {currentQuery}
+      {/* Search Results Timeline */}
+      {searchResults.length > 0 && (
+        <div className="mt-4 space-y-3 max-h-96 overflow-y-auto">
+          {searchResults.map((result, index) => (
+            <div key={index} className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                  搜索 {index + 1}
+                </span>
+                <span className="text-xs text-slate-500 truncate flex-1">{result.query}</span>
+              </div>
+              
+              {result.results.length > 0 ? (
+                <div className="space-y-2">
+                  {result.results.map((item, idx) => (
+                    <div key={idx} className="p-2 bg-slate-50 dark:bg-slate-900/50 rounded text-xs">
+                      <a 
+                        href={item.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline block mb-1"
+                      >
+                        {item.title}
+                      </a>
+                      <p className="text-slate-600 dark:text-slate-400 line-clamp-2">
+                        {item.snippet}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 italic">暂无搜索结果</p>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

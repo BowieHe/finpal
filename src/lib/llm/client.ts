@@ -101,5 +101,4 @@ export async function withRetry<T>(
   throw lastError;
 }
 
-// 注意：不要在模块加载时初始化，改为按需获取
 // export const llm = getLLMInstance(); // 已移除

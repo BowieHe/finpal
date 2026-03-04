@@ -113,7 +113,7 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
             <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded">
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                  🔍 {result.engine === 'open-websearch' ? 'WebSearch' : result.engine}
+                  🔍 {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine}
                 </span>
                 <span className="font-medium text-slate-700 dark:text-slate-300">
                   {result.query}

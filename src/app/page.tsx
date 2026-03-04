@@ -41,6 +41,7 @@ export default function Home() {
   
   // Research progress state for streaming
   const [researchState, setResearchState] = useState<ResearchState | null>(null);
+  const [searchResults, setSearchResults] = useState<Array<{query: string; results: any[]}>>([]);
 
   useEffect(() => {
     setConversations(getConversations());
@@ -112,16 +113,15 @@ export default function Home() {
     setConversations(getConversations());
     setCurrentConversation(getCurrentConversation());
     
-    // Initialize research state for deep research
-    if (deepResearch) {
-      setResearchState({
-        status: 'planning',
-        findingsCount: 0,
-        totalQueries: 0,
-        currentDepth: 0,
-        maxDepth: 2,
-      });
-    }
+    // Initialize research state for all searches
+    setResearchState({
+      status: 'planning',
+      findingsCount: 0,
+      totalQueries: 0,
+      currentDepth: 0,
+      maxDepth: deepResearch ? 2 : 0,
+    });
+    setSearchResults([]);
     try {
       // Try streaming first
       const response = await fetch('/api/chat', {
@@ -171,6 +171,12 @@ export default function Home() {
                         currentQuery: data.currentQuery,
                         findingsCount: (prev?.findingsCount || 0) + 1,
                       } : null);
+                      break;
+                    case 'search_result':
+                      setSearchResults(prev => [...prev, {
+                        query: data.query,
+                        results: data.results,
+                      }]);
                       break;
                     case 'analyzing':
                       setResearchState(prev => prev ? { ...prev, status: 'analyzing' } : null);
@@ -309,6 +315,7 @@ export default function Home() {
                 totalQueries={researchState.totalQueries}
                 currentDepth={researchState.currentDepth}
                 maxDepth={researchState.maxDepth}
+                searchResults={searchResults}
               />
             </div>
           )}

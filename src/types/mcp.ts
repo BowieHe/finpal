@@ -1,4 +1,4 @@
-export type SearchEngine = 'open-websearch' | 'error';
+export type SearchEngine = 'bailian-websearch' | 'error';
 
 export type QueryCategory =
   | 'general'
@@ -11,9 +11,13 @@ export type QueryCategory =
 
 export interface MCPConfig {
   name: SearchEngine;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
+  // For HTTP transport (Bailian)
+  url?: string;
+  headers?: Record<string, string>;
+  // For Stdio transport (legacy)
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
 }
 
 export interface SearchResultItem {

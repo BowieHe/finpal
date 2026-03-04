@@ -2,7 +2,6 @@
 
 import DebateBubble from './DebateBubble';
 import ResearchResults from './ResearchResults';
-import ResearchProgress from './ResearchProgress';
 import DeciderResult from './DeciderResult';
 import { TimelineDebate } from './TimelineDebate';
 
@@ -147,20 +146,6 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
             </div>
           );
         })}
-        
-        {/* Show research progress during streaming */}
-        {isLoading && currentResearch && (
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-            <ResearchProgress
-              status={currentResearch.status}
-              currentQuery={currentResearch.currentQuery}
-              findingsCount={currentResearch.findingsCount}
-              totalQueries={currentResearch.totalQueries}
-              currentDepth={currentResearch.currentDepth}
-              maxDepth={currentResearch.maxDepth}
-            />
-          </div>
-        )}
         
         {/* Default loading state */}
         {isLoading && !currentResearch && (

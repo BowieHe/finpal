@@ -48,7 +48,7 @@ export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
-  type: 'searching' | 'analyzing' | 'complete';
+  type: 'searching' | 'search_result' | 'analyzing' | 'complete';
   data?: {
     currentQuery?: string;
     currentIndex?: number;
