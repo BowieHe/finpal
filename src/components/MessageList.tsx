@@ -23,19 +23,16 @@ interface MessageListProps {
     engineUsage?: Record<string, number>;
     round?: number;
     timestamp: number;
-  }>;
-  isLoading?: boolean;
-  currentResearch?: {
-    status: 'planning' | 'searching' | 'analyzing' | 'complete';
+    // Real-time search status
+    status?: 'searching' | 'analyzing' | 'complete' | 'error';
     currentQuery?: string;
     findingsCount?: number;
     totalQueries?: number;
-    currentDepth?: number;
-    maxDepth?: number;
-  };
+  }>;
+  isLoading?: boolean;
 }
 
-export default function MessageList({ messages, isLoading, currentResearch }: MessageListProps) {
+export default function MessageList({ messages, isLoading }: MessageListProps) {
   if (messages.length === 0 && !isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center px-6 py-10">
@@ -53,6 +50,21 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
       </div>
     );
   }
+
+  const getStatusText = (status?: string, currentQuery?: string) => {
+    switch (status) {
+      case 'searching':
+        return currentQuery ? `正在搜索: ${currentQuery}` : '正在搜索信息...';
+      case 'analyzing':
+        return '正在分析搜索结果...';
+      case 'complete':
+        return '分析完成';
+      case 'error':
+        return '搜索出错';
+      default:
+        return '正在处理...';
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -95,6 +107,12 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
             });
           }
 
+          // Check if we should show real-time search results
+          const showRealtimeSearch = message.status === 'searching' || message.status === 'analyzing';
+          const hasSearchResults = message.searchResults && message.searchResults.length > 0;
+          const totalQueries = message.totalQueries || 0;
+          const searchResults = message.searchResults || [];
+
           return (
             <div key={message.id} className="mb-8">
               {/* User Question */}
@@ -104,11 +122,102 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
                 timestamp={message.timestamp}
               />
               
-              {/* Research Results */}
-              {message.searchResults && message.searchResults.length > 0 && message.researchSummary && (
+              {/* Real-time Search Progress */}
+              {showRealtimeSearch && (
+                <div className="my-4 p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="relative">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center">
+                        <span className="text-lg">🔬</span>
+                      </div>
+                      <div className="absolute inset-0 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-slate-900 dark:text-slate-100 text-sm">
+                        Deep Research
+                      </h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        {getStatusText(message.status, message.currentQuery)}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Progress bar - only show when totalQueries > 0 */}
+                  {totalQueries > 0 && (
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mb-2">
+                      <div 
+                        className="bg-indigo-600 h-1.5 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${Math.min(90, ((message.findingsCount || 0) / totalQueries) * 100)}%` 
+                        }}
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Stats */}
+                  <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    {totalQueries > 0 && (
+                      <span>
+                        查询: {message.findingsCount || 0}/{totalQueries}
+                      </span>
+                    )}
+                    {hasSearchResults && (
+                      <span>
+                        已搜索: {searchResults.length} 个查询
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Real-time Search Results */}
+                  {hasSearchResults && (
+                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                      {searchResults.map((result, index) => (
+                        <div key={index} className="p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                              搜索 {index + 1}
+                            </span>
+                            <span className="text-xs text-slate-500 truncate flex-1">{result.query}</span>
+                          </div>
+                          
+                          {result.results?.length > 0 ? (
+                            <div className="space-y-1">
+                              {result.results.slice(0, 3).map((item: any, idx: number) => (
+                                <div key={idx} className="p-1.5 bg-slate-50 dark:bg-slate-900/50 rounded text-xs">
+                                  <a 
+                                    href={item.url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline block mb-0.5 truncate"
+                                  >
+                                    {item.title}
+                                  </a>
+                                  <p className="text-slate-600 dark:text-slate-400 line-clamp-1 text-[10px]">
+                                    {item.snippet}
+                                  </p>
+                                </div>
+                              ))}
+                              {result.results.length > 3 && (
+                                <p className="text-[10px] text-slate-400 text-center">
+                                  还有 {result.results.length - 3} 条结果...
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500 italic">暂无搜索结果</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Final Research Results (when complete) */}
+              {message.status === 'complete' && hasSearchResults && message.researchSummary && (
                 <div className="my-4">
                   <ResearchResults
-                    searchResults={message.searchResults}
+                    searchResults={searchResults}
                     allFindings={message.allFindings}
                     researchSummary={message.researchSummary}
                     engineUsage={message.engineUsage || {}}
@@ -117,7 +226,7 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
               )}
               
               {/* DeepResearch findings display */}
-              {message.allFindings && message.allFindings.length > 0 && !(message.searchResults && message.searchResults.length > 0) && (
+              {!message.status && message.allFindings && message.allFindings.length > 0 && !(hasSearchResults && message.researchSummary) && (
                 <div className="my-4">
                   <ResearchResults
                     searchResults={[]}
@@ -146,19 +255,6 @@ export default function MessageList({ messages, isLoading, currentResearch }: Me
             </div>
           );
         })}
-        
-        {/* Default loading state */}
-        {isLoading && !currentResearch && (
-          <div className="flex justify-center py-6">
-            <div className="inline-flex items-center gap-2 text-sm text-[#6F6E69]">
-              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              <span className="font-medium">正在搜索信息并分析...</span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

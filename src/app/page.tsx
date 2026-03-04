@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import ChatInput from '@/components/ChatInput';
 import MessageList from '@/components/MessageList';
-import ResearchProgress from '@/components/ResearchProgress';
 import Sidebar from '@/components/Sidebar';
 import SettingsModal from '@/components/SettingsModal';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -22,15 +21,6 @@ import {
 import { getLLMConfig, setLLMConfig as persistLLMConfig } from '@/lib/config';
 import { generateId } from '@/utils/format';
 
-interface ResearchState {
-  status: 'planning' | 'searching' | 'analyzing' | 'complete';
-  currentQuery?: string;
-  findingsCount: number;
-  totalQueries: number;
-  currentDepth: number;
-  maxDepth: number;
-}
-
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
@@ -38,10 +28,6 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
   const [theme, setTheme] = useState<Theme>('dark');
-
-  // Research progress state for streaming
-  const [researchState, setResearchState] = useState<ResearchState | null>(null);
-  const [searchResults, setSearchResults] = useState<Array<{query: string; results: any[]}>>([]);
 
   useEffect(() => {
     setConversations(getConversations());
@@ -108,20 +94,22 @@ export default function Home() {
       optimisticAnswer: '',
       pessimisticAnswer: '',
       timestamp: Date.now(),
+      status: 'searching',
+      searchResults: [],
+      findingsCount: 0,
+      totalQueries: 0,
     };
     addMessageToConversation(activeConversation.id, userMessage);
     setConversations(getConversations());
     setCurrentConversation(getCurrentConversation());
 
-    // Initialize research state for all searches
-    setResearchState({
-      status: 'planning',
-      findingsCount: 0,
-      totalQueries: 0,
-      currentDepth: 0,
-      maxDepth: deepResearch ? 2 : 0,
-    });
-    setSearchResults([]);
+    // Helper function to update message with search progress
+    const updateMessageProgress = (updates: Partial<Message>) => {
+      updateMessageInConversation(activeConversation.id, userMessage.id, updates);
+      setConversations(getConversations());
+      setCurrentConversation(getCurrentConversation());
+    };
+
     try {
       // Try streaming first
       const response = await fetch('/api/chat', {
@@ -147,6 +135,7 @@ export default function Home() {
         const decoder = new TextDecoder();
         let finalResult: any = null;
         let buffer = ''; // Buffer for incomplete SSE messages
+        let currentSearchResults: any[] = [];
 
         if (reader) {
           while (true) {
@@ -167,28 +156,33 @@ export default function Home() {
 
                   switch (event.type) {
                     case 'planning':
-                      setResearchState(prev => prev ? { ...prev, status: 'planning' } : null);
+                      updateMessageProgress({
+                        status: 'searching',
+                      });
                       break;
                     case 'searching':
-                      setResearchState(prev => prev ? {
-                        ...prev,
+                      updateMessageProgress({
                         status: 'searching',
                         currentQuery: event.data.currentQuery,
-                        findingsCount: (prev?.findingsCount || 0) + 1,
-                      } : null);
+                        findingsCount: (userMessage.findingsCount || 0) + 1,
+                      });
                       break;
                     case 'search_result':
-                      setSearchResults(prev => [...prev, {
+                      currentSearchResults = [...currentSearchResults, {
                         query: event.data.query,
                         results: event.data.results || [],
-                      }]);
+                      }];
+                      updateMessageProgress({
+                        searchResults: currentSearchResults,
+                      });
                       break;
                     case 'analyzing':
-                      setResearchState(prev => prev ? { ...prev, status: 'analyzing' } : null);
+                      updateMessageProgress({
+                        status: 'analyzing',
+                      });
                       break;
                     case 'complete':
-                      finalResult = event.data;
-                      setResearchState(prev => prev ? { ...prev, status: 'complete' } : null);
+                      finalResult = event.result;
                       break;
                     case 'error':
                       throw new Error(event.data.error);
@@ -205,7 +199,7 @@ export default function Home() {
             try {
               const event = JSON.parse(buffer.slice(6));
               if (event.type === 'complete') {
-                finalResult = event.data;
+                finalResult = event.result;
               } else if (event.type === 'error') {
                 throw new Error(event.data.error);
               }
@@ -218,13 +212,14 @@ export default function Home() {
         if (finalResult) {
           // 更新现有消息而不是添加新消息
           updateMessageInConversation(activeConversation.id, userMessage.id, {
+            status: 'complete',
             optimisticAnswer: finalResult.optimisticAnswer,
             pessimisticAnswer: finalResult.pessimisticAnswer,
             optimisticRebuttal: finalResult.optimisticRebuttal,
             pessimisticRebuttal: finalResult.pessimisticRebuttal,
             debateWinner: finalResult.debateWinner,
             debateSummary: finalResult.debateSummary,
-            searchResults: finalResult.searchResults,
+            searchResults: finalResult.searchResults || currentSearchResults,
             allFindings: (finalResult as any).allFindings,
             researchSummary: finalResult.researchSummary,
             engineUsage: finalResult.engineUsage,
@@ -245,6 +240,7 @@ export default function Home() {
 
         // 更新现有消息
         updateMessageInConversation(activeConversation.id, userMessage.id, {
+          status: 'complete',
           optimisticAnswer: data.optimisticAnswer,
           pessimisticAnswer: data.pessimisticAnswer,
           optimisticRebuttal: data.optimisticRebuttal,
@@ -271,6 +267,7 @@ export default function Home() {
 
       // Update the user message with error instead of showing alert
       updateMessageInConversation(activeConversation.id, userMessage.id, {
+        status: 'error',
         optimisticAnswer: '',
         pessimisticAnswer: '',
         optimisticRebuttal: '',
@@ -288,7 +285,6 @@ export default function Home() {
       setCurrentConversation(getCurrentConversation());
     } finally {
       setIsLoading(false);
-      setResearchState(null);
     }
   };
 
@@ -340,21 +336,6 @@ export default function Home() {
               </button>
             </div>
           </header>
-
-          {/* Research Progress for Deep Research */}
-          {researchState && (
-            <div className="px-4 sm:px-6 pt-4">
-              <ResearchProgress
-                status={researchState.status}
-                currentQuery={researchState.currentQuery}
-                findingsCount={researchState.findingsCount}
-                totalQueries={researchState.totalQueries}
-                currentDepth={researchState.currentDepth}
-                maxDepth={researchState.maxDepth}
-                searchResults={searchResults}
-              />
-            </div>
-          )}
 
           <MessageList messages={messages} isLoading={isLoading} />
           <ChatInput onSend={handleSend} disabled={isLoading} />
