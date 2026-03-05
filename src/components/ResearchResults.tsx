@@ -26,7 +26,7 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
   };
 
   return (
-    <div className={`mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl ${isSearching ? 'border-2 border-indigo-400 animate-pulse' : ''}`}>
+    <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-2xl">{isDeepResearch ? '🔬' : '🔍'}</span>
         <h3 className="font-semibold text-slate-900 dark:text-slate-100 flex-1">

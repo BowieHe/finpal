@@ -211,6 +211,7 @@ export default function Home() {
 
         if (finalResult) {
           // 更新现有消息而不是添加新消息
+          // 注意：不覆盖 searchResults，保留之前实时更新的结果
           updateMessageInConversation(activeConversation.id, userMessage.id, {
             status: 'complete',
             optimisticAnswer: finalResult.optimisticAnswer,
@@ -219,7 +220,7 @@ export default function Home() {
             pessimisticRebuttal: finalResult.pessimisticRebuttal,
             debateWinner: finalResult.debateWinner,
             debateSummary: finalResult.debateSummary,
-            searchResults: finalResult.searchResults || currentSearchResults,
+            // 不覆盖 searchResults，保留之前实时更新的结果
             allFindings: (finalResult as any).allFindings,
             researchSummary: finalResult.researchSummary,
             engineUsage: finalResult.engineUsage,

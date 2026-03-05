@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import TypewriterText from './TypewriterText';
 
 interface TimelineMessage {
   type: 'optimistic-initial' | 'pessimistic-initial' | 'optimistic-rebuttal' | 'pessimistic-rebuttal';
@@ -100,7 +101,7 @@ function PersonaCard({ message }: { message: TimelineMessage }) {
         )}
         
         <div className={`text-sm text-[#CECDC3] leading-relaxed whitespace-pre-wrap ${isRight ? 'text-right' : 'text-left'}`}>
-          {message.content}
+          <TypewriterText text={message.content} speed={15} />
         </div>
         
         {message.timestamp && (
