@@ -167,78 +167,24 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                       </span>
                     )}
                   </div>
-                  
-                  {/* Real-time Search Results */}
-                  {hasSearchResults && (
-                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-                      {searchResults.map((result, index) => (
-                        <div key={index} className="p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                              搜索 {index + 1}
-                            </span>
-                            <span className="text-xs text-slate-500 truncate flex-1">{result.query}</span>
-                          </div>
-                          
-                          {result.results?.length > 0 ? (
-                            <div className="space-y-1">
-                              {result.results.slice(0, 3).map((item: any, idx: number) => (
-                                <div key={idx} className="p-1.5 bg-slate-50 dark:bg-slate-900/50 rounded text-xs">
-                                  <a 
-                                    href={item.url} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline block mb-0.5 truncate"
-                                  >
-                                    {item.title}
-                                  </a>
-                                  <p className="text-slate-600 dark:text-slate-400 line-clamp-1 text-[10px]">
-                                    {item.snippet}
-                                  </p>
-                                </div>
-                              ))}
-                              {result.results.length > 3 && (
-                                <p className="text-[10px] text-slate-400 text-center">
-                                  还有 {result.results.length - 3} 条结果...
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-slate-500 italic">暂无搜索结果</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
               
-              {/* Final Research Results (when complete) */}
-              {message.status === 'complete' && hasSearchResults && message.researchSummary && (
+              {/* Research Results - 搜索过程中和完成后都使用这个组件 */}
+              {hasSearchResults && (
                 <div className="my-4">
                   <ResearchResults
                     searchResults={searchResults}
                     allFindings={message.allFindings}
                     researchSummary={message.researchSummary}
                     engineUsage={message.engineUsage || {}}
-                  />
-                </div>
-              )}
-              
-              {/* DeepResearch findings display */}
-              {!message.status && message.allFindings && message.allFindings.length > 0 && !(hasSearchResults && message.researchSummary) && (
-                <div className="my-4">
-                  <ResearchResults
-                    searchResults={[]}
-                    allFindings={message.allFindings}
-                    researchSummary={message.researchSummary}
-                    engineUsage={message.engineUsage || {}}
-                    isDeepResearch={true}
+                    isDeepResearch={message.allFindings && message.allFindings.length > 0}
+                    isSearching={message.status === 'searching' || message.status === 'analyzing'}
                   />
                 </div>
               )}
 
-              {/* Timeline Debate - only show when we have content */}
+              {/* Timeline Debate - 保留时间轴UI */}
               {timelineMessages.length > 0 && (
                 <TimelineDebate messages={timelineMessages} />
               )}

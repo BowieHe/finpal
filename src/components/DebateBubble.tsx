@@ -16,10 +16,10 @@ export default function DebateBubble({ type, content, thinking, timestamp }: Deb
   if (type === 'user') {
     return (
       <div className="flex justify-center mb-6">
-        <div className="max-w-[85%] bg-[#282726] rounded-2xl px-5 py-3 text-center border border-[#343331]">
+        <div className="max-w-[85%] bg-[#282726] rounded-2xl px-5 py-3 text-center border border-[#343331] relative">
           <p className="text-[#CECDC3] text-sm">{content}</p>
           {timestamp && (
-            <span className="text-xs text-[#6F6E69] mt-1 block">{formatTime(timestamp)}</span>
+            <span className="text-[10px] text-[#6F6E69] absolute bottom-1 right-3">{formatTime(timestamp)}</span>
           )}
         </div>
       </div>

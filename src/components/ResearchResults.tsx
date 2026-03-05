@@ -5,12 +5,13 @@ import { useState } from 'react';
 interface ResearchResultsProps {
   searchResults: any[];
   allFindings?: any[];
-  researchSummary: any;
+  researchSummary?: any;
   engineUsage: Record<string, number>;
   isDeepResearch?: boolean;
+  isSearching?: boolean;
 }
 
-export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch }: ResearchResultsProps) {
+export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch, isSearching }: ResearchResultsProps) {
   const hasFindings = (allFindings && allFindings.length > 0) || (searchResults && searchResults.length > 0);
   const [expandedFindings, setExpandedFindings] = useState<Set<number>>(new Set());
 
@@ -25,7 +26,7 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
   };
 
   return (
-    <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+    <div className={`mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl ${isSearching ? 'border-2 border-indigo-400 animate-pulse' : ''}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-2xl">{isDeepResearch ? '🔬' : '🔍'}</span>
         <h3 className="font-semibold text-slate-900 dark:text-slate-100 flex-1">
@@ -118,20 +119,23 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
       )}
 
       {/* 普通搜索结果 */}
-      {!isDeepResearch && searchResults.length > 0 && (
+      {searchResults.length > 0 && (
         <div className="space-y-2 mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            搜索结果
+            搜索结果 ({searchResults.length})
           </h4>
           {searchResults.map((result, idx) => (
-            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+            <div key={idx} className={`text-xs p-2 bg-white dark:bg-slate-800 rounded border ${isSearching && idx === searchResults.length - 1 ? 'border-indigo-400 animate-pulse' : 'border-slate-200 dark:border-slate-700'}`}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                  {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine}
+                  {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine || '搜索'}
                 </span>
                 <span className="font-medium text-slate-700 dark:text-slate-300 truncate" title={result.query}>
                   {result.query}
                 </span>
+                {isSearching && idx === searchResults.length - 1 && (
+                  <span className="text-[10px] text-indigo-600 animate-pulse">搜索中...</span>
+                )}
               </div>
               {result.results && result.results.length > 0 && (
                 <div className="mt-2 space-y-1">
@@ -146,7 +150,7 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
                       >
                         {item.title}
                       </a>
-                      <p className="text-slate-500 line-clamp-2 mt-0.5">{item.description}</p>
+                      <p className="text-slate-500 line-clamp-2 mt-0.5">{item.description || item.snippet}</p>
                     </div>
                   ))}
                 </div>
