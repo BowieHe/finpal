@@ -1,14 +1,11 @@
 'use client';
 
-import TypewriterText from './TypewriterText';
-
 interface DeciderResultProps {
   winner: string;
   summary: string;
-  isStreaming?: boolean;
 }
 
-export default function DeciderResult({ winner, summary, isStreaming }: DeciderResultProps) {
+export default function DeciderResult({ winner, summary }: DeciderResultProps) {
   const getWinnerInfo = () => {
     switch (winner) {
       case 'optimistic':
@@ -37,11 +34,7 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
       </div>
       {summary && (
         <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-          <TypewriterText 
-            text={summary} 
-            isStreaming={isStreaming}
-            speed={20}
-          />
+          {summary}
         </div>
       )}
     </div>
