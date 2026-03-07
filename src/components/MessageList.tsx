@@ -51,12 +51,18 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
     );
   }
 
-  const getStatusText = (status?: string, currentQuery?: string) => {
+  const getStatusText = (status?: string, currentQuery?: string, optimisticAnswer?: string, pessimisticAnswer?: string) => {
+    // 如果有乐观或悲观回答，说明正在辩论阶段
+    const isDebating = optimisticAnswer || pessimisticAnswer;
+    
     switch (status) {
       case 'searching':
         return currentQuery ? `正在搜索: ${currentQuery}` : '正在搜索信息...';
       case 'analyzing':
-        return '正在分析搜索结果...';
+        if (isDebating) {
+          return currentQuery || '正在进行辩论分析...';
+        }
+        return currentQuery || '正在分析搜索结果...';
       case 'complete':
         return '分析完成';
       case 'error':
@@ -110,6 +116,11 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           // Check if we should show real-time search results
           const showRealtimeSearch = message.status === 'searching' || message.status === 'analyzing';
           const hasSearchResults = message.searchResults && message.searchResults.length > 0;
+          const hasResearchSummary = message.researchSummary && (
+            message.researchSummary.key_facts?.length > 0 || 
+            message.researchSummary.summary
+          );
+          const shouldShowResearch = hasSearchResults || hasResearchSummary;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
 
@@ -137,7 +148,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                         Deep Research
                       </h3>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {getStatusText(message.status, message.currentQuery)}
+                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer)}
                       </p>
                     </div>
                   </div>
@@ -171,7 +182,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               )}
               
               {/* Research Results - 搜索过程中和完成后都使用这个组件 */}
-              {hasSearchResults && (
+              {shouldShowResearch && (
                 <div className="my-4">
                   <ResearchResults
                     searchResults={searchResults}

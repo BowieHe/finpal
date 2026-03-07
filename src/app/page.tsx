@@ -179,6 +179,70 @@ export default function Home() {
                     case 'analyzing':
                       updateMessageProgress({
                         status: 'analyzing',
+                        currentQuery: event.data.message || '正在分析搜索结果...',
+                      });
+                      break;
+                      updateMessageProgress({
+                        status: 'analyzing',
+                      });
+                      break;
+                    case 'research_summary':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        researchSummary: {
+                          key_facts: event.data.keyFacts,
+                          data_points: event.data.dataPoints,
+                          summary: event.data.summary,
+                        },
+                      });
+                      break;
+                    case 'node_start':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        currentQuery: event.data.message,
+                      });
+                      break;
+                    case 'optimistic_output':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        optimisticAnswer: event.data.answer,
+                        optimisticThinking: event.data.thinking,
+                      });
+                      break;
+                    case 'pessimistic_output':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        pessimisticAnswer: event.data.answer,
+                        pessimisticThinking: event.data.thinking,
+                      });
+                      break;
+                    case 'optimistic_rebuttal':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        optimisticRebuttal: event.data.rebuttal,
+                      });
+                      break;
+                    case 'pessimistic_rebuttal':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        pessimisticRebuttal: event.data.rebuttal,
+                      });
+                      break;
+                    case 'complete':
+                      finalResult = event.result;
+                      break;
+                    case 'error':
+                      throw new Error(event.data.error);
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        pessimisticRebuttal: event.data.rebuttal,
+                      });
+                      break;
+                    case 'complete':
+                      updateMessageProgress({
+                        status: 'analyzing',
+                        pessimisticAnswer: event.data.answer,
+                        pessimisticThinking: event.data.thinking,
                       });
                       break;
                     case 'complete':

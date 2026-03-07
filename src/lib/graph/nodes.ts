@@ -84,8 +84,6 @@ async function safeJsonParse(response: { content: unknown }): Promise<Record<str
 }
 
 /**
-
-/**
  * 获取当前日期信息
  * 用于让 LLM 知道当前时间，生成更准确的搜索查询
  */
@@ -307,38 +305,10 @@ ${truncatedResults}
         type: 'analyzing',
         data: {
           keyFactsCount: summary.key_facts.length,
+          message: '正在生成研究总结...',
         },
       });
     }
-    
-    const summaryResponse = await withRetry(() => llm.invoke(summaryPrompt), 2, 1000);
-    const parsed = await safeJsonParse(summaryResponse);
-    summary = {
-      key_facts: Array.isArray(parsed.key_facts) ? (parsed.key_facts as string[]) : [],
-      data_points: Array.isArray(parsed.data_points)
-        ? (parsed.data_points as Array<{ source: string; value: string; context: string }>)
-        : [],
-      summary: String(parsed.summary || '搜索完成'),
-    };
-  } catch (error) {
-    logger.error('Summary failed', { error: error instanceof Error ? error.message : String(error) });
-    // 即使总结失败，也保留搜索结果的原始数据
-    summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : 'Unknown error'}`;
-  }
-    const searchResultsText = JSON.stringify(searchResults, null, 2);
-    const truncatedResults = searchResultsText.length > MAX_SEARCH_RESULTS_LENGTH
-      ? searchResultsText.substring(0, MAX_SEARCH_RESULTS_LENGTH) + '\n... (truncated)'
-      : searchResultsText;
-
-    const summaryPrompt = `以下是搜索结果：
-
-${truncatedResults}
-
-请总结关键事实。严格以 JSON 格式返回：
-{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
-
-  try {
-    // 发送分析进度事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'analyzing',
@@ -357,6 +327,18 @@ ${truncatedResults}
         : [],
       summary: String(parsed.summary || '搜索完成'),
     };
+
+    // 发送研究总结事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'research_summary',
+        data: {
+          keyFacts: summary.key_facts,
+          dataPoints: summary.data_points,
+          summary: summary.summary,
+        },
+      });
+    }
   } catch (error) {
     logger.error('Summary failed', { error: error instanceof Error ? error.message : String(error) });
     // 即使总结失败，也保留搜索结果的原始数据
@@ -379,7 +361,7 @@ ${truncatedResults}
 };
 
 /**
- * 乐观派初始节点
+ * Optimistic Initial Node
  */
 export const optimisticInitialNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
@@ -407,12 +389,34 @@ ${dataText}
 {"thinking": "思考过程", "answer": "乐观观点"}`;
 
   try {
+    // 发送节点开始事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'node_start',
+        data: {
+          node: 'optimistic',
+          message: '乐观派开始分析...',
+        },
+      });
+    }
+
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
     const parsed = await safeJsonParse(response);
     const output: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.optimistic),
     };
+
+    // 发送乐观派输出事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'optimistic_output',
+        data: {
+          thinking: output.thinking,
+          answer: output.answer,
+        },
+      });
+    }
 
     logger.info('Optimistic initial node completed', { duration: Date.now() - startTime });
 
@@ -460,12 +464,34 @@ ${dataText}
 {"thinking": "思考过程", "answer": "悲观观点"}`;
 
   try {
+    // 发送节点开始事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'node_start',
+        data: {
+          node: 'pessimistic',
+          message: '悲观派开始分析...',
+        },
+      });
+    }
+
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
     const parsed = await safeJsonParse(response);
     const output: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.pessimistic),
     };
+
+    // 发送悲观派输出事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'pessimistic_output',
+        data: {
+          thinking: output.thinking,
+          answer: output.answer,
+        },
+      });
+    }
 
     logger.info('Pessimistic initial node completed', { duration: Date.now() - startTime });
 
@@ -505,9 +531,30 @@ ${state.pessimisticAnswer}
 {"rebuttal": "反驳内容"}`;
 
   try {
+    // 发送节点开始事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'node_start',
+        data: {
+          node: 'optimistic_rebuttal',
+          message: '乐观派正在反驳...',
+        },
+      });
+    }
+
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
     const parsed = await safeJsonParse(response);
     const rebuttal = String(parsed.rebuttal || '');
+
+    // 发送乐观派反驳事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'optimistic_rebuttal',
+        data: {
+          rebuttal: rebuttal,
+        },
+      });
+    }
 
     logger.info('Optimistic rebuttal node completed', { duration: Date.now() - startTime });
 
@@ -521,26 +568,6 @@ ${state.pessimisticAnswer}
     return {
       optimisticRebuttal: fallbackRebuttal,
       optimisticAnswer: state.optimisticAnswer,
-    };
-  }
-};
-
-/**
-      optimisticRebuttal: rebuttal,
-      optimisticAnswer: state.optimisticAnswer,
-    };
-      optimisticRebuttal: rebuttal,
-      optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + rebuttal,
-    };
-  } catch (error) {
-    logger.error('Optimistic rebuttal failed', { error: error instanceof Error ? error.message : String(error) });
-    const fallbackRebuttal = '乐观派反驳暂时不可用。';
-    return {
-      optimisticRebuttal: fallbackRebuttal,
-      optimisticAnswer: state.optimisticAnswer,
-    };
-      optimisticRebuttal: fallbackRebuttal,
-      optimisticAnswer: state.optimisticAnswer + '\n\n【反驳】\n' + fallbackRebuttal,
     };
   }
 };
@@ -568,9 +595,30 @@ ${state.optimisticAnswer}
 {"rebuttal": "反驳内容"}`;
 
   try {
+    // 发送节点开始事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'node_start',
+        data: {
+          node: 'pessimistic_rebuttal',
+          message: '悲观派正在反驳...',
+        },
+      });
+    }
+
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
     const parsed = await safeJsonParse(response);
     const rebuttal = String(parsed.rebuttal || '');
+
+    // 发送悲观派反驳事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'pessimistic_rebuttal',
+        data: {
+          rebuttal: rebuttal,
+        },
+      });
+    }
 
     logger.info('Pessimistic rebuttal node completed', { duration: Date.now() - startTime });
 

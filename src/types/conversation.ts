@@ -11,6 +11,8 @@ export interface Message {
   question: string;
   optimisticAnswer: string;
   pessimisticAnswer: string;
+  optimisticThinking?: string;
+  pessimisticThinking?: string;
   optimisticRebuttal?: string;
   pessimisticRebuttal?: string;
   debateWinner?: string;
