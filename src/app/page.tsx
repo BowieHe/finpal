@@ -188,9 +188,22 @@ export default function Home() {
                         currentQuery: event.data.message || '正在分析搜索结果...',
                       });
                       break;
-                      updateMessageProgress({
-                        status: 'analyzing',
-                      });
+                    case 'research_summary_stream':
+                      // 流式关键事实更新
+                      console.log('[Page] Received research_summary_stream', event.data);
+                      if (event.data.keyFacts && Array.isArray(event.data.keyFacts)) {
+                        console.log('[Page] Updating message progress with keyFacts:', event.data.keyFacts);
+                        updateMessageProgress({
+                          status: 'analyzing',
+                          researchSummary: {
+                            key_facts: event.data.keyFacts,
+                            data_points: event.data.dataPoints || [],
+                            summary: event.data.summary || '生成中...',
+                          },
+                        });
+                      } else {
+                        console.log('[Page] No keyFacts in event data');
+                      }
                       break;
                     case 'research_summary':
                       updateMessageProgress({
@@ -232,61 +245,6 @@ export default function Home() {
                       updateMessageProgress({
                         status: 'analyzing',
                         pessimisticRebuttal: event.data.rebuttal,
-                      });
-                      break;
-                    case 'stream_chunk':
-                      // 流式打字机效果 - 累积显示
-                      if (event.data.node && event.data.chunk) {
-                        const node = event.data.node as string;
-                        const chunk = event.data.chunk as string;
-                        // 根据节点类型更新对应的内容
-                        switch (node) {
-                          case 'optimistic':
-                            optimisticStreamContent += chunk;
-                            updateMessageProgress({
-                              status: 'analyzing',
-                              optimisticAnswer: optimisticStreamContent,
-                            });
-                            break;
-                          case 'pessimistic':
-                            pessimisticStreamContent += chunk;
-                            updateMessageProgress({
-                              status: 'analyzing',
-                              pessimisticAnswer: pessimisticStreamContent,
-                            });
-                            break;
-                          case 'optimistic_rebuttal':
-                            optimisticRebuttalStreamContent += chunk;
-                            updateMessageProgress({
-                              status: 'analyzing',
-                              optimisticRebuttal: optimisticRebuttalStreamContent,
-                            });
-                            break;
-                          case 'pessimistic_rebuttal':
-                            pessimisticRebuttalStreamContent += chunk;
-                            updateMessageProgress({
-                              status: 'analyzing',
-                              pessimisticRebuttal: pessimisticRebuttalStreamContent,
-                            });
-                            break;
-                        }
-                      }
-                      break;
-                    case 'complete':
-                      finalResult = event.result;
-                      break;
-                    case 'error':
-                      throw new Error(event.data.error);
-                      updateMessageProgress({
-                        status: 'analyzing',
-                        pessimisticRebuttal: event.data.rebuttal,
-                      });
-                      break;
-                    case 'complete':
-                      updateMessageProgress({
-                        status: 'analyzing',
-                        pessimisticAnswer: event.data.answer,
-                        pessimisticThinking: event.data.thinking,
                       });
                       break;
                     case 'stream_chunk':
@@ -477,7 +435,7 @@ export default function Home() {
                 title="设置"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756 3.35 0a1.724 1.724 0 002.573-1.066c1.543.94 3.31-.826 2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756 3.35 0a1.724 1.724 0 002.573-1.066c1.543.94 3.31-.826 2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </button>
