@@ -1,5 +1,5 @@
 import { GraphState, ResearchSummary, ResearchSubTask, ResearchFinding, DataPoint } from './state';
-import { getLLMInstance, withRetry } from '../llm/client';
+import { getLLMInstance, withRetry, streamWithCallback } from '../llm/client';
 import { smartSearch, batchSearch } from '../mcp/unified-search';
 import { SearchEngine } from '@/types/mcp';
 import { createLogger } from '../logger';
@@ -400,8 +400,26 @@ ${dataText}
       });
     }
 
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'optimistic',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = await safeJsonParse({ content: fullResponse });
     const output: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.optimistic),
@@ -475,8 +493,26 @@ ${dataText}
       });
     }
 
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'pessimistic',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = await safeJsonParse({ content: fullResponse });
     const output: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || DEFAULT_FALLBACK_ANSWER.pessimistic),
@@ -542,8 +578,26 @@ ${state.pessimisticAnswer}
       });
     }
 
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'optimistic_rebuttal',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = await safeJsonParse({ content: fullResponse });
     const rebuttal = String(parsed.rebuttal || '');
 
     // 发送乐观派反驳事件
@@ -606,8 +660,26 @@ ${state.optimisticAnswer}
       });
     }
 
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'pessimistic_rebuttal',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = await safeJsonParse({ content: fullResponse });
     const rebuttal = String(parsed.rebuttal || '');
 
     // 发送悲观派反驳事件

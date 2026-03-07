@@ -48,16 +48,17 @@ export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
-  type: 'searching' | 'search_result' | 'analyzing' | 'research_summary' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'complete';
+  type: 'searching' | 'search_result' | 'analyzing' | 'research_summary' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete';
   data?: {
     currentQuery?: string;
     currentIndex?: number;
     totalQueries?: number;
     progress?: number;
+    chunk?: string;
+    node?: string;
     [key: string]: unknown;
   };
 }) => void;
-
 
 /**
  * LangGraph 状态定义

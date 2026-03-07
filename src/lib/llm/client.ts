@@ -101,4 +101,34 @@ export async function withRetry<T>(
   throw lastError;
 }
 
-// export const llm = getLLMInstance(); // 已移除
+/**
+ * 流式调用 LLM 并实时回调
+ * @param prompt 提示词
+ * @param onChunk 每个字符/片段的回调
+ * @param maxRetries 最大重试次数
+ * @returns 完整响应内容
+ */
+export async function streamWithCallback(
+  prompt: string,
+  onChunk: (chunk: string) => void,
+  maxRetries: number = 2
+): Promise<string> {
+  const llm = getLLMInstance();
+  let fullContent = '';
+  
+  const operation = async () => {
+    const stream = await llm.stream(prompt);
+    
+    for await (const chunk of stream) {
+      const content = typeof chunk.content === 'string' ? chunk.content : '';
+      if (content) {
+        fullContent += content;
+        onChunk(content);
+      }
+    }
+    
+    return fullContent;
+  };
+
+  return withRetry(operation, maxRetries, 1000);
+}

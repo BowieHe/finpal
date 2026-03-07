@@ -110,6 +110,12 @@ export default function Home() {
       setCurrentConversation(getCurrentConversation());
     };
 
+    // 用于累积流式内容的变量
+    let optimisticStreamContent = '';
+    let pessimisticStreamContent = '';
+    let optimisticRebuttalStreamContent = '';
+    let pessimisticRebuttalStreamContent = '';
+
     try {
       // Try streaming first
       const response = await fetch('/api/chat', {
@@ -228,6 +234,44 @@ export default function Home() {
                         pessimisticRebuttal: event.data.rebuttal,
                       });
                       break;
+                    case 'stream_chunk':
+                      // 流式打字机效果 - 累积显示
+                      if (event.data.node && event.data.chunk) {
+                        const node = event.data.node as string;
+                        const chunk = event.data.chunk as string;
+                        // 根据节点类型更新对应的内容
+                        switch (node) {
+                          case 'optimistic':
+                            optimisticStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              optimisticAnswer: optimisticStreamContent,
+                            });
+                            break;
+                          case 'pessimistic':
+                            pessimisticStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              pessimisticAnswer: pessimisticStreamContent,
+                            });
+                            break;
+                          case 'optimistic_rebuttal':
+                            optimisticRebuttalStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              optimisticRebuttal: optimisticRebuttalStreamContent,
+                            });
+                            break;
+                          case 'pessimistic_rebuttal':
+                            pessimisticRebuttalStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              pessimisticRebuttal: pessimisticRebuttalStreamContent,
+                            });
+                            break;
+                        }
+                      }
+                      break;
                     case 'complete':
                       finalResult = event.result;
                       break;
@@ -244,6 +288,44 @@ export default function Home() {
                         pessimisticAnswer: event.data.answer,
                         pessimisticThinking: event.data.thinking,
                       });
+                      break;
+                    case 'stream_chunk':
+                      // 流式打字机效果 - 累积显示
+                      if (event.data.node && event.data.chunk) {
+                        const node = event.data.node as string;
+                        const chunk = event.data.chunk as string;
+                        // 根据节点类型更新对应的内容
+                        switch (node) {
+                          case 'optimistic':
+                            optimisticStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              optimisticAnswer: optimisticStreamContent,
+                            });
+                            break;
+                          case 'pessimistic':
+                            pessimisticStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              pessimisticAnswer: pessimisticStreamContent,
+                            });
+                            break;
+                          case 'optimistic_rebuttal':
+                            optimisticRebuttalStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              optimisticRebuttal: optimisticRebuttalStreamContent,
+                            });
+                            break;
+                          case 'pessimistic_rebuttal':
+                            pessimisticRebuttalStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              pessimisticRebuttal: pessimisticRebuttalStreamContent,
+                            });
+                            break;
+                        }
+                      }
                       break;
                     case 'complete':
                       finalResult = event.result;
