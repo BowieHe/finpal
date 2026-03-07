@@ -222,6 +222,32 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
 
   logger.info('Search engine usage', engineUsage);
 
+  // 发送搜索完成事件
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'search_complete',
+      data: {
+        searchCount: searchResults.length,
+        engineUsage,
+      },
+    });
+  }
+
+  // 4. 生成研究总结（支持流式关键事实）
+
+  // 发送搜索完成事件
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'search_complete',
+      data: {
+        searchCount: searchResults.length,
+        engineUsage,
+      },
+    });
+  }
+
+  // 4. 生成研究总结（支持流式关键事实）
+
   // 4. 生成研究总结（支持流式关键事实）
   let summary: ResearchSummary = {
     key_facts: [],
@@ -591,11 +617,32 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
 
   const prompt = `你是公正的裁决者。请基于以下辩论内容做出最终裁决。\n\n原问题：${state.question}\n\n乐观派观点：${state.optimisticAnswer}\n\n乐观派反驳：${state.optimisticRebuttal}\n\n悲观派观点：${state.pessimisticAnswer}\n\n悲观派反驳：${state.pessimisticRebuttal}\n\n请裁决：\n1. 哪方观点更有说服力？（optimistic/pessimistic/draw）\n2. 是否继续辩论？（true/false）\n3. 裁决理由\n4. 辩论总结\n\n以JSON格式返回：{"winner": "optimistic|pessimistic|draw", "should_continue": false, "reason": "理由", "summary": "总结"}`;
 
-  const llm = getLLMInstance();
-
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'decider',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    // 解析最终结果
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) {
+      throw new Error('Failed to parse decider response');
+    }
+
     const result: DeciderOutput = {
       winner: (parsed.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw',
       should_continue: Boolean(parsed.should_continue),
@@ -765,6 +812,19 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
   );
 
   const allFindings = [...state.allFindings, ...findings];
+
+  // 发送搜索完成事件
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'search_complete',
+      data: {
+        searchCount: findings.length,
+        totalTasks,
+      },
+    });
+  }
+
+  // 发送分析中事件
 
   // 发送分析中事件
   if (state.progressCallback) {

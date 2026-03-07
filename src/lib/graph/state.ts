@@ -48,7 +48,7 @@ export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
-  type: 'searching' | 'search_result' | 'analyzing' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete';
+  type: 'searching' | 'search_result' | 'search_complete' | 'analyzing' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete';
   data?: {
     currentQuery?: string;
     currentIndex?: number;
