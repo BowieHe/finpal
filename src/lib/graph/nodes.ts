@@ -329,11 +329,10 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
   if (state.progressCallback) {
     state.progressCallback({
       type: 'node_start',
-      data: { node: 'optimistic' },
+      data: { node: 'optimistic', message: '乐观派开始分析...' },
     });
   }
 
-  const llm = getLLMInstance();
   const researchSummary = state.researchSummary;
   const researchContext = researchSummary
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
@@ -342,13 +341,37 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
   const prompt = `你是乐观派分析师。请基于以下研究信息，从乐观角度分析问题。\n\n问题：${state.question}\n\n研究信息：\n${researchContext}\n\n请提供你的思考过程和最终答案。以JSON格式返回：{"thinking": "思考过程", "answer": "最终答案"}`;
 
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'optimistic',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    // 解析最终结果
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) {
+      throw new Error('Failed to parse optimistic response');
+    }
+
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
     };
 
+    // 发送最终输出事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_output',
@@ -377,11 +400,10 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
   if (state.progressCallback) {
     state.progressCallback({
       type: 'node_start',
-      data: { node: 'pessimistic' },
+      data: { node: 'pessimistic', message: '悲观派开始分析...' },
     });
   }
 
-  const llm = getLLMInstance();
   const researchSummary = state.researchSummary;
   const researchContext = researchSummary
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
@@ -390,13 +412,37 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
   const prompt = `你是悲观派分析师。请基于以下研究信息，从悲观/谨慎角度分析问题。\n\n问题：${state.question}\n\n研究信息：\n${researchContext}\n\n请提供你的思考过程和最终答案。以JSON格式返回：{"thinking": "思考过程", "answer": "最终答案"}`;
 
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'pessimistic',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    // 解析最终结果
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) {
+      throw new Error('Failed to parse pessimistic response');
+    }
+
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
     };
 
+    // 发送最终输出事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_output',
@@ -422,14 +468,44 @@ export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial
   const startTime = Date.now();
   logger.info('Starting optimistic rebuttal node');
 
-  const llm = getLLMInstance();
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'optimistic_rebuttal', message: '乐观派正在反驳...' },
+    });
+  }
+
   const prompt = `你是乐观派分析师。现在进入反驳阶段。\n\n原问题：${state.question}\n\n你的初始观点：${state.optimisticAnswer}\n\n悲观派观点：${state.pessimisticAnswer}\n\n请针对悲观派的观点进行反驳，强化你的立场。以JSON格式返回：{"rebuttal": "反驳内容"}`;
 
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'optimistic_rebuttal',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    // 解析最终结果
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) {
+      throw new Error('Failed to parse optimistic rebuttal response');
+    }
+
     const rebuttal = String(parsed.rebuttal || '');
 
+    // 发送最终反驳事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_rebuttal',
@@ -449,14 +525,44 @@ export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partia
   const startTime = Date.now();
   logger.info('Starting pessimistic rebuttal node');
 
-  const llm = getLLMInstance();
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'pessimistic_rebuttal', message: '悲观派正在反驳...' },
+    });
+  }
+
   const prompt = `你是悲观派分析师。现在进入反驳阶段。\n\n原问题：${state.question}\n\n你的初始观点：${state.pessimisticAnswer}\n\n乐观派观点：${state.optimisticAnswer}\n\n乐观派反驳：${state.optimisticRebuttal}\n\n请针对乐观派的观点和反驳进行再反驳，强化你的立场。以JSON格式返回：{"rebuttal": "反驳内容"}`;
 
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
+    // 使用流式调用
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: {
+              node: 'pessimistic_rebuttal',
+              chunk: chunk,
+            },
+          });
+        }
+      },
+      2
+    );
+
+    // 解析最终结果
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) {
+      throw new Error('Failed to parse pessimistic rebuttal response');
+    }
+
     const rebuttal = String(parsed.rebuttal || '');
 
+    // 发送最终反驳事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_rebuttal',
@@ -471,13 +577,21 @@ export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partia
     return { pessimisticRebuttal: '反驳过程出错' };
   }
 };
-
 export const deciderNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   logger.info('Starting decider node');
 
-  const llm = getLLMInstance();
+  // 发送裁决开始事件
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'decider', message: '正在裁决最终结果...' },
+    });
+  }
+
   const prompt = `你是公正的裁决者。请基于以下辩论内容做出最终裁决。\n\n原问题：${state.question}\n\n乐观派观点：${state.optimisticAnswer}\n\n乐观派反驳：${state.optimisticRebuttal}\n\n悲观派观点：${state.pessimisticAnswer}\n\n悲观派反驳：${state.pessimisticRebuttal}\n\n请裁决：\n1. 哪方观点更有说服力？（optimistic/pessimistic/draw）\n2. 是否继续辩论？（true/false）\n3. 裁决理由\n4. 辩论总结\n\n以JSON格式返回：{"winner": "optimistic|pessimistic|draw", "should_continue": false, "reason": "理由", "summary": "总结"}`;
+
+  const llm = getLLMInstance();
 
   try {
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
@@ -488,6 +602,19 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
       reason: String(parsed.reason || ''),
       summary: String(parsed.summary || ''),
     };
+
+    // 发送裁决完成事件
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'node_start',
+        data: { 
+          node: 'decider_complete', 
+          message: '裁决完成',
+          winner: result.winner,
+          summary: result.summary,
+        },
+      });
+    }
 
     logger.info('Decider node completed', { duration: Date.now() - startTime, winner: result.winner });
     return {
