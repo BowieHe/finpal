@@ -1,23 +1,27 @@
 'use client';
 
+import ReactMarkdown from 'react-markdown';
+
 interface DeciderResultProps {
   winner: string;
   summary: string;
+  isStreaming?: boolean;
 }
 
-export default function DeciderResult({ winner, summary }: DeciderResultProps) {
+export default function DeciderResult({ winner, summary, isStreaming }: DeciderResultProps) {
   const getWinnerInfo = () => {
     switch (winner) {
       case 'optimistic':
-        return { emoji: '😊', label: '乐观派获胜', color: 'emerald' };
+        return { emoji: '🐂', label: '多头获胜', color: 'emerald' };
       case 'pessimistic':
-        return { emoji: '😟', label: '悲观派获胜', color: 'rose' };
+        return { emoji: '🐻', label: '空头获胜', color: 'rose' };
       default:
         return { emoji: '⚖️', label: '双方平局', color: 'slate' };
     }
   };
 
   const info = getWinnerInfo();
+  const isOptimistic = winner === 'optimistic';
   const colorClass = info.color === 'emerald' 
     ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-400/20'
     : info.color === 'rose'
@@ -31,10 +35,23 @@ export default function DeciderResult({ winner, summary }: DeciderResultProps) {
         <span className="font-semibold text-slate-900 dark:text-slate-100">
           {info.label}
         </span>
+        {isStreaming && (
+          <span className="ml-2 inline-block w-2 h-2 bg-current rounded-full animate-pulse"></span>
+        )}
       </div>
       {summary && (
         <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-          {summary}
+          <ReactMarkdown
+            components={{
+              strong: ({ children }) => (
+                <strong className={`font-semibold ${isOptimistic ? 'text-[#879A39]' : 'text-[#D14D41]'}`}>
+                  {children}
+                </strong>
+              ),
+            }}
+          >
+            {summary}
+          </ReactMarkdown>
         </div>
       )}
     </div>

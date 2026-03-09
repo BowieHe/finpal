@@ -1,9 +1,9 @@
 'use client';
 
-import DebateBubble from './DebateBubble';
+import { MessageCard } from './MessageCard';
 import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
-import { TimelineDebate } from './TimelineDebate';
+import { TimelineDebate, TimelineMessage } from './TimelineDebate';
 
 interface MessageListProps {
   messages: Array<{
@@ -76,45 +76,49 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         {messages.map((message) => {
-          // Build timeline messages array only for non-empty content
-          const timelineMessages = [];
+          // Build debate messages array (exclude user message - it will be shown separately)
+          const debateMessages: TimelineMessage[] = [];
           
+          // Add optimistic answer (if exists)
           if (message.optimisticAnswer) {
-            timelineMessages.push({
-              type: 'optimistic-initial' as const,
+            debateMessages.push({
+              role: 'optimistic',
               content: message.optimisticAnswer,
               thinking: message.optimisticThinking,
               timestamp: message.timestamp,
             });
           }
           
+          // Add pessimistic answer (if exists)
           if (message.pessimisticAnswer) {
-            timelineMessages.push({
-              type: 'pessimistic-initial' as const,
+            debateMessages.push({
+              role: 'pessimistic',
               content: message.pessimisticAnswer,
               thinking: message.pessimisticThinking,
               timestamp: message.timestamp,
             });
           }
           
+          // Add rebuttals (if exists)
           if (message.optimisticRebuttal) {
-            timelineMessages.push({
-              type: 'optimistic-rebuttal' as const,
+            debateMessages.push({
+              role: 'optimistic',
               content: message.optimisticRebuttal,
               timestamp: message.timestamp,
             });
           }
           
           if (message.pessimisticRebuttal) {
-            timelineMessages.push({
-              type: 'pessimistic-rebuttal' as const,
+            debateMessages.push({
+              role: 'pessimistic',
               content: message.pessimisticRebuttal,
               timestamp: message.timestamp,
             });
           }
 
           // Check if we should show real-time search results
-          const showRealtimeSearch = message.status === 'searching' || message.status === 'analyzing';
+          const showRealtimeSearch = message.status === 'searching';
+          const isAnalyzing = message.status === 'analyzing';
           const hasSearchResults = message.searchResults && message.searchResults.length > 0;
           const hasResearchSummary = message.researchSummary && (
             message.researchSummary.key_facts?.length > 0 || 
@@ -126,10 +130,10 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 
           return (
             <div key={message.id} className="mb-8">
-              {/* User Question */}
-              <DebateBubble 
-                type="user" 
-                content={message.question} 
+              {/* User Message */}
+              <MessageCard
+                role="user"
+                content={message.question}
                 timestamp={message.timestamp}
               />
               
@@ -180,7 +184,26 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                   </div>
                 </div>
               )}
-              
+
+              {/* Analyzing State - No spinner */}
+              {isAnalyzing && (
+                <div className="my-4 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
+                      <span className="text-lg">🧠</span>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-slate-900 dark:text-slate-100 text-sm">
+                        分析中
+                      </h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Research Results - 搜索过程中和完成后都使用这个组件 */}
               {shouldShowResearch && (
                 <div className="my-4">
@@ -195,9 +218,9 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                 </div>
               )}
 
-              {/* Timeline Debate - 保留时间轴UI */}
-              {timelineMessages.length > 0 && (
-                <TimelineDebate messages={timelineMessages} />
+              {/* Timeline Debate - 多空辩论 */}
+              {debateMessages.length > 0 && (
+                <TimelineDebate messages={debateMessages} />
               )}
 
               {/* Final Decision */}

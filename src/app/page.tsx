@@ -115,7 +115,7 @@ export default function Home() {
     let pessimisticStreamContent = '';
     let optimisticRebuttalStreamContent = '';
     let pessimisticRebuttalStreamContent = '';
-
+    let deciderStreamContent = '';
     try {
       // Try streaming first
       const response = await fetch('/api/chat', {
@@ -289,13 +289,23 @@ export default function Home() {
                               pessimisticRebuttal: pessimisticRebuttalStreamContent,
                             });
                             break;
+                          case 'decider':
+                            deciderStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              debateSummary: deciderStreamContent,
+                            });
+                            break;
+                          case 'decider':
+                            deciderStreamContent += chunk;
+                            updateMessageProgress({
+                              status: 'analyzing',
+                              debateSummary: deciderStreamContent,
+                            });
+                            break;
                         }
                       }
                       break;
-                    case 'complete':
-                      finalResult = event.result;
-                      break;
-                    case 'error':
                       throw new Error(event.data.error);
                   }
                 } catch (e) {
