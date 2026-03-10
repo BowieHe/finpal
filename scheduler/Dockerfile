@@ -5,10 +5,11 @@ WORKDIR /app
 # 启用 uv 的编译缓存
 ENV UV_COMPILE_BYTECODE=1
 
-# 从缓存层复制（如果可用）
+# 复制依赖文件
+COPY pyproject.toml ./
+
+# 安装依赖
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
 
 # 复制项目代码
@@ -24,5 +25,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 # 暴露 HTTP 端口
 EXPOSE 8000
 
-# 使用 uv 运行
+# 启动命令
 CMD ["uv", "run", "-m", "src.main"]

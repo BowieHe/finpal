@@ -4,31 +4,58 @@
   "private": true,
   "description": "FinPal - 基金投资助手 (Monorepo)",
   "scripts": {
-    "dev": "docker compose up -d postgres && pnpm dev:web",
-    "dev:web": "pnpm --filter finpal dev",
+    "dev": "docker compose up -d postgres && next dev",
+    "dev:web": "next dev",
     "dev:scheduler": "cd apps/scheduler && python -m src.main",
-    
-    "build": "docker compose build",
+    "build": "next build",
     "up": "docker compose up -d",
     "down": "docker compose down",
     "logs": "docker compose logs -f",
-    
-    "db:migrate": "cd apps/web && npx prisma migrate dev",
-    "db:generate": "cd apps/web && npx prisma generate",
-    "db:studio": "cd apps/web && npx prisma studio",
-    
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
     "scheduler:trigger": "curl -X POST http://localhost:8001/trigger",
     "scheduler:stats": "curl http://localhost:8001/stats",
-    
-    "clean": "docker compose down -v && pnpm -r exec rm -rf node_modules .next dist"
+    "clean": "docker compose down -v && pnpm -r exec rm -rf node_modules .next dist",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.19.13",
     "concurrently": "^8.2.2",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3",
+    "@playwright/test": "^1.58.2",
+    "prisma": "^5.10.0",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.3",
+    "eslint-config-next": "16.1.6",
+    "postcss": "^8.5.8",
+    "tailwindcss": "4.2.0",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18",
     "pnpm": ">=8"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "@langchain/core": "1.1.26",
+    "@langchain/langgraph": "1.1.5",
+    "@langchain/openai": "1.2.8",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "dotenv": "^17.3.1",
+    "duck-duck-scrape": "^2.2.7",
+    "lucide-react": "^0.576.0",
+    "next": "16.1.6",
+    "playwright": "^1.58.2",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "zod": "4.3.6"
   }
 }

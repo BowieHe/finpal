@@ -1,58 +1,40 @@
 services:
-    # 1. PostgreSQL 数据库 (官方镜像)
-    postgres:
-        image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:18-alpine
-        container_name: postgres
-        environment:
-            POSTGRES_USER: finpal
-            POSTGRES_PASSWORD: finpal
-            POSTGRES_DB: finpal
-        ports:
-            - "5432:5432"
-        volumes:
-            - postgres_data:/var/lib/postgresql/data
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U finpal -d finpal"]
-            interval: 10s
-            timeout: 5s
-            retries: 5
-        restart: unless-stopped
+  # 1. PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: finpal-postgres
+    environment:
+      POSTGRES_USER: finpal
+      POSTGRES_PASSWORD: finpal
+      POSTGRES_DB: finpal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finpal -d finpal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
-    # 2. Python Scheduler（定时同步 + HTTP 触发）
-    scheduler:
-        build:
-            context: ./apps/scheduler
-            dockerfile: Dockerfile
-        container_name: finpal-scheduler
-        environment:
-            - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
-            - HTTP_HOST=0.0.0.0
-            - HTTP_PORT=8000
-            - SYNC_TIME=18:00
-        ports:
-            - "8001:8000"
-        depends_on:
-            postgres:
-                condition: service_healthy
-        restart: unless-stopped
-
-    # 3. Next.js Web 应用
-    web:
-        build:
-            context: ./apps/web
-            dockerfile: Dockerfile
-        container_name: finpal-web
-        environment:
-            - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
-            - NODE_ENV=production
-        ports:
-            - "3000:3000"
-        depends_on:
-            postgres:
-                condition: service_healthy
-            scheduler:
-                condition: service_started
-        restart: unless-stopped
+  # 2. Python Scheduler（FastAPI + Cron）
+  scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: finpal-scheduler
+    environment:
+      - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=8000
+      - SYNC_TIME=18:00
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
-    postgres_data:
+  postgres_data:

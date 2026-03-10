@@ -1,3 +1,7 @@
+# ==========================================
+# Node.js / Next.js
+# ==========================================
+
 # dependencies
 node_modules/
 .pnp
@@ -34,35 +38,60 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Python
-__pycache__/
+# ==========================================
+# Python (Scheduler)
+# ==========================================
+
+# Byte-compiled / optimized / DLL files
+scheduler/__pycache__/
+scheduler/src/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Distribution / packaging
+scheduler/build/
+scheduler/dist/
 *.egg-info/
 .installed.cfg
 *.egg
 
-# Python virtual environments
-venv/
-env/
-ENV/
-.venv/
+# Virtual environments
+scheduler/venv/
+scheduler/.venv/
+scheduler/env/
 
-# Python data files
-apps/data-service/data/*.db
-apps/data-service/data/*.sqlite
-apps/data-service/data/*.sqlite3
+# uv
+scheduler/.uv/
 
-# Python testing
+# Data files
+scheduler/data/
+scheduler/*.db
+scheduler/*.sqlite
+scheduler/*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Python IDE
+# Type checking
 .mypy_cache/
-.dmypy.json
 
-# Monorepo
-.turbo/
+# ==========================================
+# Project Specific
+# ==========================================
+
+# PostgreSQL data (Docker volume)
+postgres_data/
+
+# Logs
+*.log
