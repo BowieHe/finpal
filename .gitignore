@@ -1,17 +1,18 @@
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.js
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build/
+dist/
 
 # misc
 .DS_Store
@@ -32,3 +33,36 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Python data files
+apps/data-service/data/*.db
+apps/data-service/data/*.sqlite
+apps/data-service/data/*.sqlite3
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python IDE
+.mypy_cache/
+.dmypy.json
+
+# Monorepo
+.turbo/

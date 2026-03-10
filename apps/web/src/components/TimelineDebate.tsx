@@ -1,6 +1,7 @@
 "use client";
 
 import { MessageCard, MessageCardProps } from "./MessageCard";
+import RoundDecisionCard, { RoundDecision } from "./RoundDecisionCard";
 
 export interface TimelineMessage extends MessageCardProps {
   id?: string;
@@ -8,9 +9,10 @@ export interface TimelineMessage extends MessageCardProps {
 
 interface TimelineDebateProps {
   messages: TimelineMessage[];
+  decisions?: RoundDecision[];
 }
 
-export function TimelineDebate({ messages }: TimelineDebateProps) {
+export function TimelineDebate({ messages, decisions = [] }: TimelineDebateProps) {
   if (messages.length === 0) return null;
 
   // Separate user messages and debate messages
@@ -67,6 +69,8 @@ export function TimelineDebate({ messages }: TimelineDebateProps) {
             {rounds.map((round, roundIdx) => {
               const hasOptimistic = !!round.optimistic;
               const hasPessimistic = !!round.pessimistic;
+              // 查找当前轮次的裁决（如果有）
+              const roundDecision = decisions.find(d => d.round === roundIdx + 1);
               
               return (
                 <div key={`round-${roundIdx}`} className="relative">
@@ -132,6 +136,12 @@ export function TimelineDebate({ messages }: TimelineDebateProps) {
                           />
                         </div>
                       )}
+                    </div>
+                  )}
+                  {/* 显示当前轮次的裁决（在轮次内容之后） */}
+                  {roundDecision && (
+                    <div className="relative z-10">
+                      <RoundDecisionCard decision={roundDecision} />
                     </div>
                   )}
                 </div>

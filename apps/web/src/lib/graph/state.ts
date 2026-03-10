@@ -58,6 +58,11 @@ export type ProgressCallback = (event: {
     node?: string;
     keyFacts?: string[];
     partial?: boolean;
+    winner?: DebateWinner;
+    shouldContinue?: boolean;
+    reason?: string;
+    round?: number;
+    summary?: string;
     [key: string]: unknown;
   };
 }) => void;

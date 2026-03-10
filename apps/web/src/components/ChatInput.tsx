@@ -8,7 +8,7 @@ interface ChatInputProps {
 }
 
 export default function ChatInput({ onSend, disabled }: ChatInputProps) {
-  const [deepResearch, setDeepResearch] = useState(false);
+  const [deepResearch, setDeepResearch] = useState(true);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

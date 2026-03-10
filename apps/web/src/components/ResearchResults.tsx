@@ -9,10 +9,10 @@ interface ResearchResultsProps {
   engineUsage: Record<string, number>;
   isDeepResearch?: boolean;
   isSearching?: boolean;
+  pendingQueries?: string[]; // 正在搜索中的查询（显示蓝色框）
 }
 
-export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch, isSearching }: ResearchResultsProps) {
-  const hasFindings = (allFindings && allFindings.length > 0) || (searchResults && searchResults.length > 0);
+export default function ResearchResults({ searchResults, allFindings, researchSummary, engineUsage, isDeepResearch, isSearching, pendingQueries = [] }: ResearchResultsProps) {
   const [expandedFindings, setExpandedFindings] = useState<Set<number>>(new Set());
 
   const toggleFinding = (idx: number) => {
@@ -119,13 +119,28 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
       )}
 
       {/* 普通搜索结果 */}
-      {searchResults.length > 0 && (
+      {(searchResults.length > 0 || pendingQueries.length > 0) && (
         <div className="space-y-2 mb-4">
           <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            搜索结果 ({searchResults.length})
+            搜索结果 ({searchResults.length + pendingQueries.length})
           </h4>
+          {/* 正在搜索中的查询（蓝色框，带闪烁） */}
+          {pendingQueries.map((query, idx) => (
+            <div key={`pending-${idx}`} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-indigo-400 animate-pulse">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                  搜索
+                </span>
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate" title={query}>
+                  {query}
+                </span>
+                <span className="text-[10px] text-indigo-600 animate-pulse">搜索中...</span>
+              </div>
+            </div>
+          ))}
+          {/* 已完成的搜索结果（蓝色框 + 绿色框） */}
           {searchResults.map((result, idx) => (
-            <div key={idx} className={`text-xs p-2 bg-white dark:bg-slate-800 rounded border ${isSearching && idx === searchResults.length - 1 ? 'border-indigo-400 animate-pulse' : 'border-slate-200 dark:border-slate-700'}`}>
+            <div key={idx} className="text-xs p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">
                   {result.engine === 'bailian-websearch' ? '百炼搜索' : result.engine || '搜索'}
@@ -133,9 +148,6 @@ export default function ResearchResults({ searchResults, allFindings, researchSu
                 <span className="font-medium text-slate-700 dark:text-slate-300 truncate" title={result.query}>
                   {result.query}
                 </span>
-                {isSearching && idx === searchResults.length - 1 && (
-                  <span className="text-[10px] text-indigo-600 animate-pulse">搜索中...</span>
-                )}
               </div>
               {result.results && result.results.length > 0 && (
                 <div className="mt-2 space-y-1">

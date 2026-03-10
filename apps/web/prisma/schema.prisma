@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FundBasic {
+  id               Int       @id @default(autoincrement())
+  code             String    @unique @db.VarChar(10)
+  name             String    @db.VarChar(100)
+  category         String?   @db.VarChar(50)
+  manager          String?   @db.VarChar(50)
+  company          String?   @db.VarChar(100)
+  establishedDate  DateTime? @map("established_date")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  
+  navs FundNav[]
+  
+  @@map("fund_basic")
+}
+
+model FundNav {
+  id            Int       @id @default(autoincrement())
+  fundCode      String    @map("fund_code") @db.VarChar(10)
+  navDate       DateTime  @map("nav_date")
+  unitNav       Decimal   @map("unit_nav") @db.Decimal(10, 4)
+  accumNav      Decimal   @map("accum_nav") @db.Decimal(10, 4)
+  dailyReturn   Decimal?  @map("daily_return") @db.Decimal(6, 2)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  
+  fund FundBasic @relation(fields: [fundCode], references: [code])
+  
+  @@unique([fundCode, navDate])
+  @@index([fundCode])
+  @@index([navDate])
+  @@map("fund_nav")
+}

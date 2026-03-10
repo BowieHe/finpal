@@ -1,167 +1,175 @@
-# FinPal - 乐观与悲观的双人格 AI 对话
+# FinPal - 基金投资助手
 
-基于 Next.js + LangGraph 实现的双人格 AI 对话助手，同时展示乐观派和悲观派的不同观点。
+基于 Next.js + Python Scheduler + PostgreSQL 的基金数据分析应用。
 
-## 技术栈
+## 🏗️ 架构
 
-- **Next.js** 16.1.6 - React 全栈框架
-- **React** 19.2.4 - UI 库
-- **TypeScript** 5.9.3 - 类型系统
-- **Tailwind CSS** 4.2.0 - 样式框架
-- **LangGraph** 1.1.5 - LLM 应用编排框架
-- **LangChain** - OpenAI 集成
+```
+┌─────────────────────────────────────────┐
+│           Docker Compose                 │
+│                                          │
+│  ┌──────────────┐      ┌─────────────┐  │
+│  │   Next.js    │      │  PostgreSQL │  │
+│  │   (Web)      │◄────►│   :5432     │  │
+│  │   Prisma     │  读   │             │  │
+│  │   :3000      │      │   数据      │  │
+│  └──────────────┘      └──────▲──────┘  │
+│                               │          │
+│  ┌──────────────┐             │  写     │
+│  │   Python     │─────────────┘          │
+│  │  Scheduler   │  定时 + HTTP触发       │
+│  │  (Cron+API)  │  :8000 (映射到 8001)  │
+│  └──────────────┘                       │
+│                                          │
+└─────────────────────────────────────────┘
+```
 
-## 项目结构
+**通信方式：**
+
+- Next.js ↔ PostgreSQL：Prisma ORM 直接查询
+- Python Scheduler → PostgreSQL：原始 SQL 写入
+- 用户 → Scheduler：HTTP 触发（端口 8001）
+
+## 🚀 快速开始
+
+### 1. 环境准备
+
+```bash
+# 安装前端依赖
+pnpm install
+
+# 安装 Python 依赖（开发时用）
+cd apps/scheduler
+pip install -e ".[dev]"
+```
+
+### 2. 启动数据库
+
+```bash
+# 启动 PostgreSQL（华为云镜像）
+pnpm up
+
+# 或
+docker compose up -d postgres
+```
+
+> 注意：使用华为云镜像 `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:18-alpine`
+
+### 3. 初始化数据库（Prisma Migration）
+
+```bash
+# 生成 Prisma Client
+pnpm db:generate
+
+# 创建迁移（首次）
+cd apps/web
+npx prisma migrate dev --name init
+```
+
+### 4. 启动 Scheduler
+
+```bash
+# Docker 方式（推荐）
+pnpm up
+
+# 或本地开发
+cd apps/scheduler
+python -m src.main
+```
+
+### 5. 启动前端
+
+```bash
+pnpm dev:web
+```
+
+访问：
+
+- 前端：http://localhost:3000
+- Scheduler HTTP：http://localhost:8001
+- Prisma Studio：http://localhost:5555（运行 `pnpm db:studio`）
+
+## 📚 常用命令
+
+```bash
+# Docker 操作
+pnpm up              # 启动所有服务
+pnpm down            # 停止所有服务
+pnpm logs            # 查看日志
+
+# 数据库
+pnpm db:migrate      # 创建迁移
+pnpm db:generate     # 生成 Prisma Client
+pnpm db:studio       # 打开 Prisma Studio
+
+# Scheduler 手动触发
+pnpm scheduler:trigger   # POST /trigger
+pnpm scheduler:stats     # GET /stats
+
+# 开发
+pnpm dev:web         # 前端开发
+pnpm dev:scheduler   # Scheduler 本地开发
+```
+
+## 📊 API 接口
+
+### Next.js (http://localhost:3000)
+
+| 接口                               | 描述                                 |
+| ---------------------------------- | ------------------------------------ |
+| `GET /api/funds`                   | 基金列表（支持 `?keyword=xxx` 搜索） |
+| `GET /api/funds/:code`             | 基金详情（含最近净值）               |
+| `GET /api/funds/:code/nav?days=30` | 净值历史                             |
+
+### Scheduler (http://localhost:8001)
+
+| 接口            | 描述         |
+| --------------- | ------------ |
+| `POST /trigger` | 手动触发同步 |
+| `GET /stats`    | 数据库统计   |
+| `GET /health`   | 健康检查     |
+
+## 📁 项目结构
 
 ```
 finpal/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── page.tsx            # 主页面
-│   │   ├── layout.tsx          # 全局布局
-│   │   ├── api/chat/route.ts   # API 端点
-│   │   └── globals.css         # 全局样式
-│   ├── components/             # React 组件
-│   │   ├── ChatInput.tsx       # 输入框
-│   │   ├── MessageList.tsx     # 消息列表
-│   │   └── Loading.tsx         # 加载状态
-│   ├── lib/                    # 核心逻辑
-│   │   ├── graph/              # LangGraph 相关
-│   │   │   ├── graph.ts        # 图定义
-│   │   │   ├── nodes.ts        # 节点（乐观/悲观）
-│   │   │   └── state.ts        # 状态定义
-│   │   ├── llm/                # LLM 客户端
-│   │   │   └── client.ts
-│   │   └── prompts.ts          # 人格 Prompts
-│   ├── types/                  # 类型定义
-│   └── utils/                  # 工具函数
-├── package.json
-├── tsconfig.json
-├── next.config.mjs             # Next.js 配置
-├── tailwind.config.ts
-└── .env.local.example
+├── apps/
+│   ├── web/                    # Next.js + Prisma
+│   │   ├── src/
+│   │   │   ├── app/api/funds/  # 基金 API 路由
+│   │   │   └── lib/prisma.ts   # Prisma Client
+│   │   ├── prisma/
+│   │   │   └── schema.prisma   # 数据库 Schema
+│   │   └── package.json
+│   │
+│   └── scheduler/              # Python 定时任务
+│       ├── src/
+│       │   ├── main.py         # 入口
+│       │   ├── cron.py         # 定时任务
+│       │   ├── api.py          # HTTP 触发
+│       │   ├── database.py     # 原始 SQL
+│       │   └── fetcher.py      # akshare 拉取
+│       └── Dockerfile
+│
+├── docker-compose.yml          # 三件套：web + scheduler + postgres
+└── README.md
 ```
 
-## 快速开始
+## 🔄 数据流
 
-### 1. 安装依赖
+1. **Scheduler** 每天 18:00 自动从 akshare 拉取基金数据
+2. **Scheduler** 用原始 SQL 写入 PostgreSQL
+3. **Next.js** 通过 Prisma 读取 PostgreSQL 展示给用户
+4. **手动触发**：用户可调用 `POST http://localhost:8001/trigger`
 
-```bash
-pnpm install
-```
+## 🛠️ 技术栈
 
-### 2. 配置环境变量
+- **前端**：Next.js 14 + React + TypeScript + Tailwind CSS
+- **ORM**：Prisma
+- **数据库**：PostgreSQL 18 (华为云镜像)
+- **数据同步**：Python + akshare + APScheduler
+- **部署**：Docker Compose
 
-复制 `.env.local.example` 为 `.env.local`：
+## 📝 License
 
-```bash
-cp .env.local.example .env.local
-```
-
-编辑 `.env.local`，填入你的 OpenAI API Key：
-
-```
-OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-```
-
-**环境变量说明：**
-- `OPENAI_API_KEY` - 你的 API 密钥（必需）
-- `OPENAI_BASE_URL` - API 地址（可选，默认为 OpenAI 官方地址）
-- `OPENAI_MODEL` - 使用的模型名称（可选，默认为 gpt-4o-mini）
-
-**常用模型选项：**
-- `gpt-4o-mini` - 最快、最便宜（推荐）
-- `gpt-4o` - 更强的推理能力
-- `gpt-3.5-turbo` - 经典模型
-- `deepseek-chat` - DeepSeek 模型
-- 其他 OpenAI 兼容的模型名称
-
-### 3. 启动开发服务器
-
-```bash
-pnpm dev
-```
-
-### 4. 访问应用
-
-打开浏览器访问 [http://localhost:3000](http://localhost:3000)
-
-## 使用说明
-
-1. 在输入框中输入你的问题
-2. 点击"发送"按钮
-3. 同时看到乐观派和悲观派的回答
-4. 两个人格的观点会在左右并排展示
-
-## 自定义人格
-
-修改 `src/lib/prompts.ts` 文件可以自定义两个人格的设定：
-
-- `OPTIMISTIC_PROMPT` - 乐观派人格描述
-- `PESSIMISTIC_PROMPT` - 悲观派人格描述
-
-## OpenAI 兼容接口
-
-项目支持任何 OpenAI 兼容的 API，如：
-
-- OpenAI 官方 API
-- Azure OpenAI
-- DeepSeek
-- Ollama
-- 其他兼容接口
-
-只需在 `.env.local` 中配置正确的 `OPENAI_BASE_URL` 即可。
-
-## 后续扩展
-
-- 添加更多人格类型
-- 实现对话历史记录
-- 支持流式响应
-- 添加人格对比分析
-- 打包成桌面应用（Electron/Tauri）
-## 后续扩展
-
-- 添加更多人格类型
-- 实现对话历史记录
-- 支持流式响应
-- 添加人格对比分析
-- 打包成桌面应用（Electron/Tauri）
-- 打包成移动应用（Capacitor）
-
-## 架构说明
-
-### 核心流程
-
-FinPal 使用 LangGraph 实现了一个 **2 轮辩论流程**：
-
-```
-用户提问
-    ↓
-researcher (搜索信息) → DuckDuckGo/Open WebSearch
-    ↓
-optimistic (乐观派初始观点)
-    ↓
-pessimistic (悲观派初始观点)
-    ↓
-optimisticRebuttal (乐观派反驳)
-    ↓
-pessimisticRebuttal (悲观派反驳)
-    ↓
-decider (裁决胜者)
-    ↓
-展示结果
-```
-
-### 关键文件
-
-- `src/lib/graph/graph.ts` - 流程图定义
-- `src/lib/graph/nodes.ts` - 6 个节点实现
-- `src/lib/graph/state.ts` - 状态管理
-- `src/lib/search/duckduckgo.ts` - DuckDuckGo 搜索
-- `src/lib/mcp/unified-search.ts` - 统一搜索接口
-
-### 搜索策略
-
-优先使用 **DuckDuckGo**（免费），失败时回退到 **Tavily**（需要 API Key）。
+MIT

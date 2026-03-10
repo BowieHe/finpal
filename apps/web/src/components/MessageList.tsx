@@ -4,6 +4,7 @@ import { MessageCard } from './MessageCard';
 import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
 import { TimelineDebate, TimelineMessage } from './TimelineDebate';
+import { RoundDecision } from './RoundDecisionCard';
 
 interface MessageListProps {
   messages: Array<{
@@ -28,6 +29,8 @@ interface MessageListProps {
     currentQuery?: string;
     findingsCount?: number;
     totalQueries?: number;
+    // Decider decisions per round
+    decisions?: RoundDecision[];
   }>;
   isLoading?: boolean;
 }
@@ -124,7 +127,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
             message.researchSummary.key_facts?.length > 0 || 
             message.researchSummary.summary
           );
-          const shouldShowResearch = hasSearchResults || hasResearchSummary;
+          const shouldShowResearch = hasSearchResults || hasResearchSummary || (message.status === 'searching' && message.currentQuery);
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
 
@@ -213,14 +216,15 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                     researchSummary={message.researchSummary}
                     engineUsage={message.engineUsage || {}}
                     isDeepResearch={message.allFindings && message.allFindings.length > 0}
-                    isSearching={message.status === 'searching' || message.status === 'analyzing'}
+                    isSearching={message.status === 'searching'}
+                    pendingQueries={message.status === 'searching' && message.currentQuery ? [message.currentQuery] : []}
                   />
                 </div>
               )}
 
               {/* Timeline Debate - 多空辩论 */}
               {debateMessages.length > 0 && (
-                <TimelineDebate messages={debateMessages} />
+                <TimelineDebate messages={debateMessages} decisions={message.decisions} />
               )}
 
               {/* Final Decision */}

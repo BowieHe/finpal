@@ -6,6 +6,14 @@ export interface Conversation {
   updatedAt: number;
 }
 
+export interface RoundDecision {
+  round: number;
+  winner: 'optimistic' | 'pessimistic' | 'draw';
+  shouldContinue: boolean;
+  reason: string;
+  isFinal?: boolean;
+}
+
 export interface Message {
   id: string;
   question: string;
@@ -27,4 +35,6 @@ export interface Message {
   currentQuery?: string;
   findingsCount?: number;
   totalQueries?: number;
+  // Decider decisions per round
+  decisions?: RoundDecision[];
 }

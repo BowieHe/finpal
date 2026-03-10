@@ -659,6 +659,9 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
           message: '裁决完成',
           winner: result.winner,
           summary: result.summary,
+          shouldContinue: result.should_continue,
+          reason: result.reason,
+          round: state.round + 1,
         },
       });
     }

@@ -98,6 +98,7 @@ export default function Home() {
       searchResults: [],
       findingsCount: 0,
       totalQueries: 0,
+      decisions: [],
     };
     addMessageToConversation(activeConversation.id, userMessage);
     setConversations(getConversations());
@@ -223,10 +224,29 @@ export default function Home() {
                       });
                       break;
                     case 'node_start':
-                      updateMessageProgress({
-                        status: 'analyzing',
-                        currentQuery: event.data.message,
-                      });
+                      // 处理裁决完成事件
+                      if (event.data.node === 'decider_complete' && event.data.winner) {
+                        const currentDecisions = userMessage.decisions || [];
+                        const newDecision = {
+                          round: event.data.round || currentDecisions.length + 1,
+                          winner: event.data.winner,
+                          shouldContinue: event.data.shouldContinue ?? false,
+                          reason: event.data.reason || '',
+                          isFinal: !event.data.shouldContinue,
+                        };
+                        updateMessageProgress({
+                          status: 'analyzing',
+                          currentQuery: event.data.message,
+                          debateWinner: event.data.winner,
+                          debateSummary: event.data.summary,
+                          decisions: [...currentDecisions, newDecision],
+                        });
+                      } else {
+                        updateMessageProgress({
+                          status: 'analyzing',
+                          currentQuery: event.data.message,
+                        });
+                      }
                       break;
                     case 'optimistic_output':
                       updateMessageProgress({
