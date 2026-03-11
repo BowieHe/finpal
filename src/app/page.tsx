@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ChatInput from "@/components/ChatInput";
 import MessageList from "@/components/MessageList";
 import Sidebar from "@/components/Sidebar";
@@ -29,6 +29,15 @@ export default function Home() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
     const [theme, setTheme] = useState<Theme>("dark");
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    const handleStop = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
         setConversations(getConversations());
@@ -90,6 +99,11 @@ export default function Home() {
             return;
         }
 
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         setIsLoading(true);
 
         // 立即添加用户消息到 UI（乐观更新）
@@ -149,6 +163,7 @@ export default function Home() {
                     question,
                     config: llmConfig,
                 }),
+                signal: abortControllerRef.current.signal,
             });
 
             if (!response.ok) {
@@ -217,6 +232,11 @@ export default function Home() {
                                                 const tasks = { ...(userMessage.agentTasks || {}) };
                                                 if (tasks[event.data.agentId]) {
                                                     tasks[event.data.agentId].progressMessage = event.data.message;
+                                                    // Add to the sub-step timeline array
+                                                    tasks[event.data.agentId].progressLogs = [
+                                                        ...(tasks[event.data.agentId].progressLogs || []),
+                                                        event.data.message
+                                                    ];
                                                     updateMessageProgress({ agentTasks: tasks });
                                                 }
                                             }
@@ -227,6 +247,7 @@ export default function Home() {
                                                 if (tasks[event.data.agentId]) {
                                                     tasks[event.data.agentId].status = "done";
                                                     tasks[event.data.agentId].resultSummary = event.data.summary;
+                                                    tasks[event.data.agentId].rawResult = event.data.results?.[0];
                                                     updateMessageProgress({ agentTasks: tasks });
                                                 }
                                             }
@@ -396,10 +417,6 @@ export default function Home() {
                                                     status: "analyzing",
                                                     currentQuery:
                                                         event.data.message,
-                                                    debateWinner:
-                                                        event.data.winner,
-                                                    debateSummary:
-                                                        event.data.summary,
                                                     decisions: [
                                                         ...currentDecisions,
                                                         newDecision,

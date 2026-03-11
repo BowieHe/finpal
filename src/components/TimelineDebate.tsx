@@ -61,8 +61,7 @@ export function TimelineDebate({ messages, decisions = [] }: TimelineDebateProps
       {/* Timeline container */}
       {rounds.length > 0 && (
         <div className="relative mt-8">
-          {/* Central vertical axis - behind the cards */}
-          <div className="absolute left-1/2 -translate-x-1/2 top-5 bottom-5 w-px bg-gradient-to-b from-[#879A39] via-[#575653] to-[#D14D41]" />
+          {/* Central vertical axis - removed per user request */}
           
           {/* Rounds container */}
           <div className="relative space-y-5">
@@ -77,6 +76,9 @@ export function TimelineDebate({ messages, decisions = [] }: TimelineDebateProps
                   {hasOptimistic && hasPessimistic ? (
                     /* Overlapping layout - both cards in same grid cell */
                     <div className="grid grid-cols-1">
+                      {/* Short vertical line connecting the two dots of this round only */}
+                      <div className="absolute left-1/2 -translate-x-1/2 top-[20px] h-[40px] w-px bg-gradient-to-b from-[#879A39] to-[#D14D41] z-10" />
+
                       {/* Optimistic (多头) - Right side */}
                       <div className="col-start-1 row-start-1 flex justify-end pr-8">
                         {/* Timeline dot - green */}

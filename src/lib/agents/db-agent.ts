@@ -31,7 +31,10 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
 
     switch (task) {
       case 'portfolio_summary': {
+        input.onProgress?.('正在生成 SQL 查询持仓汇总结构...');
+        input.onProgress?.('SQL: SELECT fund_id, shares, total_cost FROM holdings;');
         data = await getPortfolioSummary();
+        input.onProgress?.('执行 SQL 查询完毕，正在整理持仓数据...');
         break;
       }
 
@@ -39,7 +42,10 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
         if (!params.fundCode) {
           throw new Error('holding_detail requires params.fundCode');
         }
+        input.onProgress?.(`正在生成 SQL 查询特定基金详情...`);
+        input.onProgress?.(`SQL: SELECT * FROM holdings WHERE fund_code = '${params.fundCode}';`);
         data = await getHoldingDetail(params.fundCode);
+        input.onProgress?.(`基金 ${params.fundCode} 持仓数据提取完毕...`);
         break;
       }
 
@@ -48,7 +54,10 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
         if (codes.length === 0) {
           throw new Error('compare_funds requires at least one fund code in params.fundCodes');
         }
+        input.onProgress?.(`准备对比分析基金: ${codes.join(', ')}`);
+        input.onProgress?.(`SQL: SELECT * FROM funds WHERE fund_code IN (${codes.map(c => `'${c}'`).join(', ')});`);
         data = await compareFunds(codes);
+        input.onProgress?.(`基金对比数据处理完成...`);
         break;
       }
 
@@ -56,7 +65,10 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
         if (!params.fundCode) {
           throw new Error('risk_metrics requires params.fundCode');
         }
+        input.onProgress?.(`计算风险指标中 (期间: ${params.period ?? '1y'})...`);
+        input.onProgress?.(`SQL: SELECT date, nav FROM fund_navs WHERE fund_code = '${params.fundCode}' AND date >= ...`);
         data = await getFundRiskMetrics(params.fundCode, params.period ?? '1y');
+        input.onProgress?.(`历史净值风险模型计算完毕...`);
         break;
       }
 

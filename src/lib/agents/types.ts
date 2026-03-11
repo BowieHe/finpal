@@ -21,6 +21,7 @@ export interface DBAgentInput {
     fundCodes?: string[]; // 多只基金对比
     period?: '1y' | '3y' | 'ytd';
   };
+  onProgress?: (msg: string) => void;
 }
 
 export interface DBAgentOutput {
@@ -42,6 +43,7 @@ export interface WebAgentInput {
     query: string;
     fundCode?: string;   // 归属基金代码，便于后续多基金数据聚合
   };
+  onProgress?: (msg: string) => void;
 }
 
 export interface WebAgentOutput {
@@ -51,7 +53,7 @@ export interface WebAgentOutput {
   status: 'success' | 'partial' | 'error';
   sources: string[];       // 信息来源 URL（可溯源）
   summary: string;         // 结构化摘要
-  rawSnippets: string[];   // 原始搜索结果片段
+  rawSnippets: Array<{ title: string; url: string; content: string }>; // 结构化的搜索结果片段
   error?: string;
   durationMs: number;
 }

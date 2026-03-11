@@ -50,6 +50,8 @@ export interface AgentTask {
   description: string;
   status: 'pending' | 'running' | 'done' | 'error';
   progressMessage?: string;
+  progressLogs?: string[];
+  rawResult?: any;
   resultSummary?: string;
   error?: string;
 }

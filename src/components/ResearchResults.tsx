@@ -99,18 +99,97 @@ export default function ResearchResults({
                                         <div className="font-medium text-slate-800 dark:text-slate-200">
                                             {task.description}
                                         </div>
-                                        {task.status === 'running' && task.progressMessage && (
+                                        {task.status === 'running' && !task.progressLogs && task.progressMessage && (
                                             <div className="text-[10px] text-slate-500 mt-0.5 animate-pulse">
                                                 {task.progressMessage}
                                             </div>
                                         )}
+                                        {task.progressLogs && task.progressLogs.length > 0 && (
+                                            <div className="mt-2 space-y-1.5 border-l-2 border-indigo-100 dark:border-indigo-900/50 pl-2 ml-1">
+                                                {task.progressLogs.map((log: string, i: number) => (
+                                                    <div key={i} className="relative flex items-center text-[10px] text-slate-500 dark:text-slate-400">
+                                                        <div className="absolute -left-[11px] w-1.5 h-1.5 rounded-full bg-indigo-300 dark:bg-indigo-600" />
+                                                        <span className={i === task.progressLogs!.length - 1 && task.status === 'running' ? 'animate-pulse text-indigo-600 dark:text-indigo-400 font-medium' : ''}>
+                                                            {log}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                         {task.status === 'done' && task.resultSummary && (
-                                            <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2" title={task.resultSummary}>
-                                                结果: {task.resultSummary}
+                                            <div className="mt-2 text-slate-600 dark:text-slate-400">
+                                                <div className="text-xs font-medium mb-1" title={task.resultSummary}>
+                                                    结果: {task.resultSummary}
+                                                </div>
+                                                {task.rawResult && (
+                                                    <details className="mt-1 group">
+                                                        <summary className="text-[10px] cursor-pointer text-indigo-500 hover:text-indigo-600 font-medium select-none flex items-center gap-1">
+                                                            <span className="group-open:rotate-90 transition-transform">▶</span>
+                                                            查看底层执行数据
+                                                        </summary>
+                                                        <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-700/50 max-h-60 overflow-y-auto">
+                                                            {task.id.startsWith('web-agent') && task.rawResult.rawSnippets ? (
+                                                                <div className="space-y-3">
+                                                                    {task.rawResult.rawSnippets.map((snippet: any, sIdx: number) => (
+                                                                        <div key={sIdx} className="text-[10px] space-y-1 pb-2 border-b border-slate-200 dark:border-slate-700/50 last:border-0 last:pb-0">
+                                                                            <a href={snippet.url} target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline block truncate" title={snippet.title}>
+                                                                                {snippet.title}
+                                                                            </a>
+                                                                            <div className="text-slate-500 dark:text-slate-400 line-clamp-3" title={snippet.content}>
+                                                                                {snippet.content}
+                                                                            </div>
+                                                                            <a href={snippet.url} target="_blank" rel="noreferrer" className="text-slate-400 dark:text-slate-500 hover:text-indigo-500 text-[9px] truncate block">
+                                                                                {snippet.url}
+                                                                            </a>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : task.id.startsWith('db-agent') && task.rawResult.data ? (
+                                                                Array.isArray(task.rawResult.data) && task.rawResult.data.length > 0 ? (
+                                                                    <div className="overflow-x-auto">
+                                                                        <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
+                                                                            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                                                                                <tr>
+                                                                                    {Object.keys(task.rawResult.data[0]).slice(0, 6).map(key => (
+                                                                                        <th key={key} className="px-2 py-1.5 font-medium whitespace-nowrap">{key}</th>
+                                                                                    ))}
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                                                                                {task.rawResult.data.slice(0, 10).map((row: any, rIdx: number) => (
+                                                                                    <tr key={rIdx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors">
+                                                                                        {Object.keys(task.rawResult.data[0]).slice(0, 6).map(key => (
+                                                                                            <td key={key} className="px-2 py-1.5 whitespace-nowrap truncate max-w-[120px]" title={String(row[key])}>
+                                                                                                {String(row[key])}
+                                                                                            </td>
+                                                                                        ))}
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                        {task.rawResult.data.length > 10 && (
+                                                                            <div className="text-center mt-2 text-[9px] text-slate-400">
+                                                                                ... 及其他 {task.rawResult.data.length - 10} 条数据
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
+                                                                        {JSON.stringify(task.rawResult.data, null, 2)}
+                                                                    </pre>
+                                                                )
+                                                            ) : (
+                                                                <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
+                                                                    {JSON.stringify(task.rawResult, null, 2)}
+                                                                </pre>
+                                                            )}
+                                                        </div>
+                                                    </details>
+                                                )}
                                             </div>
                                         )}
                                         {task.status === 'error' && task.error && (
-                                            <div className="text-[10px] text-red-500 mt-0.5">
+                                            <div className="text-[10px] text-red-500 mt-1">
                                                 失败: {task.error}
                                             </div>
                                         )}

@@ -31,7 +31,15 @@ export const dbAgentAdapter = async (state: GraphState & { payload: DispatchPayl
 
   const result = await dbAgent({
     task: taskDef.task as any,
-    params: taskDef.params as any
+    params: taskDef.params as any,
+    onProgress: (msg: string) => {
+        if (state.progressCallback) {
+            state.progressCallback({
+                type: 'agent_progress',
+                data: { agentId: 'db-agent', message: msg }
+            });
+        }
+    }
   });
 
   if (state.progressCallback) {
@@ -67,9 +75,18 @@ export const webAgentAdapter = async (state: GraphState & { payload: DispatchPay
     });
   }
 
+  const agentId = `web-agent-${taskIdx}`;
   const result = await webAgent({
     task: taskDef.task as any,
-    params: taskDef.params as any
+    params: taskDef.params as any,
+    onProgress: (msg: string) => {
+        if (state.progressCallback) {
+            state.progressCallback({
+                type: 'agent_progress',
+                data: { agentId, message: msg }
+            });
+        }
+    }
   });
 
   if (state.progressCallback) {

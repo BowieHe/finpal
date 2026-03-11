@@ -6,9 +6,10 @@ import { useRef } from 'react';
 interface ChatInputProps {
   onSend: (question: string) => void;
   disabled: boolean;
+  onStop?: () => void;
 }
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -58,30 +59,30 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             rows={1}
-            className="flex-1 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none max-h-48 overflow-y-auto"
+            className="flex-1 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
           />
-          <button
-            type="submit"
-            disabled={disabled}
-            className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 py-3 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {disabled ? (
-              <>
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                思考中...
-              </>
-            ) : (
-              <>
-                发送
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </>
-            )}
-          </button>
+          {disabled ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-red-600 dark:bg-slate-700 dark:hover:bg-red-600 text-white font-semibold text-sm px-6 py-3 shadow-sm transition-colors group"
+              title="中断当前任务"
+            >
+              <div className="w-3 h-3 bg-red-400 group-hover:bg-white rounded-sm transition-colors shadow-[0_0_8px_rgba(248,113,113,0.8)] group-hover:shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
+              中断
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={disabled}
+              className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 py-3 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              发送
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </form>

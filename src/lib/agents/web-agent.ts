@@ -44,8 +44,10 @@ export async function webAgent(input: WebAgentInput): Promise<WebAgentOutput> {
 
     const query = queryBuilder(params);
     logger.info('Web-Agent executing search', { task, query });
+    input.onProgress?.(`准备通过通义 MCP 搜索网络: "${query}"`);
 
     const searchResult = await smartSearch(query);
+    input.onProgress?.(`MCP 搜索完成，返回 ${searchResult.results?.length || 0} 条结果，正在过滤摘要...`);
 
     if (searchResult.error || searchResult.results.length === 0) {
       const durationMs = Date.now() - startTime;
@@ -68,11 +70,15 @@ export async function webAgent(input: WebAgentInput): Promise<WebAgentOutput> {
       .map(r => r.url)
       .filter((url): url is string => !!url && url.length > 0);
 
-    // 提取原始片段（取前 8 条，每条限 300 字符）
+    // 提取原始片段（取前 8 条，结构化保留来源）
     const rawSnippets = searchResult.results
       .slice(0, 8)
-      .map(r => `[${r.title}] ${r.description ?? ''}`.substring(0, 300))
-      .filter(s => s.trim().length > 0);
+      .map(r => ({
+        title: r.title || '无标题',
+        url: r.url || '',
+        content: (r.description ?? '').substring(0, 300)
+      }))
+      .filter(s => s.content.trim().length > 0);
 
     // 生成结构化摘要（汇总标题列表）
     const summary = searchResult.results
