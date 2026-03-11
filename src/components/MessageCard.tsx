@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -82,12 +82,14 @@ export function MessageCard({ role, content, thinking, timestamp }: MessageCardP
     const isRight = config.side === "right";
     const color = isUser ? "#94a3b8" : (role === "optimistic" ? "#879A39" : "#D14D41");
 
+    const components = useMemo(() => createMarkdownComponents(color), [color]);
+
     if (isUser) {
         return (
             <div className="flex justify-center my-4">
                 <div className={`${config.bg} border ${config.border} rounded-2xl px-6 py-3 max-w-[80%] shadow-lg`}>
                     <div className={`text-sm ${config.text} leading-relaxed`}>
-                        <ReactMarkdown components={createMarkdownComponents(color)}>
+                        <ReactMarkdown components={components}>
                             {content}
                         </ReactMarkdown>
                     </div>
@@ -142,7 +144,7 @@ export function MessageCard({ role, content, thinking, timestamp }: MessageCardP
 
                 {/* Content */}
                 <div className={`text-sm text-[#CECDC3] leading-relaxed ${isRight ? "text-right" : "text-left"}`}>
-                    <ReactMarkdown components={createMarkdownComponents(color)}>
+                    <ReactMarkdown components={components}>
                         {content}
                     </ReactMarkdown>
                 </div>

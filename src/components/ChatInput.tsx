@@ -1,5 +1,7 @@
 'use client';
 
+import { useRef } from 'react';
+
 
 interface ChatInputProps {
   onSend: (question: string) => void;
@@ -7,6 +9,8 @@ interface ChatInputProps {
 }
 
 export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -14,23 +18,47 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
     if (question.trim()) {
       onSend(question);
       e.currentTarget.reset();
+      
+      // Reset textarea height after sending
+      const textarea = e.currentTarget.querySelector('textarea');
+      if (textarea) {
+        textarea.style.height = 'auto';
+      }
+    }
+  };
+
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+    target.style.height = 'auto'; // Reset the height first to shrink if text was deleted
+    target.style.height = `${target.scrollHeight}px`; // Set to the newly computed scrollHeight
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (formRef.current) {
+        formRef.current.requestSubmit();
+      }
     }
   };
 
   return (
     <form
+      ref={formRef}
       onSubmit={handleSubmit}
       className="border-t border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 backdrop-blur"
     >
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">
         
         <div className="flex gap-3">
-          <input
-            type="text"
+          <textarea
             name="question"
-            placeholder="输入你的问题..."
+            placeholder="输入你的问题... (Shift + Enter 换行)"
             disabled={disabled}
-            className="flex-1 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            className="flex-1 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none max-h-48 overflow-y-auto"
           />
           <button
             type="submit"
