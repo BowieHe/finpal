@@ -5,7 +5,8 @@ import {
   pessimisticInitialNode,
   optimisticRebuttalNode,
   pessimisticRebuttalNode,
-  deciderNode,
+  roundJudgeNode,
+  finalVerdictNode,
 } from './nodes';
 
 import { intentPlannerNode } from './cio/intent-planner';
@@ -28,7 +29,24 @@ const dispatchTasks = (state: GraphState): Send[] => {
 };
 
 /**
- * 创建标准辩论流程图 (v3.1 CIO 架构)
+ * 辩论循环路由：roundJudge 之后决定继续辩论还是生成最终报告
+ * - shouldContinue=true AND round < maxRounds → 反驳轮（rebuttal）
+ * - 否则 → 最终裁决报告（finalVerdict）
+ */
+const debateLoopRouter = (state: GraphState): 'rebuttal' | 'finalVerdict' => {
+  const shouldLoop = state.shouldContinue && state.round < state.maxRounds;
+  return shouldLoop ? 'rebuttal' : 'finalVerdict';
+};
+
+/**
+ * 创建标准辩论流程图 (v3.2 - 辩论循环架构)
+ *
+ * 流程（辩论路线）：
+ *   optimistic → pessimistic → roundJudge ─→ (rebuttal if continue)
+ *                                          ↑         ↓
+ *                                          └─────────┘ (loop)
+ *                                          │
+ *                                          └─→ finalVerdict → END
  */
 export const createStandardGraph = () => {
   const graph = new StateGraph(GraphAnnotation)
@@ -42,12 +60,15 @@ export const createStandardGraph = () => {
     .addNode('adapter_web-agent', webAgentAdapter)
     .addNode('adapter_quant-agent', quantAgentAdapter)
     
-    // Debate Nodes
+    // Debate Nodes (Round 1 initial + rebuttal for subsequent rounds)
     .addNode('optimistic', optimisticInitialNode)
     .addNode('pessimistic', pessimisticInitialNode)
     .addNode('optimisticRebuttalNode', optimisticRebuttalNode)
     .addNode('pessimisticRebuttalNode', pessimisticRebuttalNode)
-    .addNode('decider', deciderNode)
+    
+    // Judge & Verdict
+    .addNode('roundJudge', roundJudgeNode)
+    .addNode('finalVerdict', finalVerdictNode)
     
     // ===== Graph Wiring =====
     .addEdge(START, 'intentPlanner')
@@ -67,15 +88,25 @@ export const createStandardGraph = () => {
       end_failure: END
     })
     
-    // 如果不辩论，直接生成总结
+    // 非辩论路线：直接生成总结
     .addEdge('directSummary', END)
     
-    // 辩论路线
+    // === 辩论路线 Round 1：初始立场 ===
     .addEdge('optimistic', 'pessimistic')
-    .addEdge('pessimistic', 'optimisticRebuttalNode')
+    .addEdge('pessimistic', 'roundJudge')
+    
+    // === roundJudge 条件循环边 ===
+    .addConditionalEdges('roundJudge', debateLoopRouter, {
+      rebuttal: 'optimisticRebuttalNode',
+      finalVerdict: 'finalVerdict',
+    })
+    
+    // === 反驳轮完成后回到 roundJudge（循环） ===
     .addEdge('optimisticRebuttalNode', 'pessimisticRebuttalNode')
-    .addEdge('pessimisticRebuttalNode', 'decider')
-    .addEdge('decider', END);
+    .addEdge('pessimisticRebuttalNode', 'roundJudge')
+    
+    // === 最终裁决 → END ===
+    .addEdge('finalVerdict', END);
 
   return graph.compile();
 };

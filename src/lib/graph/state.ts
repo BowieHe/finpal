@@ -50,7 +50,7 @@ export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
  */
 export type ProgressCallback = (event: {
   type: 'searching' | 'search_result' | 'search_complete' | 'analyzing' | 'db_query' | 'db_result' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete' 
-        | 'cio_planning' | 'agent_start' | 'agent_progress' | 'agent_done' | 'agent_error' | 'gate_keeper_check' | 'final_verdict';
+        | 'cio_planning' | 'agent_start' | 'agent_progress' | 'agent_done' | 'agent_error' | 'gate_keeper_check' | 'final_verdict' | 'round_judge';
   data?: {
     currentQuery?: string;
     currentIndex?: number;
@@ -189,7 +189,7 @@ export const GraphAnnotation = Annotation.Root({
   }),
   maxRounds: Annotation<number>({
     reducer: (prev, next) => next ?? prev,
-    default: () => 2,
+    default: () => 3,
   }),
 
   // 辩论结果

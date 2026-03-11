@@ -799,7 +799,89 @@ export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partia
     return { pessimisticRebuttal: '反驳过程出错' };
   }
 };
-export const deciderNode = async (state: GraphState): Promise<Partial<GraphState>> => {
+
+// ==================== Round Judge Node ====================
+// Lightweight: per-round judge. Decides winner of this round and whether to continue.
+export const roundJudgeNode = async (state: GraphState): Promise<Partial<GraphState>> => {
+  const startTime = Date.now();
+  const currentRound = state.round + 1;
+  logger.info('Starting round judge node', { round: currentRound, maxRounds: state.maxRounds });
+
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'round_judge', message: `第 ${currentRound} 轮 裁决中...` },
+    });
+  }
+
+  // Build context from latest rebuttal or initial arguments
+  const latestOptimistic = state.optimisticRebuttal || state.optimisticAnswer;
+  const latestPessimistic = state.pessimisticRebuttal || state.pessimisticAnswer;
+
+  const prompt = `你是公正的轮次裁判员。请基于本轮辩论内容做出简洁裁判。
+
+原问题：${state.question}
+
+(Round ${currentRound})
+乐观派近期论点：${latestOptimistic.substring(0, 600)}
+悲观派近期论点：${latestPessimistic.substring(0, 600)}
+
+请裁判：
+1. 本轮哪方认为更有说服力？（optimistic / pessimistic / draw）
+2. 是否需要继续辩论（只有当双方轮次生产了实质的新论点时才进行,否则不需要）
+3. 简短裁判理由（不超过 60 字）
+
+以 JSON 返回：{"winner": "optimistic|pessimistic|draw", "should_continue": true/false, "reason": "理由"}`;
+
+  try {
+    let streamedContent = '';
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: { node: 'round_judge', chunk },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = extractJSONFromText(fullResponse);
+    const winner = (parsed?.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw';
+    const shouldContinue = Boolean(parsed?.should_continue);
+    const reason = String(parsed?.reason || '');
+
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'round_judge',
+        data: {
+          round: currentRound,
+          winner,
+          shouldContinue,
+          reason,
+          node: 'round_judge',
+        },
+      });
+    }
+
+    logger.info('Round judge completed', { duration: Date.now() - startTime, round: currentRound, winner, shouldContinue });
+    return {
+      debateWinner: winner,
+      shouldContinue,
+      round: currentRound,
+    };
+  } catch (error) {
+    logger.error('Round judge failed', { error: error instanceof Error ? error.message : String(error) });
+    return { debateWinner: 'draw', shouldContinue: false, round: currentRound };
+  }
+};
+
+// ==================== Final Verdict Node ====================
+// Comprehensive: synthesizes all debate rounds + collected data → structured FinalVerdict.
+export const finalVerdictNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   logger.info('Starting decider node');
 
