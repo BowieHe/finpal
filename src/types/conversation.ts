@@ -12,6 +12,7 @@ export interface RoundDecision {
   shouldContinue: boolean;
   reason: string;
   isFinal?: boolean;
+  pending?: boolean; // true while decider is still streaming
 }
 
 export interface Message {

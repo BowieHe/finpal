@@ -143,6 +143,7 @@ export default function Home() {
         let optimisticRebuttalStreamContent = "";
         let pessimisticRebuttalStreamContent = "";
         let deciderStreamContent = "";
+        let deciderCardCreated = false; // track if we've pushed a pending decision card
 
         const getAgentName = (id: string) => {
             if (id.startsWith("db-")) return "🏦 持仓专员";
@@ -400,8 +401,7 @@ export default function Home() {
                                                 const newDecision = {
                                                     round:
                                                         event.data.round ||
-                                                        currentDecisions.length +
-                                                            1,
+                                                        currentDecisions.filter(d => !d.pending).length + 1,
                                                     winner: event.data.winner,
                                                     shouldContinue:
                                                         event.data
@@ -412,15 +412,18 @@ export default function Home() {
                                                     isFinal:
                                                         !event.data
                                                             .shouldContinue,
+                                                    pending: false,
                                                 };
+                                                // Replace the last pending card, or append if none
+                                                const pendingIdx = currentDecisions.map((d, i) => d.pending ? i : -1).filter(i => i >= 0).pop();
+                                                const updatedDecisions = pendingIdx !== undefined
+                                                    ? currentDecisions.map((d, i) => i === pendingIdx ? newDecision : d)
+                                                    : [...currentDecisions, newDecision];
                                                 updateMessageProgress({
                                                     status: "analyzing",
                                                     currentQuery:
                                                         event.data.message,
-                                                    decisions: [
-                                                        ...currentDecisions,
-                                                        newDecision,
-                                                    ],
+                                                    decisions: updatedDecisions,
                                                 });
                                             } else {
                                                 updateMessageProgress({
@@ -513,11 +516,23 @@ export default function Home() {
                                                     case "decider":
                                                         deciderStreamContent +=
                                                             chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            debateSummary:
-                                                                deciderStreamContent,
-                                                        });
+                                                        // On the very first decider chunk, push a pending decision card immediately
+                                                        if (!deciderCardCreated) {
+                                                            deciderCardCreated = true;
+                                                            const existingDecisions = userMessage.decisions || [];
+                                                            const pendingDecision = {
+                                                                round: existingDecisions.length + 1,
+                                                                winner: 'draw' as const,
+                                                                shouldContinue: false,
+                                                                reason: '裁决中...',
+                                                                isFinal: false,
+                                                                pending: true,
+                                                            };
+                                                            updateMessageProgress({
+                                                                status: "analyzing",
+                                                                decisions: [...existingDecisions, pendingDecision],
+                                                            });
+                                                        }
                                                         break;
                                                 }
                                             }

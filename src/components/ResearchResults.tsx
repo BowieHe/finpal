@@ -127,7 +127,7 @@ export default function ResearchResults({
                                                             <span className="group-open:rotate-90 transition-transform">▶</span>
                                                             查看底层执行数据
                                                         </summary>
-                                                        <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-700/50 max-h-60 overflow-y-auto">
+                                                        <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-700/50">
                                                             {task.id.startsWith('web-agent') && task.rawResult.rawSnippets ? (
                                                                 <div className="space-y-3">
                                                                     {task.rawResult.rawSnippets.map((snippet: any, sIdx: number) => (
@@ -145,39 +145,46 @@ export default function ResearchResults({
                                                                     ))}
                                                                 </div>
                                                             ) : task.id.startsWith('db-agent') && task.rawResult.data ? (
-                                                                Array.isArray(task.rawResult.data) && task.rawResult.data.length > 0 ? (
-                                                                    <div className="overflow-x-auto">
-                                                                        <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
-                                                                            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                                                                                <tr>
-                                                                                    {Object.keys(task.rawResult.data[0]).slice(0, 6).map(key => (
-                                                                                        <th key={key} className="px-2 py-1.5 font-medium whitespace-nowrap">{key}</th>
-                                                                                    ))}
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                                                                                {task.rawResult.data.slice(0, 10).map((row: any, rIdx: number) => (
-                                                                                    <tr key={rIdx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors">
-                                                                                        {Object.keys(task.rawResult.data[0]).slice(0, 6).map(key => (
-                                                                                            <td key={key} className="px-2 py-1.5 whitespace-nowrap truncate max-w-[120px]" title={String(row[key])}>
-                                                                                                {String(row[key])}
-                                                                                            </td>
+                                                                (() => {
+                                                                    // data may be an object like { holdings: [...] } — find the first array inside
+                                                                    const data = task.rawResult.data;
+                                                                    const rows: any[] | null = Array.isArray(data)
+                                                                        ? data
+                                                                        : Object.values(data as Record<string, any>).find(v => Array.isArray(v)) ?? null;
+                                                                    return rows && rows.length > 0 ? (
+                                                                        <div className="overflow-x-auto">
+                                                                            <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
+                                                                                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                                                                                    <tr>
+                                                                                        {Object.keys(rows[0]).slice(0, 6).map(key => (
+                                                                                            <th key={key} className="px-2 py-1.5 font-medium whitespace-nowrap">{key}</th>
                                                                                         ))}
                                                                                     </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
-                                                                        {task.rawResult.data.length > 10 && (
-                                                                            <div className="text-center mt-2 text-[9px] text-slate-400">
-                                                                                ... 及其他 {task.rawResult.data.length - 10} 条数据
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                ) : (
-                                                                    <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
-                                                                        {JSON.stringify(task.rawResult.data, null, 2)}
-                                                                    </pre>
-                                                                )
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                                                                                    {rows.slice(0, 10).map((row: any, rIdx: number) => (
+                                                                                        <tr key={rIdx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors">
+                                                                                            {Object.keys(rows[0]).slice(0, 6).map(key => (
+                                                                                                <td key={key} className="px-2 py-1.5 whitespace-nowrap truncate max-w-[120px]" title={String(row[key])}>
+                                                                                                    {String(row[key])}
+                                                                                                </td>
+                                                                                            ))}
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                            {rows.length > 10 && (
+                                                                                <div className="text-center mt-2 text-[9px] text-slate-400">
+                                                                                    ... 及其他 {rows.length - 10} 条数据
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap font-mono">
+                                                                            {JSON.stringify(data, null, 2)}
+                                                                        </pre>
+                                                                    );
+                                                                })()
                                                             ) : (
                                                                 <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
                                                                     {JSON.stringify(task.rawResult, null, 2)}

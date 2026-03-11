@@ -53,24 +53,43 @@ export async function POST(req: Request) {
       (async () => {
         try {
           const graph = createGraph();
-          
-          const result = await graph.invoke({
-            question,
-            progressCallback: (event) => {
-              const data = `data: ${JSON.stringify(event)}\n\n`;
-              writer.write(encoder.encode(data));
-            },
+          const { signal } = req;
+
+          // Create a promise that rejects when the client disconnects
+          const abortPromise = new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('AbortError')));
           });
 
-          // Send final result
-          const finalData = `data: ${JSON.stringify({ type: 'complete', result })}\n\n`;
-          writer.write(encoder.encode(finalData));
+          const result = await Promise.race([
+            graph.invoke({
+              question,
+              progressCallback: (event) => {
+                if (signal.aborted) return;
+                try {
+                  const data = `data: ${JSON.stringify(event)}\n\n`;
+                  writer.write(encoder.encode(data));
+                } catch { /* writer already closed */ }
+              },
+            }),
+            abortPromise,
+          ]);
+
+          if (!signal.aborted) {
+            // Send final result
+            const finalData = `data: ${JSON.stringify({ type: 'complete', result })}\n\n`;
+            writer.write(encoder.encode(finalData));
+          }
           writer.close();
-        } catch (error) {
-          logger.error('Graph execution error', { error: String(error) });
-          const errorData = `data: ${JSON.stringify({ type: 'error', error: String(error) })}\n\n`;
-          writer.write(encoder.encode(errorData));
-          writer.close();
+        } catch (error: any) {
+          const isAbort = error?.message === 'AbortError' || error?.name === 'AbortError';
+          if (!isAbort) {
+            logger.error('Graph execution error', { error: String(error) });
+            try {
+              const errorData = `data: ${JSON.stringify({ type: 'error', error: String(error) })}\n\n`;
+              writer.write(encoder.encode(errorData));
+            } catch { /* writer already closed */ }
+          }
+          try { writer.close(); } catch { /* already closed */ }
         }
       })();
 
