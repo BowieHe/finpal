@@ -141,15 +141,6 @@ export const smartSearch = async (
 };
 
 /**
- * 统一搜索接口 - 兼容旧版调用
- */
-export const unifiedSearch = async (
-  query: string
-): Promise<SearchResult> => {
-  return smartSearch(query);
-};
-
-/**
  * 批量搜索多个查询
  */
 export const batchSearch = async (

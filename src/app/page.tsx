@@ -84,10 +84,7 @@ export default function Home() {
         return created;
     };
 
-    const handleSend = async (
-        question: string,
-        deepResearch: boolean = false,
-    ) => {
+    const handleSend = async (question: string) => {
         const activeConversation = ensureConversation();
         if (!activeConversation) {
             return;
@@ -107,6 +104,8 @@ export default function Home() {
             findingsCount: 0,
             totalQueries: 0,
             decisions: [],
+            cioPlanning: false,
+            agentTasks: {},
         };
         addMessageToConversation(activeConversation.id, userMessage);
         setConversations(getConversations());
@@ -130,6 +129,14 @@ export default function Home() {
         let optimisticRebuttalStreamContent = "";
         let pessimisticRebuttalStreamContent = "";
         let deciderStreamContent = "";
+
+        const getAgentName = (id: string) => {
+            if (id.startsWith("db-")) return "🏦 持仓专员";
+            if (id.startsWith("web-")) return "🌐 侦察专员";
+            if (id.startsWith("quant-")) return "📐 量化专员";
+            return "🤖 助理专员";
+        };
+
         try {
             // Try streaming first
             const response = await fetch("/api/chat", {
@@ -141,7 +148,6 @@ export default function Home() {
                 body: JSON.stringify({
                     question,
                     config: llmConfig,
-                    deepResearch,
                 }),
             });
 
@@ -184,6 +190,69 @@ export default function Home() {
                                     const event = JSON.parse(line.slice(6));
 
                                     switch (event.type) {
+                                        case "cio_planning":
+                                            updateMessageProgress({
+                                                status: "searching",
+                                                cioPlanning: true,
+                                            });
+                                            break;
+                                        case "agent_start":
+                                            if (event.data.agentId) {
+                                                const tasks = { ...(userMessage.agentTasks || {}) };
+                                                tasks[event.data.agentId] = {
+                                                    id: event.data.agentId,
+                                                    name: getAgentName(event.data.agentId),
+                                                    description: event.data.taskDescription || "任务已启动",
+                                                    status: "running",
+                                                };
+                                                updateMessageProgress({
+                                                    status: "searching",
+                                                    agentTasks: tasks,
+                                                    cioPlanning: false,
+                                                });
+                                            }
+                                            break;
+                                        case "agent_progress":
+                                            if (event.data.agentId) {
+                                                const tasks = { ...(userMessage.agentTasks || {}) };
+                                                if (tasks[event.data.agentId]) {
+                                                    tasks[event.data.agentId].progressMessage = event.data.message;
+                                                    updateMessageProgress({ agentTasks: tasks });
+                                                }
+                                            }
+                                            break;
+                                        case "agent_done":
+                                            if (event.data.agentId) {
+                                                const tasks = { ...(userMessage.agentTasks || {}) };
+                                                if (tasks[event.data.agentId]) {
+                                                    tasks[event.data.agentId].status = "done";
+                                                    tasks[event.data.agentId].resultSummary = event.data.summary;
+                                                    updateMessageProgress({ agentTasks: tasks });
+                                                }
+                                            }
+                                            break;
+                                        case "agent_error":
+                                            if (event.data.agentId) {
+                                                const tasks = { ...(userMessage.agentTasks || {}) };
+                                                if (tasks[event.data.agentId]) {
+                                                    tasks[event.data.agentId].status = "error";
+                                                    tasks[event.data.agentId].error = event.data.error;
+                                                    updateMessageProgress({ agentTasks: tasks });
+                                                }
+                                            }
+                                            break;
+                                        case "gate_keeper_check":
+                                            updateMessageProgress({
+                                                status: "analyzing",
+                                                currentQuery: `Gate Keeper 检查中: ${event.data.message}`,
+                                            });
+                                            break;
+                                        case "final_verdict":
+                                            updateMessageProgress({
+                                                status: "complete",
+                                                finalVerdict: event.data,
+                                            });
+                                            break;
                                         case "planning":
                                             updateMessageProgress({
                                                 status: "searching",
@@ -433,19 +502,30 @@ export default function Home() {
                                                                 deciderStreamContent,
                                                         });
                                                         break;
-                                                    case "decider":
-                                                        deciderStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            debateSummary:
-                                                                deciderStreamContent,
-                                                        });
-                                                        break;
                                                 }
                                             }
                                             break;
-                                            throw new Error(event.data.error);
+                                        case "complete":
+                                            console.log("[Page] SSE 'complete' event received:", event);
+                                            if (event.data && event.data.summary) {
+                                                updateMessageProgress({
+                                                    status: "complete",
+                                                    debateSummary: event.data.summary,
+                                                    debateWinner: event.data.winner || "draw",
+                                                });
+                                            }
+                                            if (event.result) {
+                                                finalResult = event.result;
+                                            }
+                                            break;
+                                        case "error":
+                                            console.error("[Page] SSE 'error' event received:", event);
+                                            if (event.error) {
+                                                throw new Error(event.error);
+                                            } else if (event.data && event.data.error) {
+                                                throw new Error(event.data.error);
+                                            }
+                                            break;
                                     }
                                 } catch (e) {
                                     console.error(
@@ -463,10 +543,11 @@ export default function Home() {
                     if (buffer.startsWith("data: ")) {
                         try {
                             const event = JSON.parse(buffer.slice(6));
+                            console.log("[Page] Parsing final buffer event:", event);
                             if (event.type === "complete") {
                                 finalResult = event.result;
                             } else if (event.type === "error") {
-                                throw new Error(event.data.error);
+                                throw new Error(event.data?.error || event.error);
                             }
                         } catch (e) {
                             console.error(
@@ -499,6 +580,7 @@ export default function Home() {
                                 finalResult.dbResults || currentDbResults,
                             engineUsage: finalResult.engineUsage,
                             round: finalResult.round,
+                            finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
                         } as any,
                     );
 
@@ -591,7 +673,7 @@ export default function Home() {
     const activeTitle = currentConversation?.title || "新对话";
 
     return (
-        <div className="h-[100dvh] bg-slate-100 dark:bg-slate-950">
+        <div className="h-dvh bg-slate-100 dark:bg-slate-950">
             <div className="h-full grid grid-cols-[288px_1fr]">
                 <Sidebar
                     conversations={conversations}

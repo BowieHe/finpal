@@ -2,15 +2,15 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
 interface Params {
-  params: {
+  params: Promise<{
     code: string
-  }
+  }>
 }
 
 // 获取单只基金详情
 export async function GET(request: Request, { params }: Params) {
   try {
-    const { code } = params
+    const { code } = await params
     
     const fund = await prisma.fundBasic.findUnique({
       where: { code },

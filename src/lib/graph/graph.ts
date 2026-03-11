@@ -1,33 +1,77 @@
-import { StateGraph, START, END } from '@langchain/langgraph';
-import { GraphAnnotation } from './state';
+import { StateGraph, START, END, Send } from '@langchain/langgraph';
+import { GraphAnnotation, GraphState } from './state';
 import {
-  researcherNode,
   optimisticInitialNode,
   pessimisticInitialNode,
   optimisticRebuttalNode,
   pessimisticRebuttalNode,
   deciderNode,
-  plannerNode,
-  parallelResearchNode,
-  deepCheckNode,
 } from './nodes';
 
+import { intentPlannerNode } from './cio/intent-planner';
+import { gateKeeperNode, gateKeeperRouter } from './cio/gate-keeper';
+import { directSummaryNode } from './cio/direct-summary';
+import { dbAgentAdapter, webAgentAdapter, quantAgentAdapter } from './nodes/agent-adapters';
 
 /**
- * 创建标准辩论流程图
+ * CIO 动态派发逻辑
+ */
+const dispatchTasks = (state: GraphState): Send[] => {
+  if (!state.plan || !state.plan.tasks) return [];
+  
+  return state.plan.tasks.map((task, idx) => {
+    return new Send(`adapter_${task.agent}`, {
+      ...state,
+      payload: { taskDef: task, taskIdx: idx }
+    });
+  });
+};
+
+/**
+ * 创建标准辩论流程图 (v3.1 CIO 架构)
  */
 export const createStandardGraph = () => {
   const graph = new StateGraph(GraphAnnotation)
-    .addNode('researcher', researcherNode)
+    // CIO Nodes
+    .addNode('intentPlanner', intentPlannerNode)
+    .addNode('gateKeeper', gateKeeperNode)
+    .addNode('directSummary', directSummaryNode)
+    
+    // Agent Adapters
+    .addNode('adapter_db-agent', dbAgentAdapter)
+    .addNode('adapter_web-agent', webAgentAdapter)
+    .addNode('adapter_quant-agent', quantAgentAdapter)
+    
+    // Debate Nodes
     .addNode('optimistic', optimisticInitialNode)
     .addNode('pessimistic', pessimisticInitialNode)
     .addNode('optimisticRebuttalNode', optimisticRebuttalNode)
     .addNode('pessimisticRebuttalNode', pessimisticRebuttalNode)
     .addNode('decider', deciderNode)
-    .addEdge(START, 'researcher')
-    .addEdge('researcher', 'optimistic')
-    .addEdge('researcher', 'pessimistic')
-    .addEdge('optimistic', 'optimisticRebuttalNode')
+    
+    // ===== Graph Wiring =====
+    .addEdge(START, 'intentPlanner')
+    
+    // 动态派发 (Fan-out)
+    .addConditionalEdges('intentPlanner', dispatchTasks)
+    
+    // 收集所有并发 Agent 结果到 gateKeeper (Fan-in)
+    .addEdge('adapter_db-agent', 'gateKeeper')
+    .addEdge('adapter_web-agent', 'gateKeeper')
+    .addEdge('adapter_quant-agent', 'gateKeeper')
+    
+    // gateKeeper 根据结果状态决定下一步路线
+    .addConditionalEdges('gateKeeper', gateKeeperRouter, {
+      optimistic: 'optimistic',
+      direct_summary: 'directSummary',
+      end_failure: END
+    })
+    
+    // 如果不辩论，直接生成总结
+    .addEdge('directSummary', END)
+    
+    // 辩论路线
+    .addEdge('optimistic', 'pessimistic')
     .addEdge('pessimistic', 'optimisticRebuttalNode')
     .addEdge('optimisticRebuttalNode', 'pessimisticRebuttalNode')
     .addEdge('pessimisticRebuttalNode', 'decider')
@@ -36,47 +80,7 @@ export const createStandardGraph = () => {
   return graph.compile();
 };
 
-/**
- * 创建 Deep Research 流程图
- */
-export const createDeepResearchGraph = () => {
-  const graph = new StateGraph(GraphAnnotation)
-    .addNode('planner', plannerNode)
-    .addNode('parallelResearch', parallelResearchNode)
-    .addNode('deepCheck', deepCheckNode)
-    .addNode('optimistic', optimisticInitialNode)
-    .addNode('pessimistic', pessimisticInitialNode)
-    .addNode('optimisticRebuttalNode', optimisticRebuttalNode)
-    .addNode('pessimisticRebuttalNode', pessimisticRebuttalNode)
-    .addNode('decider', deciderNode);
-
-  // Deep Research 流程
-  graph.addEdge(START, 'planner');
-  graph.addEdge('planner', 'parallelResearch');
-  graph.addEdge('parallelResearch', 'deepCheck');
-
-  // 条件边：deepCheck 决定是否继续研究或进入双人格分析
-  graph.addConditionalEdges(
-    'deepCheck',
-    (state) => state.researchSummary ? 'research_complete' : 'continue_research',
-    { research_complete: 'optimistic', continue_research: 'parallelResearch' }
-  );
-
-  // 双人格流程
-  graph.addEdge('optimistic', 'pessimistic');
-  graph.addEdge('pessimistic', 'optimisticRebuttalNode');
-  graph.addEdge('optimisticRebuttalNode', 'pessimisticRebuttalNode');
-  graph.addEdge('pessimisticRebuttalNode', 'decider');
-  graph.addEdge('decider', END);
-
-  return graph.compile();
-};
-
-/**
- * 根据配置创建对应的图
- */
-export const createGraph = (options?: { deepResearch?: boolean }) => {
-  if (options?.deepResearch) return createDeepResearchGraph();
+export const createGraph = () => {
   return createStandardGraph();
 };
 

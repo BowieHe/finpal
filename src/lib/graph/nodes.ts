@@ -274,7 +274,23 @@ interface DeciderOutput {
   should_continue: boolean;
   reason: string;
   winner: 'optimistic' | 'pessimistic' | 'draw';
-  summary: string;
+  final_verdict: FinalVerdict;
+}
+
+export interface FinalVerdict {
+  summary: string;             // 一句话结论
+  recommendation: "strong_buy" | "hold" | "reduce" | "avoid" | "info_only";
+  confidence: number;          // 0-100，数据越完整置信度越高
+  bullPoints: string[];        // 乐观观点（≤3条）
+  bearPoints: string[];        // 悲观观点（≤3条）
+  comparisonTable?: {          // 若涉及多只基金对比，输出结构化对比表
+    fundCode: string;
+    sharpe: number;
+    mdd: number;
+    recommendation: string;
+  }[];
+  riskWarnings: string[];      // 风险提示（含 Gate Keeper 传入的 warning）
+  sources: string[];           // 数据来源 URL
 }
 
 // ==================== 常量配置 ====================
@@ -791,11 +807,53 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
   if (state.progressCallback) {
     state.progressCallback({
       type: 'node_start',
-      data: { node: 'decider', message: '正在裁决最终结果...' },
+      data: { node: 'decider', message: '正在裁决最终结果并生成结构化报告...' },
     });
   }
 
-  const prompt = `你是公正的裁决者。请基于以下辩论内容做出最终裁决。\n\n原问题：${state.question}\n\n乐观派观点：${state.optimisticAnswer}\n\n乐观派反驳：${state.optimisticRebuttal}\n\n悲观派观点：${state.pessimisticAnswer}\n\n悲观派反驳：${state.pessimisticRebuttal}\n\n请裁决：\n1. 哪方观点更有说服力？（optimistic/pessimistic/draw）\n2. 是否继续辩论？（true/false）\n3. 裁决理由\n4. 辩论总结\n\n以JSON格式返回：{"winner": "optimistic|pessimistic|draw", "should_continue": false, "reason": "理由", "summary": "总结"}`;
+  const collectedDataObj = state.collectedData || {};
+  let dataContext = '';
+  for (const [key, result] of Object.entries(collectedDataObj)) {
+    dataContext += `\n--- 数据 ${key} ---\n${JSON.stringify(result, null, 2)}`;
+  }
+
+  const prompt = `你是公正的裁决者与首席投资官。请基于以下系统收集的资产数据以及辩论内容，做出最终裁决并生成专业的投资建议报告。
+
+原问题：${state.question}
+
+系统收集的数据集：
+${dataContext || '暂无数据'}
+
+乐观派观点：${state.optimisticAnswer}
+乐观派反驳：${state.optimisticRebuttal}
+
+悲观派观点：${state.pessimisticAnswer}
+悲观派反驳：${state.pessimisticRebuttal}
+
+请裁决：
+1. 哪方观点更有说服力？（optimistic/pessimistic/draw）
+2. 是否继续辩论？（通常为 false，除非双方毫无建树）
+3. 裁决理由
+4. **FinalVerdict 结构化输出**（综合以上所有信息）
+
+以JSON格式返回，必须符合以下结构（不要有其他内容）：
+{
+  "winner": "optimistic|pessimistic|draw",
+  "should_continue": false,
+  "reason": "理由",
+  "final_verdict": {
+    "summary": "一句话结论",
+    "recommendation": "strong_buy|hold|reduce|avoid|info_only",
+    "confidence": 85,
+    "bullPoints": ["看多理由1", "看多理由2"],
+    "bearPoints": ["看空风险1", "看空风险2"],
+    "comparisonTable": [  // 如果是对比分析则填充，否则可省略
+      { "fundCode": "000001", "sharpe": 0.5, "mdd": -15.2, "recommendation": "buy" }
+    ],
+    "riskWarnings": [" Gatekeeper传入的警告 或 市场系统性风险"],
+    "sources": ["数据来源URL"]
+  }
+}`;
 
   try {
     // 使用流式调用
@@ -827,18 +885,24 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
       winner: (parsed.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw',
       should_continue: Boolean(parsed.should_continue),
       reason: String(parsed.reason || ''),
-      summary: String(parsed.summary || ''),
+      final_verdict: parsed.final_verdict as FinalVerdict,
     };
 
-    // 发送裁决完成事件
+    // 发送最终的结构化裁决事件
     if (state.progressCallback) {
+      state.progressCallback({
+        type: 'final_verdict',
+        data: result.final_verdict as unknown as Record<string, unknown>,
+      });
+
+      // Maintain legacy event for node_start completion
       state.progressCallback({
         type: 'node_start',
         data: {
           node: 'decider_complete',
           message: '裁决完成',
           winner: result.winner,
-          summary: result.summary,
+          summary: result.final_verdict?.summary || '裁决已生成',
           shouldContinue: result.should_continue,
           reason: result.reason,
           round: state.round + 1,
@@ -849,7 +913,7 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
     logger.info('Decider node completed', { duration: Date.now() - startTime, winner: result.winner });
     return {
       debateWinner: result.winner,
-      debateSummary: result.summary,
+      debateSummary: JSON.stringify(result.final_verdict),
       shouldContinue: result.should_continue,
       round: state.round + 1,
     };

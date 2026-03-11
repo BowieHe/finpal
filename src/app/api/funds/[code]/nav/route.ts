@@ -2,15 +2,15 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 
 interface Params {
-  params: {
+  params: Promise<{
     code: string
-  }
+  }>
 }
 
 // 获取基金净值历史
 export async function GET(request: Request, { params }: Params) {
   try {
-    const { code } = params
+    const { code } = await params
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '30')
     

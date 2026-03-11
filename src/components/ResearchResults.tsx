@@ -7,10 +7,12 @@ interface ResearchResultsProps {
     allFindings?: any[];
     researchSummary?: any;
     engineUsage: Record<string, number>;
-    isDeepResearch?: boolean;
     isSearching?: boolean;
     pendingQueries?: string[]; // 正在搜索中的查询（显示蓝色框）
     dbResults?: any[]; // Database fetch results
+    cioPlanning?: boolean;
+    agentTasks?: Record<string, any>;
+    finalVerdict?: any;
 }
 
 export default function ResearchResults({
@@ -18,10 +20,12 @@ export default function ResearchResults({
     allFindings,
     researchSummary,
     engineUsage,
-    isDeepResearch,
     isSearching,
     pendingQueries = [],
     dbResults = [],
+    cioPlanning,
+    agentTasks,
+    finalVerdict,
 }: ResearchResultsProps) {
     const [expandedFindings, setExpandedFindings] = useState<Set<number>>(
         new Set(),
@@ -39,21 +43,96 @@ export default function ResearchResults({
 
     return (
         <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
-            <div className="flex items-center gap-2 mb-3">
-                <span className="text-2xl">{isDeepResearch ? "🔬" : "🔍"}</span>
+            <div className="flex items-center gap-3 mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
+                <div className="w-8 h-8 rounded-full bg-linear-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
+                    <span className="text-white text-[15px]">🧠</span>
+                </div>
                 <h3 className="font-semibold text-slate-900 dark:text-slate-100 flex-1">
-                    {isDeepResearch ? "深度研究" : "信息收集"}
+                    CIO 智能分析调度
                 </h3>
                 <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
-                    {isDeepResearch ? "Deep Research" : "智能路由"}
+                    Auto-Dispatch
                 </span>
             </div>
 
-            {/* 搜索引擎统计 */}
-            <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
-                    搜索引擎
+            {/* Agent 工作流 Timeline */}
+            <div className="mb-4">
+                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-linear-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center shadow-sm border border-slate-300/50 dark:border-slate-600/50">
+                        <span className="text-[10px]">🤖</span>
+                    </div>
+                    <span>Agent 协作流程</span>
                 </h4>
+                <div className="space-y-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    
+                    {/* CIO Planning Step */}
+                    <div className="flex items-start gap-3">
+                        <div className="min-w-20 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            ⚙️ CIO 首脑
+                        </div>
+                        <div className="flex-1 text-xs text-slate-600 dark:text-slate-400">
+                            {cioPlanning ? (
+                                <span className="flex items-center gap-2">
+                                    <span className="animate-pulse">正在拆解查询，规划调查任务...</span>
+                                </span>
+                            ) : (
+                                <span>任务规划完成</span>
+                            )}
+                        </div>
+                        <div className="text-xs w-5 flex justify-end">
+                            {cioPlanning ? <span className="animate-spin inline-block">🔄</span> : '✅'}
+                        </div>
+                    </div>
+
+                    {/* Agent Tasks */}
+                    {agentTasks && Object.values(agentTasks).length > 0 && (
+                        <div className="border-l-2 border-slate-100 dark:border-slate-700 ml-5 pl-4 py-2 space-y-3">
+                            <div className="text-[10px] text-slate-400 font-medium mb-1 uppercase tracking-wider">
+                                并行执行单元
+                            </div>
+                            {Object.values(agentTasks).map((task) => (
+                                <div key={task.id} className="flex items-start gap-3">
+                                    <div className="min-w-25 text-xs font-medium text-indigo-700 dark:text-indigo-400">
+                                        {task.name}
+                                    </div>
+                                    <div className="flex-1 text-xs text-slate-600 dark:text-slate-400">
+                                        <div className="font-medium text-slate-800 dark:text-slate-200">
+                                            {task.description}
+                                        </div>
+                                        {task.status === 'running' && task.progressMessage && (
+                                            <div className="text-[10px] text-slate-500 mt-0.5 animate-pulse">
+                                                {task.progressMessage}
+                                            </div>
+                                        )}
+                                        {task.status === 'done' && task.resultSummary && (
+                                            <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2" title={task.resultSummary}>
+                                                结果: {task.resultSummary}
+                                            </div>
+                                        )}
+                                        {task.status === 'error' && task.error && (
+                                            <div className="text-[10px] text-red-500 mt-0.5">
+                                                失败: {task.error}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-xs w-5 flex justify-end">
+                                        {task.status === 'running' && <span className="animate-spin inline-block">🔄</span>}
+                                        {task.status === 'done' && '✅'}
+                                        {task.status === 'error' && '❌'}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* 搜索引擎统计 */}
+            {engineUsage && Object.keys(engineUsage).length > 0 && Object.values(engineUsage).some((v) => Number(v) > 0) && (
+                <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
+                        搜索引擎
+                    </h4>
                 <div className="flex items-center gap-3 flex-wrap">
                     {engineUsage["bailian-websearch"] &&
                         engineUsage["bailian-websearch"] > 0 && (
@@ -71,9 +150,10 @@ export default function ResearchResults({
                         )}
                 </div>
             </div>
+            )}
 
             {/* 研究发现 - 整合数据来源，可折叠 */}
-            {isDeepResearch && allFindings && allFindings.length > 0 && (
+            {allFindings && allFindings.length > 0 && (
                 <div className="space-y-2 mb-4">
                     <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100">
                         研究发现 ({allFindings.length})
@@ -88,7 +168,7 @@ export default function ResearchResults({
                                 className="p-2 flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                                 onClick={() => toggleFinding(idx)}
                             >
-                                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 flex-shrink-0">
+                                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 shrink-0">
                                     深度 {finding.depth}
                                 </span>
                                 <span
@@ -106,7 +186,7 @@ export default function ResearchResults({
                             {expandedFindings.has(idx) && (
                                 <div className="border-t border-slate-200 dark:border-slate-700">
                                     {/* 研究发现内容 */}
-                                    <div className="p-2 text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words">
+                                    <div className="p-2 text-slate-600 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word">
                                         {finding.content}
                                     </div>
 
@@ -302,10 +382,10 @@ export default function ResearchResults({
                                         key={idx}
                                         className="text-sm text-slate-700 dark:text-slate-300 flex items-start gap-2"
                                     >
-                                        <span className="text-blue-500 flex-shrink-0">
+                                        <span className="text-blue-500 shrink-0">
                                             •
                                         </span>
-                                        <span className="break-words">
+                                        <span className="style-wrap-break-word">
                                             {fact}
                                         </span>
                                     </li>

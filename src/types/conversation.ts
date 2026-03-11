@@ -38,4 +38,34 @@ export interface Message {
   dbResults?: any[]; // For storing database fetch results
   // Decider decisions per round
   decisions?: RoundDecision[];
+  // Phase 4: Dynamic Agent Rendering Pipeline
+  cioPlanning?: boolean;
+  agentTasks?: Record<string, AgentTask>;
+  finalVerdict?: FinalVerdict;
+}
+
+export interface AgentTask {
+  id: string;
+  name: string;
+  description: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  progressMessage?: string;
+  resultSummary?: string;
+  error?: string;
+}
+
+export interface FinalVerdict {
+  summary: string;
+  recommendation: 'strong_buy' | 'hold' | 'reduce' | 'avoid' | 'info_only';
+  confidence: number;
+  bullPoints: string[];
+  bearPoints: string[];
+  comparisonTable?: {
+    fundCode: string;
+    sharpe: number;
+    mdd: number;
+    recommendation: string;
+  }[];
+  riskWarnings: string[];
+  sources: string[];
 }

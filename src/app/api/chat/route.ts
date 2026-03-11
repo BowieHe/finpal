@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createGraph, createDeepResearchGraph } from '@/lib/graph/graph';
+import { createGraph } from '@/lib/graph/graph';
 import { setLLMInstance } from '@/lib/llm/client';
 import { createLogger } from '@/lib/logger';
 
@@ -12,7 +12,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { question, config, deepResearch = false } = body;
+    const { question, config } = body;
 
     if (!question) {
       return NextResponse.json(
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       );
     }
 
-    logger.info('Processing chat request', { question, deepResearch });
+    logger.info('Processing chat request', { question });
 
     // 使用前端传来的 config 覆盖默认配置
     if (config?.apiKey) {
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       // Start processing in background
       (async () => {
         try {
-          const graph = deepResearch ? createDeepResearchGraph() : createGraph();
+          const graph = createGraph();
           
           const result = await graph.invoke({
             question,
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
       });
     } else {
       // Return regular JSON response
-      const graph = deepResearch ? createDeepResearchGraph() : createGraph();
+      const graph = createGraph();
       
       const result = await graph.invoke({
         question,

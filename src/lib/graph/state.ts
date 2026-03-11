@@ -1,5 +1,6 @@
 import { Annotation } from '@langchain/langgraph';
 import { SearchResult } from '@/types/mcp';
+import { ExecutionPlan } from '../agents/types';
 
 /**
  * 研究子任务
@@ -48,7 +49,8 @@ export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
-  type: 'searching' | 'search_result' | 'search_complete' | 'analyzing' | 'db_query' | 'db_result' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete';
+  type: 'searching' | 'search_result' | 'search_complete' | 'analyzing' | 'db_query' | 'db_result' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete' 
+        | 'cio_planning' | 'agent_start' | 'agent_progress' | 'agent_done' | 'agent_error' | 'gate_keeper_check' | 'final_verdict';
   data?: {
     currentQuery?: string;
     currentIndex?: number;
@@ -64,6 +66,11 @@ export type ProgressCallback = (event: {
     round?: number;
     summary?: string;
     results?: any[];
+    agentId?: string;
+    taskDescription?: string;
+    error?: string;
+    canSkip?: boolean;
+    verdict?: any;
     [key: string]: unknown;
   };
 }) => void;
@@ -79,11 +86,25 @@ export const GraphAnnotation = Annotation.Root({
     default: () => '',
   }),
 
-  // Deep Research 配置
-  deepResearchEnabled: Annotation<boolean>({
+  // Phase 2: CIO State
+  plan: Annotation<ExecutionPlan | null>({
     reducer: (prev, next) => next ?? prev,
-    default: () => false,
+    default: () => null,
   }),
+  collectedData: Annotation<Record<string, any>>({
+    reducer: (prev, next) => ({ ...prev, ...next }),
+    default: () => ({}),
+  }),
+  warnings: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+  errors: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+
+  // Deep Research 配置
   currentDepth: Annotation<number>({
     reducer: (prev, next) => next ?? prev,
     default: () => 0,

@@ -31,6 +31,10 @@ interface MessageListProps {
     totalQueries?: number;
     // Decider decisions per round
     decisions?: RoundDecision[];
+    // Phase 4 tracking
+    cioPlanning?: boolean;
+    agentTasks?: Record<string, any>;
+    finalVerdict?: any;
   }>;
   isLoading?: boolean;
 }
@@ -120,14 +124,14 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           }
 
           // Check if we should show real-time search results
-          const showRealtimeSearch = message.status === 'searching';
           const isAnalyzing = message.status === 'analyzing';
           const hasSearchResults = message.searchResults && message.searchResults.length > 0;
           const hasResearchSummary = message.researchSummary && (
             message.researchSummary.key_facts?.length > 0 || 
             message.researchSummary.summary
           );
-          const shouldShowResearch = hasSearchResults || hasResearchSummary || (message.status === 'searching' && message.currentQuery);
+          const hasAgentTasks = message.agentTasks && Object.keys(message.agentTasks).length > 0;
+          const shouldShowResearch = hasSearchResults || hasResearchSummary || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
 
@@ -140,54 +144,6 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                 timestamp={message.timestamp}
               />
               
-              {/* Real-time Search Progress */}
-              {showRealtimeSearch && (
-                <div className="my-4 p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="relative">
-                      <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center">
-                        <span className="text-lg">🔬</span>
-                      </div>
-                      <div className="absolute inset-0 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-slate-900 dark:text-slate-100 text-sm">
-                        Deep Research
-                      </h3>
-                      <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer)}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {/* Progress bar - only show when totalQueries > 0 */}
-                  {totalQueries > 0 && (
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mb-2">
-                      <div 
-                        className="bg-indigo-600 h-1.5 rounded-full transition-all duration-500"
-                        style={{ 
-                          width: `${Math.min(90, ((message.findingsCount || 0) / totalQueries) * 100)}%` 
-                        }}
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Stats */}
-                  <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    {totalQueries > 0 && (
-                      <span>
-                        查询: {message.findingsCount || 0}/{totalQueries}
-                      </span>
-                    )}
-                    {hasSearchResults && (
-                      <span>
-                        已搜索: {searchResults.length} 个查询
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {/* Analyzing State - No spinner */}
               {isAnalyzing && (
                 <div className="my-4 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -215,9 +171,11 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                     allFindings={message.allFindings}
                     researchSummary={message.researchSummary}
                     engineUsage={message.engineUsage || {}}
-                    isDeepResearch={message.allFindings && message.allFindings.length > 0}
                     isSearching={message.status === 'searching'}
                     pendingQueries={message.status === 'searching' && message.currentQuery ? [message.currentQuery] : []}
+                    cioPlanning={message.cioPlanning}
+                    agentTasks={message.agentTasks}
+                    finalVerdict={message.finalVerdict}
                   />
                 </div>
               )}

@@ -4,6 +4,7 @@
  */
 
 import prisma from '@/lib/prisma';
+import { calcAnnualizedVolatility, calcMaxDrawdown } from '@/lib/agents/quant-agent';
 
 // ==================== 类型定义 ====================
 
@@ -136,31 +137,14 @@ export async function compareFunds(fundCodes: string[]): Promise<FundComparisonR
         let maxDrawdown: number | null = null;
 
         if (yearNavs.length >= 20) {
-            // 年化波动率（基于 daily_return 字段）
+            // 年化波动率 和 最大回撤（复用 Quant-Agent 共享函数）
             const returns = yearNavs
                 .map(n => (n.dailyReturn !== null ? Number(n.dailyReturn) : null))
                 .filter((r): r is number => r !== null);
-
-            if (returns.length >= 20) {
-                const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-                const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
-                const dailyStdDev = Math.sqrt(variance);
-                volatility = Math.round(dailyStdDev * Math.sqrt(252) * 100) / 100;
-            }
-
-            // 最大回撤（时序感知：峰值必须在谷值之前）
             const navValues = yearNavs.map(n => Number(n.unitNav));
-            let peak = navValues[0];
-            let maxDD = 0;
-            for (const nav of navValues) {
-                if (nav > peak) {
-                    peak = nav;
-                } else if (peak > 0) {
-                    const drawdown = (peak - nav) / peak;
-                    if (drawdown > maxDD) maxDD = drawdown;
-                }
-            }
-            maxDrawdown = Math.round(maxDD * 10000) / 100; // 转为百分比
+
+            volatility = calcAnnualizedVolatility(returns);
+            maxDrawdown = calcMaxDrawdown(navValues);
         }
 
         results.push({

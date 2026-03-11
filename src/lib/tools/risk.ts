@@ -4,6 +4,7 @@
  */
 
 import prisma from '@/lib/prisma';
+import { calcAnnualizedVolatility, calcMaxDrawdown, calcSharpeRatio, calcAnnualReturn } from '@/lib/agents/quant-agent';
 
 // ==================== 类型定义 ====================
 
@@ -99,52 +100,26 @@ export async function getFundRiskMetrics(
         .map(n => (n.dailyReturn !== null ? Number(n.dailyReturn) : null))
         .filter((r): r is number => r !== null);
 
-    // ---- 年化收益率 ----
+    // 年化收益率
     const firstNav = navValues[0];
     const lastNav = navValues[navValues.length - 1];
     const actualDays = Math.floor(
         (navRecords[navRecords.length - 1].navDate.getTime() - navRecords[0].navDate.getTime()) /
         (1000 * 60 * 60 * 24)
     );
-    const annualReturn =
-        firstNav > 0 && actualDays > 0
-            ? Math.round((Math.pow(lastNav / firstNav, 365 / actualDays) - 1) * 10000) / 100
+    const annualReturn = calcAnnualReturn(firstNav, lastNav, actualDays);
+
+    // 年化波动率
+    const volatility = calcAnnualizedVolatility(dailyReturns);
+
+    // 最大回撤
+    const maxDrawdown = calcMaxDrawdown(navValues);
+
+    // 夏普比率
+    const sharpeRatio =
+        annualReturn !== null && volatility !== null
+            ? calcSharpeRatio(annualReturn, volatility, RISK_FREE_RATE_ANNUAL)
             : null;
-
-    // ---- 年化波动率 ----
-    let volatility: number | null = null;
-    if (dailyReturns.length >= 20) {
-        const mean = dailyReturns.reduce((s, r) => s + r, 0) / dailyReturns.length;
-        const variance =
-            dailyReturns.reduce((s, r) => s + (r - mean) ** 2, 0) / dailyReturns.length;
-        const dailyStdDev = Math.sqrt(variance);
-        volatility = Math.round(dailyStdDev * Math.sqrt(252) * 100) / 100;
-    }
-
-    // ---- 最大回撤（时序感知）----
-    let maxDrawdown: number | null = null;
-    {
-        let peak = navValues[0];
-        let maxDD = 0;
-        for (const nav of navValues) {
-            if (nav > peak) {
-                peak = nav;
-            } else if (peak > 0) {
-                const drawdown = (peak - nav) / peak;
-                if (drawdown > maxDD) maxDD = drawdown;
-            }
-        }
-        maxDrawdown = Math.round(maxDD * 10000) / 100; // 百分比
-    }
-
-    // ---- 夏普比率 ----
-    let sharpeRatio: number | null = null;
-    if (annualReturn !== null && volatility !== null && volatility > 0) {
-        sharpeRatio =
-            Math.round(
-                ((annualReturn / 100 - RISK_FREE_RATE_ANNUAL) / (volatility / 100)) * 100
-            ) / 100;
-    }
 
     // ---- 风险评级 ----
     const { riskLevel, riskReason } = evaluateRiskLevel(volatility, maxDrawdown);
