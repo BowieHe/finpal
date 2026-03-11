@@ -35,6 +35,7 @@ export interface Message {
   currentQuery?: string;
   findingsCount?: number;
   totalQueries?: number;
+  dbResults?: any[]; // For storing database fetch results
   // Decider decisions per round
   decisions?: RoundDecision[];
 }

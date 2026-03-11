@@ -1,943 +1,419 @@
-# FinPal - 乐观与悲观双人格 AI 对话系统 PRD
+# FinPal Agent Teams Architecture — PRD v3.1
 
-## 1. 项目背景
-
-FinPal 是一个基于 LangGraph 和 OpenAI API 的双人格 AI 对话助手。它能够同时以乐观派和悲观派两个不同的人格视角回答用户的问题，帮助用户从多角度审视问题，做出更全面的决策。
-
-**核心价值：**
-- 提供平衡的视角，避免单一思维局限
-- 增强决策的全面性和深度
-- 适合风险评估、方案对比等场景
-
-## 2. 功能需求
-
-### 2.1 核心功能
-
-#### 2.1.1 会话管理
-- **新建会话**：创建新的对话会话，每个会话独立存储
-- **会话列表**：左侧侧边栏展示所有会话，支持点击切换
-- **会话删除**：删除不需要的会话
-- **会话自动重命名**：基于第一条消息自动生成会话标题
-- **会话持久化**：所有会话数据保存到 localStorage
-
-#### 2.1.2 双人格对话
-- **用户提问**：用户输入问题后，系统同时请求两个不同人格的回答
-- **乐观派回答**：从积极、正面的角度分析问题
-- **悲观派回答**：从谨慎、负面的角度分析问题
-- **左右并排展示**：两个回答以独立卡片形式左右并排显示
-
-#### 2.1.3 消息展示
-- **对话气泡风格**：类似微信/WhatsApp 的消息流展示
-- **用户消息**：居中显示，白色背景，圆角设计
-- **时间戳**：每条消息显示发送时间
-- **人格卡片**：包含 emoji 头像、人格名称、回答内容
-
-#### 2.1.4 配置管理
-- **API 配置**：支持自定义 API URL、Model Name、API Key
-- **配置持久化**：配置保存到 localStorage
-- **表单验证**：保存前验证配置有效性
-- **默认配置**：
-  - API URL：`https://api.deepseek.com/v1`
-  - Model：`deepseek-reasoner`
-
-#### 2.1.5 主题切换
-- **明暗主题**：支持深色和浅色主题切换
-- **主题持久化**：用户偏好保存到 localStorage
-- **平滑过渡**：主题切换有动画过渡效果
-
-### 2.2 辅助功能
-
-#### 2.2.1 会话管理
-- **会话标题自动生成**：基于第一条消息的前 N 个字符自动命名
-- **会话快捷操作**：右键菜单支持删除、重命名
-- **空状态提示**：没有会话时显示创建引导
-
-#### 2.2.2 用户体验
-- **加载状态**：请求 LLM 回答时显示加载动画
-- **错误提示**：请求失败时显示友好错误信息
-- **快捷键支持**：支持 Ctrl/Cmd + N 新建会话
-
-## 3. 技术方案
-
-### 3.1 技术栈
-
-**前端框架：**
-- Next.js 16.1.6 (React 全栈框架)
-- React 19.2.4
-- TypeScript 5.9.3
-
-**UI 框架：**
-- Tailwind CSS 4.2.0
-- 原生 CSS 变量实现主题系统
-
-**AI/LLM：**
-- LangGraph 1.1.5 (应用编排框架)
-- LangChain Core 1.1.26
-- LangChain OpenAI 1.2.8
-- OpenAI 兼容接口
-
-**状态管理：**
-- React Hooks (useState, useEffect)
-- localStorage (数据持久化)
-
-**表单处理：**
-- HTML5 表单 + React state
-
-### 3.2 架构设计
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    FinPal App                        │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  ┌──────────┐         ┌─────────────────────────┐  │
-│  │  Sidebar │         │        Main Content      │  │
-│  │          │         │                         │  │
-│  │ + 会话   │         │  ┌───────────────────┐  │  │
-│  │ 会话1    │         │  │   Chat Area       │  │  │
-│  │ 会话2    │         │  │                   │  │  │
-│  │ 会话3    │         │  │  ┌─────────────┐  │  │  │
-│  │ ...      │         │  │  │   消息气泡   │  │  │  │
-│  │          │         │  │  │   (居中)     │  │  │  │
-│  │ Settings │         │  │  └─────────────┘  │  │  │
-│  │ Theme    │         │  │                   │  │  │
-│  │ Toggle   │         │  │  ┌─────────────┐  │  │  │
-│  │          │         │  │  │ 乐观派卡片  │  │  │  │
-│  │          │         │  │  └─────────────┘  │  │  │
-│  │          │         │  │  ┌─────────────┐  │  │  │
-│  │          │         │  │  │悲观派卡片  │  │  │  │
-│  │          │         │  │  └─────────────┘  │  │  │
-│  │          │         │  │                   │  │  │
-│  │          │         │  │   [输入框]        │  │  │
-│  └──────────┘         │  └───────────────────┘  │  │
-│                        └─────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-```
-
-### 3.3 数据流
-
-#### 会话管理流程
-```
-用户操作 → 更新 state → localStorage → 重新渲染
-```
-
-#### LLM 请求流程
-```
-用户输入 → 从 localStorage 读取配置 → 
-请求 /api/chat → 后端验证配置 → 
-创建 LLM 客户端 → 调用 Graph → 
-返回双人格回答 → 更新 state → localStorage → UI 渲染
-```
-
-### 3.4 配置管理
-
-#### 配置存储结构
-```typescript
-interface LLMConfig {
-  apiUrl: string;        // API 地址，默认 https://api.deepseek.com/v1
-  modelName: string;     // 模型名称，默认 deepseek-reasoner
-  apiKey: string;        // API 密钥
-}
-```
-
-#### localStorage 结构
-```typescript
-// 会话数据
-conversations: {
-  [id: string]: {
-    id: string;
-    title: string;
-    messages: Message[];
-    createdAt: number;
-    updatedAt: number;
-  }
-}
-
-// 当前激活的会话 ID
-currentConversationId: string
-
-// LLM 配置
-llmConfig: {
-  apiUrl: string;
-  modelName: string;
-  apiKey: string;
-}
-
-// 主题设置
-theme: 'light' | 'dark'
-```
-
-## 4. UI/UX 设计
-
-### 4.1 布局设计
-
-#### 主布局
-```
-┌─────────────────────────────────────────────────┐
-│  Header: FinPal Logo + Theme Toggle + Settings │
-├─────────┬───────────────────────────────────────┤
-│ Sidebar│  Main Chat Area                        │
-│         │                                       │
-│ +       │  [用户问题气泡 - 居中]                  │
-│ 会话1   │                                       │
-│ 会话2   │  ┌──────────┐  ┌──────────┐           │
-│ 会话3   │  │ 乐观派   │  │ 悲观派   │           │
-│ ...     │  │ 卡片     │  │ 卡片     │           │
-│         │  └──────────┘  └──────────┘           │
-│         │                                       │
-│         │  [更多消息...]                        │
-│         │                                       │
-│         │  [输入框 - 底部]                       │
-└─────────┴───────────────────────────────────────┘
-```
-
-#### 侧边栏尺寸
-- 宽度：260px
-- 可折叠：展开/收起切换
-- 折叠后宽度：60px
-
-### 4.2 配色方案
-
-#### 深色主题（默认）
-**背景：**
-- 主背景：`from-slate-900 via-purple-900 to-slate-900` (渐变)
-
-**乐观派卡片：**
-- 背景：`from-green-900/30 to-green-800/20`
-- 边框：`border-green-700/30`
-- 文字：`text-green-100`
-- 标题：`text-green-400`
-- Emoji：`😊`
-
-**悲观派卡片：**
-- 背景：`from-red-900/30 to-red-800/20`
-- 边框：`border-red-700/30`
-- 文字：`text-red-100`
-- 标题：`text-red-400`
-- Emoji：`😟`
-
-**用户问题：**
-- 背景：`bg-white/10`
-- 边框：`border-white/20`
-- 文字：`text-white`
-
-**输入框：**
-- 背景：`bg-slate-700/50`
-- 边框：`border-slate-600`
-- 占位符：`text-slate-400`
-
-#### 浅色主题
-**背景：**
-- 主背景：`bg-slate-50`
-
-**乐观派卡片：**
-- 背景：`bg-green-50`
-- 边框：`border-green-200`
-- 文字：`text-green-700`
-- 标题：`text-green-600`
-
-**悲观派卡片：**
-- 背景：`bg-red-50`
-- 边框：`border-red-200`
-- 文字：`text-red-700`
-- 标题：`text-red-600`
-
-**用户问题：**
-- 背景：`bg-white`
-- 边框：`border-slate-300`
-- 文字：`text-slate-800`
-
-**输入框：**
-- 背景：`bg-white`
-- 边框：`border-slate-300`
-
-### 4.3 组件设计
-
-#### 消息气泡
-```
-┌────────────────────────────────┐
-│  12:30                         │
-│                                │
-│  这是一个很长的问题...          │
-│                                │
-└────────────────────────────────┘
-```
-
-**样式：**
-- 居中显示
-- 白色背景（浅色主题）
-- 深色背景（深色主题）
-- 圆角：12px
-- 内边距：16px 24px
-- 最大宽度：80%
-
-#### 人格卡片
-```
-┌────────────────────────────────┐
-│  😊  乐观派                     │
-├────────────────────────────────┤
-│  这是一个积极的分析...          │
-│  - 关注机会和可能性            │
-│  - 强调解决方案                │
-│  - 用鼓励的语气...              │
-└────────────────────────────────┘
-```
-
-**样式：**
-- Emoji + 人格名称（顶部）
-- 回答内容（主体）
-- 悬停效果：轻微放大（scale-105）
-- 阴影增强：shadow-lg
-
-### 4.4 交互设计
-
-#### 会话列表
-- 新建会话：点击 "+" 按钮
-- 切换会话：点击会话项
-- 删除会话：长按或右键菜单
-- 会话标题：灰色小字，最多显示 2 行
-
-#### 设置模态框
-- 模态框背景：半透明黑色遮罩
-- 模态框内容：白色背景，居中显示
-- 表单字段：
-  - API URL（必填）
-  - Model Name（必填）
-  - API Key（必填）
-- 操作按钮：保存、重置、取消
-
-#### 主题切换
-- 位置：右上角
-- 样式：图标按钮
-- 动画：平滑过渡（transition-colors duration-300）
-
-### 4.5 响应式设计
-
-#### 桌面端（≥768px）
-- 侧边栏：始终可见，宽度 260px
-- 两个卡片：左右并排
-- 消息列表：滚动显示
-
-#### 移动端（<768px）
-- 侧边栏：隐藏（汉堡菜单按钮）
-- 两个卡片：垂直堆叠
-- 侧边栏切换：点击汉堡菜单
-
-## 5. 数据结构
-
-### 5.1 类型定义
-
-#### Message
-```typescript
-interface Message {
-  id: string;
-  question: string;
-  optimisticAnswer: string;
-  pessimisticAnswer: string;
-  timestamp: number;
-}
-```
-
-#### Conversation
-```typescript
-interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-  updatedAt: number;
-}
-```
-
-#### LLMConfig
-```typescript
-interface LLMConfig {
-  apiUrl: string;
-  modelName: string;
-  apiKey: string;
-}
-```
-
-#### Theme
-```typescript
-type Theme = 'light' | 'dark';
-```
-
-### 5.2 localStorage 键名
-- `finpal_conversations` - 会话列表
-- `finpal_current_conversation` - 当前会话 ID
-- `finpal_llm_config` - LLM 配置
-- `finpal_theme` - 主题设置
-
-## 6. API 设计
-
-### 6.1 Chat API
-
-**端点：** `POST /api/chat`
-
-**请求体：**
-```json
-{
-  "question": "用户问题",
-  "config": {
-    "apiUrl": "https://api.deepseek.com/v1",
-    "modelName": "deepseek-reasoner",
-    "apiKey": "sk-..."
-  }
-}
-```
-
-**响应：**
-```json
-{
-  "question": "用户问题",
-  "optimisticAnswer": "乐观派回答内容",
-  "pessimisticAnswer": "悲观派回答内容"
-}
-```
-
-**错误响应：**
-```json
-{
-  "error": "错误信息"
-}
-```
-
-### 6.2 API 验证规则
-
-- `apiUrl` 必须以 `/v1` 结尾（可配置）
-- `modelName` 不能为空
-- `apiKey` 不能为空
-- API URL 必须是有效的 HTTPS 地址
-
-## 7. 实现计划
-
-### 7.1 开发阶段
-
-#### Phase 1: 基础架构（Day 1）
-- [ ] 定义类型系统
-- [ ] 创建配置管理工具
-- [ ] 修改 LLM 客户端支持动态配置
-- [ ] 修改 Graph 工厂支持动态 LLM
-- [ ] 更新 API 路由支持动态配置
-- [ ] 创建主题系统
-
-#### Phase 2: 会话管理（Day 1-2）
-- [ ] 实现会话持久化
-- [ ] 创建会话列表组件
-- [ ] 创建新建会话功能
-- [ ] 创建会话切换功能
-- [ ] 创建会话删除功能
-- [ ] 实现会话自动重命名
-
-#### Phase 3: UI 优化（Day 2-3）
-- [ ] 创建消息气泡组件
-- [ ] 创建人格卡片组件
-- [ ] 重构消息列表展示
-- [ ] 优化输入框样式
-- [ ] 实现响应式布局
-
-#### Phase 4: 设置系统（Day 3）
-- [ ] 创建设置模态框
-- [ ] 实现配置表单
-- [ ] 添加配置验证
-- [ ] 实现保存/重置功能
-- [ ] 集成主题切换
-
-#### Phase 5: 主题系统（Day 4）
-- [ ] 实现主题切换逻辑
-- [ ] 适配深色主题
-- [ ] 适配浅色主题
-- [ ] 添加主题过渡动画
-- [ ] 主题持久化
-
-#### Phase 6: 测试和优化（Day 4-5）
-- [ ] 功能测试
-- [ ] UI/UX 优化
-- [ ] 性能优化
-- [ ] 错误处理增强
-- [ ] 移动端适配测试
-
-### 7.2 技术细节
-
-#### LLM 客户端工厂
-```typescript
-// src/lib/llm/client.ts
-export function createLLMClient(config: LLMConfig): ChatOpenAI {
-  return new ChatOpenAI({
-    openAIApiKey: config.apiKey,
-    configuration: {
-      baseURL: config.apiUrl,
-    },
-    temperature: 0.7,
-    model: config.modelName,
-  });
-}
-```
-
-#### Graph 工厂
-```typescript
-// src/lib/graph/graph.ts
-export function createGraph(llm: BaseChatModel) {
-  const graph = new StateGraph({ annotation: GraphAnnotation })
-    .addNode('optimistic', optimisticNode)
-    .addNode('pessimistic', pessimisticNode)
-    .addEdge(START, 'optimistic')
-    .addEdge(START, 'pessimistic')
-    .addEdge('optimistic', END)
-    .addEdge('pessimistic', END);
-
-  return graph.compile();
-}
-```
-
-#### 会话管理工具
-```typescript
-// src/lib/conversation.ts
-export function createConversation(title: string, messages: Message[]): Conversation;
-export function getConversations(): Conversation[];
-export function getCurrentConversation(): Conversation | null;
-export function switchConversation(id: string): void;
-export function createNewConversation(): string;
-export function deleteConversation(id: string): void;
-export function updateConversation(id: string, updates: Partial<Conversation>): void;
-```
-
-#### 配置管理工具
-```typescript
-// src/lib/config.ts
-export function getLLMConfig(): LLMConfig;
-export function setLLMConfig(config: LLMConfig): void;
-export function validateLLMConfig(config: LLMConfig): boolean;
-```
-
-## 8. 后续优化方向
-
-### 8.1 功能增强
-- [ ] 导出会话对话（Markdown/PDF）
-- [ ] 会话搜索功能
-- [ ] 多模型切换
-- [ ] 提示词模板自定义
-- [ ] 对话分享链接
-
-### 8.2 性能优化
-- [ ] 懒加载会话
-- [ ] 虚拟滚动优化
-- [ ] 消息分页加载
-- [ ] API 请求缓存
-
-### 8.3 用户体验
-- [ ] 语音输入
-- [ ] 快捷键支持
-- [ ] 国际化（i18n）
-- [ ] 无障碍访问（a11y）
-
-### 8.4 安全性
-- [ ] API Key 加密存储
-- [ ] 请求签名
-- [ ] 使用限制
-- [ ] 审计日志
-
-## 9. 风险和挑战
-
-### 9.1 技术风险
-- **LLM 响应时间**：大模型推理可能较慢，需要优化加载体验
-- **并发请求**：多个会话同时请求可能导致性能问题
-- **数据持久化**：localStorage 容量限制，需要定期清理
-
-### 9.2 安全风险
-- **API Key 泄露**：存储在客户端存在泄露风险
-- **越权访问**：需要验证 API Key 有效性
-
-### 9.3 用户接受度
-- **使用习惯**：从单会话到多会话需要用户适应
-- **主题切换**：需要平衡不同用户的偏好
-
-## 10. 验收标准
-
-### 10.1 功能验收
-- [ ] 会话创建、切换、删除功能正常
-- [ ] 双人格回答正确显示
-- [ ] 配置管理功能正常
-- [ ] 主题切换流畅
-- [ ] 数据持久化正常
-
-### 10.2 性能验收
-- [ ] 首屏加载 < 3s
-- [ ] 消息列表滚动流畅
-- [ ] API 响应时间 < 5s
-
-### 10.3 UI/UX 验收
-- [ ] 布局响应式适配
-- [ ] 主题切换过渡平滑
-- [ ] 错误提示友好
-
-## 12. 现有代码分析与重构计划
-
-### 12.1 当前项目结构
-
-```
-finpal/
-├── src/
-│   ├── app/
-│   │   ├── page.tsx                # 主页面（需要重构）
-│   │   ├── layout.tsx              # 全局布局（需要扩展）
-│   │   ├── globals.css             # 全局样式（需要扩展）
-│   │   └── api/chat/route.ts       # API 路由（需要修改）
-│   ├── components/
-│   │   ├── ChatInput.tsx           # 输入框（保留）
-│   │   ├── MessageList.tsx         # 消息列表（需要重构）
-│   │   ├── PersonaPanel.tsx        # 人格面板（🗑️ 删除）
-│   │   └── Loading.tsx             # 加载组件（🗑️ 删除）
-│   ├── lib/
-│   │   ├── llm/client.ts           # LLM 客户端（需要重构）
-│   │   ├── graph/
-│   │   │   ├── graph.ts            # Graph 定义（需要重构）
-│   │   │   ├── nodes.ts            # 节点（需要修改）
-│   │   │   └── state.ts            # 状态定义（保留）
-│   │   └── prompts.ts              # 人格 prompt（保留）
-│   ├── types/
-│   │   └── chat.ts                 # 类型定义（需要扩展）
-│   └── utils/
-│       └── format.ts               # 工具函数（保留）
-```
-
-### 12.2 需要删除的文件
-
-#### 🗑️ `src/components/PersonaPanel.tsx`
-**删除原因：**
-- 从未被导入使用
-- 功能与新的 UI 设计不符（PRD 要求独立卡片并排 + 气泡风格）
-- MessageList 将完全重写，PersonaPanel 的功能会被合并到新组件中
-
-#### 🗑️ `src/components/Loading.tsx`
-**删除原因：**
-- 从未被导入使用
-- PRD 要求在消息列表中显示加载状态，而不是单独的加载页面
-- 加载动画应该内联在聊天界面中
-
-### 12.3 需要重构的文件
-
-#### 🔄 `src/components/MessageList.tsx`
-**当前状态：** 简单的消息列表展示
-**需要重构为：** 气泡风格 + 独立卡片并排
-
-**新组件结构：**
-```
-MessageList.tsx (容器)
-├── MessageBubble.tsx (新组件 - 用户问题气泡)
-└── PersonaCard.tsx x 2 (新组件 - 乐观/悲观卡片，左右并排)
-```
-
-**重构内容：**
-- 从网格布局改为气泡流式布局
-- 用户问题居中显示
-- 乐观/悲观卡片左右并排
-- 支持加载状态显示
-
-#### 🔄 `src/app/page.tsx`
-**当前状态：** 简单的单会话聊天
-**需要重构为：** 侧边栏 + 会话管理 + 设置 + 主题切换
-
-**重构内容：**
-- 集成侧边栏组件
-- 添加会话管理逻辑（新建、切换、删除）
-- 添加设置模态框管理
-- 添加主题切换逻辑
-- 集成新的 MessageList 组件
-
-#### 🔄 `src/types/chat.ts`
-**当前状态：** 只有基础 Message 类型
-**需要扩展为：** 多个类型文件
-
-**重构为：**
-```typescript
-// src/types/chat.ts - 保留基础类型
-export interface Message {
-  id: string;
-  question: string;
-  optimisticAnswer: string;
-  pessimisticAnswer: string;
-  timestamp: number;
-}
-
-// src/types/conversation.ts (新增)
-export interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-// src/types/config.ts (新增)
-export interface LLMConfig {
-  apiUrl: string;
-  modelName: string;
-  apiKey: string;
-}
-
-export type Theme = 'light' | 'dark';
-```
-
-#### 🔄 `src/lib/llm/client.ts`
-**当前状态：** 全局 `llm` 实例
-**需要重构为：** 工厂函数支持动态配置
-
-**重构内容：**
-```typescript
-// 旧代码
-export const llm = new ChatOpenAI({
-  openAIApiKey: apiKey,
-  configuration: { baseURL },
-  temperature: 0.7,
-  model,
-});
-
-// 新代码
-export function createLLMClient(config: LLMConfig): ChatOpenAI {
-  return new ChatOpenAI({
-    openAIApiKey: config.apiKey,
-    configuration: {
-      baseURL: config.apiUrl,
-    },
-    temperature: 0.7,
-    model: config.modelName,
-  });
-}
-
-// 保留默认配置作为 fallback
-export const defaultLLMConfig: LLMConfig = {
-  apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com/v1',
-  modelName: process.env.OPENAI_MODEL || 'deepseek-reasoner',
-  apiKey: process.env.OPENAI_API_KEY || '',
-};
-```
-
-#### 🔄 `src/lib/graph/nodes.ts`
-**当前状态：** 从全局 `llm` 导入
-**需要重构为：** 接收 LLM 实例作为参数
-
-**重构内容：**
-```typescript
-// 旧代码
-import { llm } from '../llm/client';
-
-export const optimisticNode = async (state: GraphState): Promise<Partial<GraphState>> => {
-  const prompt = `${OPTIMISTIC_PROMPT}\n\n问题: ${state.question}\n\n请回答:`;
-  const response = await llm.invoke(prompt);
-  return { optimisticAnswer: response.content as string };
-};
-
-// 新代码
-export const createOptimisticNode = (llm: BaseChatModel) => {
-  return async (state: GraphState): Promise<Partial<GraphState>> => {
-    const prompt = `${OPTIMISTIC_PROMPT}\n\n问题: ${state.question}\n\n请回答:`;
-    const response = await llm.invoke(prompt);
-    return { optimisticAnswer: response.content as string };
-  };
-};
-
-export const createPessimisticNode = (llm: BaseChatModel) => {
-  return async (state: GraphState): Promise<Partial<GraphState>> => {
-    const prompt = `${PESSIMISTIC_PROMPT}\n\n问题: ${state.question}\n\n请回答:`;
-    const response = await llm.invoke(prompt);
-    return { pessimisticAnswer: response.content as string };
-  };
-};
-```
-
-#### 🔄 `src/lib/graph/graph.ts`
-**当前状态：** 全局 `chatGraph` 实例
-**需要重构为：** 工厂函数支持动态 LLM
-
-**重构内容：**
-```typescript
-// 旧代码
-export const chatGraph = createGraph();
-
-// 新代码
-export function createGraph(llm: BaseChatModel) {
-  const optimisticNode = createOptimisticNode(llm);
-  const pessimisticNode = createPessimisticNode(llm);
-
-  const graph = new StateGraph({ annotation: GraphAnnotation })
-    .addNode('optimistic', optimisticNode)
-    .addNode('pessimistic', pessimisticNode)
-    .addEdge(START, 'optimistic')
-    .addEdge(START, 'pessimistic')
-    .addEdge('optimistic', END)
-    .addEdge('pessimistic', END);
-
-  return graph.compile();
-}
-```
-
-### 12.4 需要更新的文件
-
-#### 📝 `.env.local.example`
-**更新内容：**
-```bash
-# 旧配置
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-
-# 新配置（DeepSeek 默认）
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-reasoner
-```
-
-#### 📝 `src/app/globals.css`
-**更新内容：** 添加主题 CSS 变量
-
-```css
-:root {
-  /* 深色主题（默认） */
-  --background-start: #0f172a;
-  --background-middle: #581c87;
-  --background-end: #0f172a;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --card-bg: rgba(30, 41, 59, 0.5);
-  --border-color: rgba(148, 163, 184, 0.2);
-}
-
-[data-theme="light"] {
-  /* 浅色主题 */
-  --background-start: #f8fafc;
-  --background-middle: #f8fafc;
-  --background-end: #f8fafc;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --card-bg: rgba(255, 255, 255, 1);
-  --border-color: rgba(148, 163, 184, 0.3);
-}
-```
-
-#### 📝 `src/app/api/chat/route.ts`
-**更新内容：** 支持动态配置
-
-```typescript
-// 旧代码
-import { chatGraph } from '@/lib/graph/graph';
-
-const result = await chatGraph.invoke({
-  question,
-  optimisticAnswer: '',
-  pessimisticAnswer: '',
-});
-
-// 新代码
-import { createGraph } from '@/lib/graph/graph';
-import { createLLMClient } from '@/lib/llm/client';
-
-const { question, config } = await request.json();
-
-// 创建 LLM 客户端
-const llm = createLLMClient(config);
-
-// 创建 Graph
-const graph = createGraph(llm);
-
-const result = await graph.invoke({
-  question,
-  optimisticAnswer: '',
-  pessimisticAnswer: '',
-});
-```
-
-### 12.5 新增文件清单
-
-#### 新增组件文件：
-- `src/components/Sidebar.tsx` - 侧边栏组件
-- `src/components/ConversationList.tsx` - 会话列表
-- `src/components/ConversationItem.tsx` - 单个会话项
-- `src/components/MessageBubble.tsx` - 消息气泡
-- `src/components/PersonaCard.tsx` - 人格卡片
-- `src/components/SettingsModal.tsx` - 设置模态框
-- `src/components/SettingsForm.tsx` - 设置表单
-- `src/components/ThemeToggle.tsx` - 主题切换
-
-#### 新增工具文件：
-- `src/lib/config.ts` - 配置管理工具
-- `src/lib/conversation.ts` - 会话管理工具
-
-#### 新增类型文件：
-- `src/types/conversation.ts` - 会话类型
-- `src/types/config.ts` - 配置类型
-
-### 12.6 重构执行顺序
-
-**阶段 1：清理和准备**
-1. ✅ 删除 `src/components/PersonaPanel.tsx`
-2. ✅ 删除 `src/components/Loading.tsx`
-3. ✅ 更新 `.env.local.example`
-
-**阶段 2：类型和工具**
-4. ✅ 创建 `src/types/conversation.ts`
-5. ✅ 创建 `src/types/config.ts`
-6. ✅ 创建 `src/lib/config.ts`
-7. ✅ 创建 `src/lib/conversation.ts`
-
-**阶段 3：后端重构**
-8. ✅ 重构 `src/lib/llm/client.ts`（工厂函数）
-9. ✅ 重构 `src/lib/graph/nodes.ts`（参数化）
-10. ✅ 重构 `src/lib/graph/graph.ts`（工厂函数）
-11. ✅ 更新 `src/app/api/chat/route.ts`（动态配置）
-
-**阶段 4：前端组件**
-12. ✅ 创建 `src/components/MessageBubble.tsx`
-13. ✅ 创建 `src/components/PersonaCard.tsx`
-14. ✅ 重构 `src/components/MessageList.tsx`
-
-**阶段 5：侧边栏和会话**
-15. ✅ 创建 `src/components/ConversationItem.tsx`
-16. ✅ 创建 `src/components/ConversationList.tsx`
-17. ✅ 创建 `src/components/Sidebar.tsx`
-
-**阶段 6：设置和主题**
-18. ✅ 创建 `src/components/SettingsForm.tsx`
-19. ✅ 创建 `src/components/SettingsModal.tsx`
-20. ✅ 创建 `src/components/ThemeToggle.tsx`
-
-**阶段 7：集成和优化**
-21. ✅ 更新 `src/app/globals.css`（主题变量）
-22. ✅ 重构 `src/app/page.tsx`（集成所有功能）
-23. ✅ 更新 `src/app/layout.tsx`（主题 provider）
-
-### 12.7 文件操作总结
-
-| 操作类型 | 数量 | 文件 |
-|---------|------|------|
-| **删除** | 2 | `PersonaPanel.tsx`, `Loading.tsx` |
-| **重构** | 5 | `MessageList.tsx`, `page.tsx`, `client.ts`, `nodes.ts`, `graph.ts` |
-| **扩展** | 1 | `types/chat.ts` |
-| **更新** | 4 | `.env.local.example`, `globals.css`, `layout.tsx`, `route.ts` |
-| **新增** | 13 | 8 个组件 + 2 个工具 + 3 个类型 |
-| **保留** | 其余 | `prompts.ts`, `state.ts`, `format.ts`, `ChatInput.tsx`, 配置文件等 |
-
-## 13. 附录
-
-### 13.1 默认配置
-```json
-{
-  "apiUrl": "https://api.deepseek.com/v1",
-  "modelName": "deepseek-reasoner"
-}
-```
-
-### 11.2 技术文档
-- Next.js: https://nextjs.org/docs
-- Tailwind CSS: https://tailwindcss.com/docs
-- LangGraph: https://langchain-ai.github.io/langgraph/
-
-### 11.3 相关资源
-- OpenAI API: https://platform.openai.com/docs
-- DeepSeek API: https://platform.deepseek.com/docs
+> **策略**：自底向上（Bottom-Up）— 先完善 Sub-Agents → 再建 CIO 调度层 → 最后接入辩论团队
 
 ---
 
-**文档版本：** v1.0
-**创建日期：** 2026-02-25
-**最后更新：** 2026-02-25
-**作者：** FinPal Team
+## 背景与目标
+
+### 现状痛点
+当前架构是 **单一 Researcher 节点** 包揽所有工作（意图识别 + Tool 调用 + 数据整合 + 分析输出）。其核心问题：
+
+- **流程固化**：步骤写死在一条链路上，无法动态扩展（如用户同时问 5 只基金）
+- **能力混杂**：同一 Agent 同时承担数据库查询和联网搜索，职责不清，难以独立测试
+- **上下文膨胀**：所有信息挤在单一 Context Window，大模型容易"遗忘"和"混淆"
+- **前端假装动态**：步骤展示是静态写死的，与后端实际执行脱节
+
+### 目标愿景 — "FinPal 金融智库"
+将 AI 后端重构为一家**微型的金融公司组织架构**：
+
+```
+用户提问
+   │
+   ▼
+┌──────────────────────────────────────────────────────┐
+│                  CIO 首席投资官代理                    │
+│    意图识别 → 动态路由决策（短路 or 全链路）            │
+└────────────────────┬─────────────────────────────────┘
+                     │
+          ┌──────────▼──────────┐
+          │   需要深度分析吗？    │
+          └─────┬──────────┬────┘
+           否（简单查询）  是（复杂分析）
+                │              │  Send API 动态孵化
+                │         ┌────┴──────────────────┐
+                │         ▼                       ▼
+                │    [DB-Agent]           [Web-Agent × N]
+                │    持仓数据查询          每只基金独立采集
+                │         └────────┬──────────────┘
+                │                  ▼ Fan-in 数据汇总
+                │          [Quant-Agent] 风险指标计算
+                │                  │
+                │         ┌────────▼─────────┐
+                │         │  Gate Keeper      │
+                │         │  数据质量检验      │
+                │         └────────┬─────────┘
+                │                  ▼
+                │    ┌─────────────────────────┐
+                │    │       辩论分析团队         │
+                │    │  乐观分析师 ⚔️ 悲观分析师  │
+                │    │      → Judge 裁决          │
+                │    └─────────────┬───────────┘
+                └──────────────────┘
+                                   ▼
+                             最终回答给用户
+```
+
+---
+
+## 核心设计原则
+
+### 1. 数据采集 vs 比较分析的分层
+**数据采集阶段**（Phase 1/2）和**比较分析阶段**（Phase 3）的职责截然不同：
+
+- **采集阶段**：给每只基金独立孵化一个 Web-Agent，是因为**抓数据本身互不依赖**。000001 去搜它的信息，110011 去搜它的信息——这是纯 I/O 并行操作，谁先完成谁先写回 State，类似"并行采购食材"。
+- **分析阶段**：当所有数据汇聚到辩论团队时，分析师拿到的是**两只基金的完整数据合集**，做的才是真正的横向对比（如"000001 的夏普率 0.8 vs 110011 的 1.2..."）。
+
+> **理解：先并行采购食材，再一起下锅烹饪。**
+
+### 2. CIO 智能短路路由（不是每次都全链路执行）
+
+CIO 的核心价值是**按需派发，而非固定全链路**。Gate Keeper 的判断逻辑：
+
+```
+用户问："今天市场怎么样？"
+└─ CIO：不涉及持仓，无需数据库
+   └─ 只派发 Web-Agent → 直接输出新闻摘要（跳过 Quant + 辩论全流程）
+
+用户问："我的持仓总体盈亏？"
+└─ CIO：只需数据库，无需联网
+   └─ 只派发 DB-Agent → Judge 直接输出（无需辩论）
+
+用户问："分析持仓，对比 000001 和 110011"
+└─ CIO：复杂意图，需要最完整链路
+   └─ 并行 DB-Agent + Web-Agent × 2 → Quant-Agent → 完整辩论 → Judge
+```
+
+### 3. Quant-Agent 的实现策略
+
+**不需要沙盒，使用纯 TypeScript 计算函数即可**，分阶段演进：
+
+| 阶段 | 实现方式 | 说明 |
+|------|---------|------|
+| 当前（Phase 1） | 纯 TypeScript 函数 | 夏普率、MDD、年化波动率，直接数学公式，无外部依赖 |
+| 未来（如有需要） | Python 微服务 | 期权定价、蒙特卡洛回测等高级模型，Node.js 通过 HTTP 调用 |
+
+> 对于当前需求，纯 TypeScript 完全够用，成熟后再考虑是否引入 Python 微服务。
+
+---
+
+## Phase 1：Sub-Agent 专业化分工
+
+> **目标**：把现有的"杂货铺 Researcher"拆分成三位**专职专员**，每位都可独立调用和测试。
+
+### 1.1 DB-Agent（数据库持仓专员）
+
+**职责**：唯一负责所有与数据库相关的查询。不联网，不分析，只返回结构化数据。
+
+**标准 Input：**
+```typescript
+interface DBAgentInput {
+  task: "portfolio_summary" | "holding_detail" | "compare_funds" | "risk_metrics";
+  params: { userId: string; fundCodes?: string[] };
+}
+```
+
+**标准 Output：**
+```typescript
+interface DBAgentOutput {
+  agentId: "db-agent";
+  status: "success" | "error";
+  data: PortfolioData | HoldingData | ComparisonData | RiskData;
+}
+```
+
+**工具集（与现有 `portfolio.ts` 对应）：**
+| Tool | 触发条件 |
+|------|---------|
+| `getPortfolioSummary` | 用户问"总体持仓如何" |
+| `getHoldingDetail` | 用户问具体某只基金的持有情况 |
+| `compareFunds` | 用户需要对比两只以上基金（注意：这里拿的是数据库中的持仓记录，不是外部行情） |
+| `getFundRiskMetrics` | 用户问风险、回撤、夏普率 |
+
+**验收标准：**
+- [ ] 传入 `portfolio_summary` task，能正确返回总持仓数据
+- [ ] 传入不存在的基金代码，能返回 `status: error` 而非 crash
+- [ ] 不联网，响应时间 < 500ms
+
+---
+
+### 1.2 Web-Agent（联网信息侦察专员）
+
+**职责**：唯一负责所有外部信息获取（基金经理动态、市场新闻、最新净值行情等）。不访问数据库。
+
+**标准 Input：**
+```typescript
+interface WebAgentInput {
+  task: "fund_info" | "market_news" | "manager_info";
+  params: {
+    query: string;
+    fundCode?: string;
+    // 当需要对比分析时，CIO 会为每只基金单独派发一个 WebAgentInput
+    // 最终对比逻辑由 Phase 3 辩论团队完成
+  };
+}
+```
+
+**标准 Output：**
+```typescript
+interface WebAgentOutput {
+  agentId: "web-agent";
+  fundCode?: string;          // 归属哪只基金（便于辩论团队做对比）
+  status: "success" | "partial" | "error";
+  sources: string[];          // 信息来源 URL（可溯源）
+  summary: string;            // 结构化摘要
+  rawSnippets: string[];      // 原始搜索片段
+}
+```
+
+**工具集：**
+| Tool | 说明 |
+|------|------|
+| `tavilySearch` | 通用金融搜索 |
+| `fetchFundPage` | 抓取天天基金/晨星等平台的基金详情页 |
+
+**验收标准：**
+- [ ] 搜索 "000001 最新净值"，返回结构化 summary 含数字
+- [ ] 网络超时时，优雅降级返回 `status: partial`，不阻塞整个图
+- [ ] 每次搜索结果中包含 `sources` 可溯源
+
+---
+
+### 1.3 Quant-Agent（量化风险计算专员）
+
+**职责**：纯计算节点，**不调用大模型**，直接对数字做数学运算。速度最快、结果最确定。
+
+**标准 Input：**
+```typescript
+interface QuantAgentInput {
+  fundCode: string;
+  priceHistory: number[];    // 历史净值序列（由 Web-Agent 或 DB-Agent 提供）
+  riskFreeRate: number;      // 无风险利率（通常用 3% 年化）
+}
+```
+
+**标准 Output：**
+```typescript
+interface QuantAgentOutput {
+  agentId: "quant-agent";
+  fundCode: string;
+  sharpeRatio: number;
+  maxDrawdown: number;               // 最大回撤（百分比）
+  annualizedVolatility: number;
+  calmarRatio: number;               // 年化收益 / 最大回撤
+}
+```
+
+**实现方式**：纯 TypeScript 数学公式，无外部依赖，无 LLM 调用。
+
+**验收标准：**
+- [ ] 给定已知净值序列，计算结果与 Excel 手算结果误差 < 0.01%
+- [ ] 纯函数，无副作用，unit test 100% 覆盖
+- [ ] 响应时间 < 50ms（纯计算，无网络 I/O）
+
+---
+
+## Phase 2：CIO 调度层（核心路由逻辑）
+
+> **目标**：构建顶层的意图拆解器和动态任务派发器。**依赖 Phase 1 全部完成并通过测试**。
+
+### 2.1 Intent Planner（意图规划师）
+
+小型 LLM 调用节点，专门做**意图拆解**，不做任何分析，不调用任何数据工具。
+
+**输入**：用户的 raw query
+**输出**：一个任务计划，包含路由决策
+
+```typescript
+interface Plan {
+  requiresDebate: boolean;    // 是否需要进入 Phase 3 辩论团队
+  tasks: Array<{
+    agent: "db-agent" | "web-agent" | "quant-agent";
+    task: string;
+    params: Record<string, any>;
+    priority: number;         // 用于 UI 展示顺序
+    canSkip: boolean;         // 若结果缺失，是否允许降级而非失败
+  }>;
+}
+```
+
+**示例**（"分析持仓，同时对比 000001 和 110011"）：
+```json
+{
+  "requiresDebate": true,
+  "tasks": [
+    { "agent": "db-agent",  "task": "portfolio_summary", "params": { "userId": "user_01" },       "priority": 1, "canSkip": false },
+    { "agent": "web-agent", "task": "fund_info",         "params": { "fundCode": "000001" },      "priority": 2, "canSkip": true  },
+    { "agent": "web-agent", "task": "fund_info",         "params": { "fundCode": "110011" },      "priority": 2, "canSkip": true  },
+    { "agent": "quant-agent","task": "risk_metrics",     "params": { "fundCode": "000001" },      "priority": 3, "canSkip": true  },
+    { "agent": "quant-agent","task": "risk_metrics",     "params": { "fundCode": "110011" },      "priority": 3, "canSkip": true  }
+  ]
+}
+```
+
+**示例**（"今天市场怎么样"）：
+```json
+{
+  "requiresDebate": false,
+  "tasks": [
+    { "agent": "web-agent", "task": "market_news", "params": { "query": "今日 A股 市场行情" }, "priority": 1, "canSkip": false }
+  ]
+}
+```
+
+### 2.2 Dynamic Dispatcher（动态派发器）
+
+将 Intent Planner 的任务列表转换为 LangGraph `Send` 调用，动态孵化对应的 Agent 实例。
+
+```typescript
+// LangGraph 配置（TypeScript 伪代码）
+const dispatchNode = (state: GlobalState): Send[] => {
+  return state.plan.tasks.map(task =>
+    new Send(`${task.agent}`, { ...task.params, taskMeta: task })
+  );
+};
+
+graph.addConditionalEdges("cio-dispatcher", dispatchNode);
+```
+
+**关键特性：**
+- 任务数量完全动态（1 只基金 → 1 个 Web-Agent；5 只 → 5 个，自动孵化）
+- 所有同优先级实例**并行执行**（Fan-out）
+- 结果自动汇总进入 `GlobalState.collectedData`（Fan-in）
+
+### 2.3 Gate Keeper（结果质量检验 + 路由决策）
+
+所有 Sub-Agent 完成后的汇总节点，同时决定接下来走哪条路：
+
+```
+Gate Keeper 决策树：
+
+requiresDebate = false?
+  └─ 是 → 直接由 Judge 输出简洁回答（跳过辩论）
+  └─ 否 → 继续检查数据质量
+
+关键数据（canSkip=false）有缺失？
+  └─ 是 → 直接返回错误给用户
+  └─ 否 → 继续
+
+部分数据（canSkip=true）有缺失？
+  └─ 是 → 添加 warning 标记，降级进入辩论
+  └─ 否 → 数据完整，进入完整辩论流程
+```
+
+**验收标准（Phase 2）：**
+- [ ] 用户简单提问时（如"今天市场怎么样"），后端日志确认没有触发辩论流程
+- [ ] 用户含 3 只基金的问题，后端日志确认 3 个并行 Web-Agent 被触发
+- [ ] 某个 Web-Agent 超时，Gate Keeper 能识别并降级，不阻塞整个流程
+- [ ] `Send` API 并行派发后，总时间 ≤ 最慢单个 Agent 的耗时（真正并行）
+
+---
+
+## Phase 3：辩论分析团队（深度输出）
+
+> **目标**：在高质量汇总数据的基础上，产生深度、平衡、有洞察力的投资建议。**只在 requiresDebate=true 时触发**。
+
+### 3.1 辩论团队的输入 State
+
+```typescript
+interface DebateTeamInput {
+  portfolioSummary?: DBAgentOutput;     // 用户持仓（若涉及）
+  fundResearch: WebAgentOutput[];       // 每只基金一个，agentId 区分
+  quantMetrics: QuantAgentOutput[];     // 各基金风险指标，fundCode 区分
+  userQuery: string;                    // 原始问题（供分析师理解上下文）
+  warnings: string[];                   // Gate Keeper 传入的降级警告
+}
+```
+
+### 3.2 辩论节点
+
+| 角色 | 职责 | 数据引用 |
+|------|------|---------|
+| **乐观分析师** | 找机会、谈增长、找对比优势 | 引用 Web-Agent 的近期正向信号 / 基金经理亮点 |
+| **悲观分析师** | 找风险、谈回撤、找对比劣势 | 引用 Quant-Agent 的 MDD、波动率数字作为论据 |
+| **裁决 Judge** | 综合两方，输出结构化结论 | 综合所有数据，必要时标注数据来源 |
+
+> **注意**：比较两只基金是在分析师层面完成的，他们拿到两只基金的完整数据后，**自然进行横向对比**，而不是在数据采集阶段做比较。
+
+### 3.3 Judge 标准化输出结构
+
+```typescript
+interface FinalVerdict {
+  summary: string;             // 一句话结论
+  recommendation: "strong_buy" | "hold" | "reduce" | "avoid" | "info_only";
+  confidence: number;          // 0-100，数据越完整置信度越高
+  bullPoints: string[];        // 乐观观点（≤3条）
+  bearPoints: string[];        // 悲观观点（≤3条）
+  comparisonTable?: {          // 若涉及多只基金对比，输出结构化对比表
+    fundCode: string;
+    sharpe: number;
+    mdd: number;
+    recommendation: string;
+  }[];
+  riskWarnings: string[];      // 风险提示（含 Gate Keeper 传入的 warning）
+  sources: string[];           // 数据来源 URL
+}
+```
+
+---
+
+## Phase 4：前端动态 UI 重构
+
+> **目标**：让 UI 从「写死步骤的假进度条」升级为「实时反映后端 Agent 团队真实工作状态」。
+
+### 4.1 SSE 事件协议（后端推送给前端）
+
+```typescript
+type SSEEvent =
+  | { type: "agent_start";     agentId: string; taskDescription: string }
+  | { type: "agent_progress";  agentId: string; message: string }
+  | { type: "agent_done";      agentId: string; summary: string }
+  | { type: "agent_error";     agentId: string; error: string; canSkip: boolean }
+  | { type: "final_verdict";   data: FinalVerdict };
+```
+
+### 4.2 前端 `ResearchResults.tsx` 重构目标
+
+UI 根据 SSE 事件动态构建 Timeline，而非写死步骤：
+
+```
+⚙️ CIO 主管      正在拆解您的问题，识别出 5 项调查任务...      ✅ 完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[并行执行中]
+🏦 持仓专员       正在读取您的持仓快照                           ✅ 完成
+🌐 侦察专员-000001 正在抓取最新净值和基金经理信息...             ✅ 完成
+🌐 侦察专员-110011 正在搜索近期持仓调整...                       ✅ 完成
+📐 量化计算-000001 夏普率 0.82 / 最大回撤 -18.3%               ✅ 完成
+📐 量化计算-110011 夏普率 1.24 / 最大回撤 -11.7%               ✅ 完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 乐观分析师     正在寻找两只基金的增长亮点和比较优势...         ✅ 完成
+📉 悲观分析师     正在评估回撤风险和经理稳定性...                 ✅ 完成
+⚖️  Judge         综合两方观点，正在生成投资建议...               🔄 进行中
+```
+
+---
+
+## 技术风险与缓解策略
+
+| 风险 | 缓解策略 |
+|------|---------|
+| LangGraph `Send` API 在 TypeScript/LangChain.js 中成熟度 | Phase 2 前先做最小 POC 验证 Fan-out/Fan-in |
+| 多 Web-Agent 并行可能触发搜索 API 频率限制 | 加 rate-limit 中间件；将 `canSkip=true` 的任务加延迟 |
+| 辩论两方 Token 消耗翻倍 | Judge 使用轻量模型（GPT-4o mini）；Optimist/Pessimist 使用完整模型 |
+| 前端 SSE 连接超时 | 加 heartbeat ping；超时后 UI 展示已收到的 partial result |
+| Quant-Agent 没有历史净值数据来源 | Phase 1 先用 DB 中已有数据；Phase 2 后从 Web-Agent 抓取历史净值序列 |
+
+---
+
+## 开发里程碑
+
+| 阶段 | 核心产出 | 依赖 |
+|------|---------|------|
+| **Phase 1** | DB-Agent / Web-Agent / Quant-Agent 各自独立可测试 | 无 |
+| **Phase 2** | CIO Intent Planner + `Send` API 动态派发 + Gate Keeper 短路路由 | Phase 1 ✅ |
+| **Phase 3** | 辩论团队升级（接入真实对比数据 + 结构化输出） | Phase 2 ✅ |
+| **Phase 4** | 前端 SSE 动态 Timeline UI（与 Phase 3 并行开发） | Phase 1 ✅ |
+
+---
+
+*文档版本：v3.1 | 最后更新：2026-03-11*

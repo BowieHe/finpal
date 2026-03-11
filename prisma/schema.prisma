@@ -7,34 +7,71 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// 基金基础信息（主键是 code，与 Python scheduler 建表一致）
 model FundBasic {
-  id               Int       @id @default(autoincrement())
-  code             String    @unique @db.VarChar(10)
-  name             String    @db.VarChar(100)
-  category         String?   @db.VarChar(50)
-  manager          String?   @db.VarChar(50)
-  company          String?   @db.VarChar(100)
-  establishedDate  DateTime? @map("established_date")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  
+  code            String    @id @db.VarChar(10)
+  name            String    @db.VarChar(100)
+  category        String?   @db.VarChar(50)
+  manager         String?   @db.VarChar(50)
+  company         String?   @db.VarChar(100)
+  establishedDate DateTime? @map("established_date") @db.Timestamp(6)
+  updatedAt       DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
   navs FundNav[]
-  
+
+  @@index([name], map: "idx_fund_basic_name")
   @@map("fund_basic")
 }
 
+/// 基金净值（每日 T+1 同步）
 model FundNav {
-  id            Int       @id @default(autoincrement())
-  fundCode      String    @map("fund_code") @db.VarChar(10)
-  navDate       DateTime  @map("nav_date")
-  unitNav       Decimal   @map("unit_nav") @db.Decimal(10, 4)
-  accumNav      Decimal   @map("accum_nav") @db.Decimal(10, 4)
-  dailyReturn   Decimal?  @map("daily_return") @db.Decimal(6, 2)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  
+  id          Int      @id @default(autoincrement())
+  fundCode    String   @map("fund_code") @db.VarChar(10)
+  navDate     DateTime @map("nav_date") @db.Timestamp(6)
+  unitNav     Decimal  @map("unit_nav") @db.Decimal(10, 4)
+  accumNav    Decimal  @map("accum_nav") @db.Decimal(10, 4)
+  dailyReturn Decimal? @map("daily_return") @db.Decimal(6, 2)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
   fund FundBasic @relation(fields: [fundCode], references: [code])
-  
+
   @@unique([fundCode, navDate])
-  @@index([fundCode])
-  @@index([navDate])
+  @@index([fundCode], map: "idx_fund_nav_code")
+  @@index([navDate], map: "idx_fund_nav_date")
   @@map("fund_nav")
+}
+
+
+/// 用户持仓（单用户系统，无 user_id）
+model UserHolding {
+  id        String   @id @default(cuid())
+  fundCode  String   @map("fund_code") @db.VarChar(10)
+  fundName  String   @map("fund_name") @db.VarChar(100)
+  shares    Decimal  @db.Decimal(15, 4)
+  costPrice Decimal  @map("cost_price") @db.Decimal(10, 4)
+  buyDate   DateTime @map("buy_date")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  transactions HoldingTransaction[]
+
+  @@index([fundCode])
+  @@map("user_holdings")
+}
+
+/// 持仓交易记录（分批买入/卖出）
+model HoldingTransaction {
+  id        String   @id @default(cuid())
+  holdingId String   @map("holding_id")
+  type      String   @db.VarChar(10)    // 'buy' | 'sell'
+  date      DateTime
+  shares    Decimal  @db.Decimal(15, 4)
+  price     Decimal  @db.Decimal(10, 4)
+  amount    Decimal  @db.Decimal(15, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  holding UserHolding @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+
+  @@index([holdingId])
+  @@map("holding_transactions")
 }

@@ -1,10 +1,163 @@
-import { GraphState, ResearchSummary, ResearchSubTask, ResearchFinding, DataPoint } from './state';
+import { GraphState, ResearchSummary, ResearchSubTask, ResearchFinding, DataPoint, ProgressCallback } from './state';
 import { getLLMInstance, withRetry, streamWithCallback } from '../llm/client';
 import { smartSearch } from '../mcp/unified-search';
 import { SearchEngine } from '@/types/mcp';
 import { createLogger } from '../logger';
+import { getPortfolioSummary, getHoldingDetail } from '../tools/portfolio';
+import { compareFunds } from '../tools/comparison';
+import { getFundRiskMetrics } from '../tools/risk';
 
 const logger = createLogger('GraphNodes');
+
+// ==================== 持仓意图识别 ====================
+
+const PORTFOLIO_KEYWORDS = [
+  '持仓', '我的基金', '我持有', '收益', '盈亏', '亏损', '投资组合',
+  '建议', '分析', '风险', '表现', '怎么样', '对比', '比较', '回撤',
+  '波动', '夏普', '定投', '赎回', '加仓', '减仓',
+];
+
+// 从问题中提取基金代码（6位数字）
+function extractFundCodes(question: string): string[] {
+  const matches = question.match(/\b\d{6}\b/g);
+  return matches ? [...new Set(matches)] : [];
+}
+
+// 判断是否为持仓相关问题
+function isPortfolioQuestion(question: string): boolean {
+  return PORTFOLIO_KEYWORDS.some(kw => question.includes(kw));
+}
+
+// 调用持仓分析 Tools 并返回结构化上下文
+async function fetchPortfolioContext(question: string, progressCallback?: ProgressCallback): Promise<string> {
+  const sections: string[] = [];
+
+  try {
+    if (progressCallback) {
+      progressCallback({
+        type: 'db_query',
+        data: { message: '正在加载您的持仓总览...' },
+      });
+    }
+    // 始终获取持仓总览
+    const summary = await getPortfolioSummary();
+    if (summary.hasData) {
+      if (progressCallback) {
+        progressCallback({
+          type: 'db_result',
+          data: {
+            results: [{
+              type: '持仓总览',
+              query: 'getPortfolioSummary()',
+              status: 'success',
+              results: [{
+                title: '账户概况',
+                description: `总投入: ${summary.totalCost} 元\n总市值: ${summary.totalValue} 元\n累计盈亏: ${summary.totalProfit} 元 (${summary.totalProfitRate}%)`
+              }]
+            }]
+          }
+        });
+      }
+      sections.push(`【持仓总览】
+总投入：${summary.totalCost} 元
+总市值：${summary.totalValue} 元
+累计盈亏：${summary.totalProfit} 元（${summary.totalProfitRate}%）
+今日盈亏：${summary.dailyProfit} 元
+盈利基金数：${summary.profitCount} 只，亏损基金数：${summary.lossCount} 只
+净值日期：${summary.navDate}
+
+持仓明细：
+${summary.holdings.map(h =>
+        `  ${h.fundCode} ${h.fundName}：持有 ${h.shares} 份，成本 ${h.costPrice} 元，当前净值 ${h.currentNav} 元，市值 ${h.currentValue} 元，盈亏 ${h.totalProfit} 元（${h.profitRate}%），今日 ${h.dailyProfit} 元`
+      ).join('\n')}`);
+
+      // 如果问题涉及风险或全面分析，对每只基金获取风险指标
+      const needsRiskAnalysis = ['风险', '波动', '回撤', '夏普', '建议', '分析', '全面'].some(k => question.includes(k));
+      if (needsRiskAnalysis) {
+        if (progressCallback) {
+          progressCallback({
+            type: 'db_query',
+            data: { message: '正在计算每只基金的风险指标...' },
+          });
+        }
+        for (const holding of summary.holdings) {
+          try {
+            const risk = await getFundRiskMetrics(holding.fundCode, '1y');
+            if (progressCallback) {
+              progressCallback({
+                type: 'db_result',
+                data: {
+                  results: [{
+                    type: '风险指标',
+                    query: `getFundRiskMetrics(${holding.fundCode}, '1y')`,
+                    status: !risk.insufficientData ? 'success' : 'warning',
+                    results: [{ title: holding.fundName, description: !risk.insufficientData ? `年化: ${risk.annualReturn}%\n最大回撤: ${risk.maxDrawdown}%\n夏普比率: ${risk.sharpeRatio}\n风险等级: ${risk.riskLevel}` : '数据不足' }]
+                  }]
+                }
+              });
+            }
+            if (!risk.insufficientData) {
+              sections.push(`【${risk.fundCode} ${risk.fundName} 风险指标（近1年）】
+年化收益率：${risk.annualReturn ?? 'N/A'}%
+年化波动率：${risk.volatility ?? 'N/A'}%
+最大回撤：${risk.maxDrawdown ?? 'N/A'}%
+夏普比率：${risk.sharpeRatio ?? 'N/A'}
+风险等级：${risk.riskLevel}（${risk.riskReason}）`);
+            }
+          } catch (e) {
+            logger.warn('Risk metrics fetch failed', { fundCode: holding.fundCode, error: String(e) });
+          }
+        }
+      }
+    } else {
+      sections.push('【持仓状态】目前没有持仓记录，无法进行持仓分析。');
+    }
+
+    // 如果问题包含基金代码，获取对比分析
+    const fundCodes = extractFundCodes(question);
+    if (fundCodes.length > 0) {
+      if (progressCallback) {
+        progressCallback({
+          type: 'db_query',
+          data: { message: `正在横向对比基金: ${fundCodes.join(', ')}...` },
+        });
+      }
+      try {
+        const comparison = await compareFunds(fundCodes);
+        if (progressCallback) {
+          progressCallback({
+            type: 'db_result',
+            data: {
+              results: [{
+                type: '横向对比',
+                query: `compareFunds([${fundCodes.join(', ')}])`,
+                status: 'success',
+                results: comparison.funds.map(f => ({
+                  title: f.fundName,
+                  description: `近1年收益: ${f.return1y ?? 'N/A'}%\n近6月收益: ${f.return6m ?? 'N/A'}%\n最大回撤: ${f.maxDrawdown ?? 'N/A'}%`
+                }))
+              }]
+            }
+          });
+        }
+        sections.push(`【基金对比分析】
+${comparison.funds.map(f =>
+          `${f.fundCode} ${f.fundName}（${f.category ?? '未知'}）：
+  近1月 ${f.return1m ?? 'N/A'}%，近3月 ${f.return3m ?? 'N/A'}%，近6月 ${f.return6m ?? 'N/A'}%，近1年 ${f.return1y ?? 'N/A'}%
+  波动率 ${f.volatility ?? 'N/A'}%，最大回撤 ${f.maxDrawdown ?? 'N/A'}%
+  ${'isHolding' in f && f.isHolding ? '（已持有）' : '（未持有）'}`
+        ).join('\n\n')}`);
+      } catch (e) {
+        logger.warn('Fund comparison fetch failed', { fundCodes, error: String(e) });
+      }
+    }
+  } catch (e) {
+    logger.error('Portfolio context fetch failed', { error: String(e) });
+    sections.push('【持仓数据获取失败】无法连接数据库，请稍后重试。');
+  }
+
+  return sections.join('\n\n');
+}
 
 // ==================== 工具函数 ====================
 
@@ -139,6 +292,28 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   logger.info('Starting researcher node', { question: state.question });
 
   const llm = getLLMInstance();
+
+  // ---- Step 0: 持仓意图识别 + Tool 调用 ----
+  let portfolioContext = '';
+  if (isPortfolioQuestion(state.question)) {
+    logger.info('Portfolio question detected, fetching holding data from DB');
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'analyzing',
+        data: { message: '您的问题涉及您的投资组合，正在启动本地数据库分析引擎...' },
+      });
+    }
+    portfolioContext = await fetchPortfolioContext(state.question, state.progressCallback);
+    logger.info('Portfolio context fetched', { contextLength: portfolioContext.length });
+
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'analyzing',
+        data: { message: '持仓数据获取完成，开始综合分析...' },
+      });
+    }
+  }
+
   const analysisPrompt = buildSearchQueryPrompt(state.question);
 
   // 1. 生成搜索查询分析
@@ -165,10 +340,10 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   // 2. 执行搜索
   const searchResults = [];
   const totalQueries = analysis.search_queries.length;
-  
+
   for (let i = 0; i < analysis.search_queries.length; i++) {
     const query = analysis.search_queries[i];
-    
+
     if (state.progressCallback) {
       state.progressCallback({
         type: 'searching',
@@ -180,11 +355,11 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
         },
       });
     }
-    
+
     try {
       const result = await smartSearch(query);
       searchResults.push(result);
-      
+
       if (state.progressCallback) {
         state.progressCallback({
           type: 'search_result',
@@ -198,7 +373,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
           },
         });
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
       logger.error('Search failed for query', { query, error: error instanceof Error ? error.message : String(error) });
@@ -261,7 +436,12 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
       ? searchResultsText.substring(0, MAX_SEARCH_RESULTS_LENGTH) + '\n... (truncated)'
       : searchResultsText;
 
-    const summaryPrompt = `以下是搜索结果：\n\n${truncatedResults}\n\n请总结关键事实。严格以 JSON 格式返回：\n{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
+    // 如果有持仓数据，优先注入到 summary prompt
+    const portfolioSection = portfolioContext
+      ? `\n\n【用户真实持仓数据（来自数据库，高可信度）】\n${portfolioContext}\n\n`
+      : '';
+
+    const summaryPrompt = `${portfolioSection}以下是搜索结果：\n\n${truncatedResults}\n\n请总结关键事实。严格以 JSON 格式返回：\n{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
 
     if (state.progressCallback) {
       state.progressCallback({
@@ -276,7 +456,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
     // 使用流式调用生成研究总结
     let streamedContent = '';
     let currentKeyFacts: string[] = [];
-    
+
     const fullResponse = await streamWithCallback(
       summaryPrompt,
       (chunk) => {
@@ -654,8 +834,8 @@ export const deciderNode = async (state: GraphState): Promise<Partial<GraphState
     if (state.progressCallback) {
       state.progressCallback({
         type: 'node_start',
-        data: { 
-          node: 'decider_complete', 
+        data: {
+          node: 'decider_complete',
           message: '裁决完成',
           winner: result.winner,
           summary: result.summary,
