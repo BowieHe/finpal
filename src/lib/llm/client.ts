@@ -15,8 +15,8 @@ const getSafeConfig = (): LLMConfig => {
   }
 
   return {
-    apiUrl: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com/v1',
-    modelName: process.env.OPENAI_MODEL || 'deepseek-reasoner',
+    apiUrl: process.env.OPENAI_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    modelName: process.env.OPENAI_MODEL || 'qwen3.5-plus',
     apiKey: apiKey || '',
   };
 };
@@ -42,14 +42,14 @@ export function createLLMClient(config: LLMConfig): ChatOpenAI {
   });
 
   const client = new ChatOpenAI({
-    apiKey: config.apiKey,
+    openAIApiKey: config.apiKey,
     configuration: {
       baseURL: config.apiUrl,
     },
     temperature: 0.7,
-    model: config.modelName,
-    maxRetries: 3, // LangChain 内置重试
-    timeout: 60000, // 60 秒超时
+    modelName: config.modelName,
+    maxRetries: 3,
+    timeout: 60000,
   });
 
   return client;

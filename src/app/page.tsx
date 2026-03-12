@@ -5,6 +5,7 @@ import ChatInput from "@/components/ChatInput";
 import MessageList from "@/components/MessageList";
 import Sidebar from "@/components/Sidebar";
 import SettingsModal from "@/components/SettingsModal";
+import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Conversation, Message } from "@/types/conversation";
 import { LLMConfig, Theme } from "@/types/config";
@@ -27,6 +28,7 @@ export default function Home() {
         useState<Conversation | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isAddHoldingModalOpen, setIsAddHoldingModalOpen] = useState(false);
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
     const [theme, setTheme] = useState<Theme>("dark");
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -746,6 +748,32 @@ export default function Home() {
         localStorage.setItem("finpal_theme", newTheme);
     };
 
+    const handleAddHolding = async (holding: HoldingData) => {
+        try {
+            const response = await fetch('/api/holdings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fundCode: holding.fundCode,
+                    fundName: holding.fundName,  // 传递识别出的基金名称
+                    shares: holding.shares,
+                    price: holding.costPrice,
+                    date: holding.buyDate,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `添加持仓失败: ${response.status}`);
+            }
+
+            console.log('持仓添加成功:', holding);
+        } catch (error) {
+            console.error('添加持仓失败:', error);
+            throw error;
+        }
+    };
+
     const messages = currentConversation?.messages || [];
     const activeTitle = currentConversation?.title || "新对话";
 
@@ -758,6 +786,7 @@ export default function Home() {
                     onSwitchConversation={handleSwitchConversation}
                     onDeleteConversation={handleDeleteConversation}
                     onNewConversation={handleNewConversation}
+                    onAddHolding={() => setIsAddHoldingModalOpen(true)}
                 />
 
                 <main className="min-w-0 h-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -814,6 +843,12 @@ export default function Home() {
                 config={llmConfig}
                 onSave={handleSaveSettings}
                 onClose={() => setIsSettingsOpen(false)}
+            />
+
+            <AddHoldingModal
+                isOpen={isAddHoldingModalOpen}
+                onClose={() => setIsAddHoldingModalOpen(false)}
+                onAddHolding={handleAddHolding}
             />
         </div>
     );

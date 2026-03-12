@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { fundCode, shares, price, date } = body;
+        const { fundCode, fundName: providedFundName, shares, price, date } = body;
 
         if (!fundCode || !shares || !price) {
             return NextResponse.json(
@@ -43,11 +43,14 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: '成本价必须为正数' }, { status: 400 });
         }
 
-        // 获取基金名称（从 fund_basic 查，如果没有就用 fundCode 代替）
-        const fundBasic = await prisma.fundBasic.findUnique({
-            where: { code: fundCode },
-        });
-        const fundName = fundBasic?.name ?? fundCode;
+        // 获取基金名称：优先使用前端提供的，否则从 fund_basic 查
+        let fundName = providedFundName;
+        if (!fundName) {
+            const fundBasic = await prisma.fundBasic.findUnique({
+                where: { code: fundCode },
+            });
+            fundName = fundBasic?.name ?? fundCode;
+        }
 
         const buyDate = date ? new Date(date) : new Date();
         const amount = sharesNum * priceNum;

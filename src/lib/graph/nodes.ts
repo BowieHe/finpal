@@ -268,6 +268,15 @@ interface SearchAnalysis {
 interface PersonaOutput {
   thinking: string;
   answer: string;
+  // EV 计算相关字段
+  probability?: any;
+  payoff?: any;
+  catalysts?: any[];
+  keyRisks?: string[];
+  confidenceLevel?: number;
+  // 悲观派特有字段
+  riskFactors?: any[];
+  catalystsForDecline?: string[];
 }
 
 interface DeciderOutput {
@@ -560,7 +569,42 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
     : '暂无研究总结';
 
-  const prompt = `你是乐观派分析师。请基于以下研究信息，从乐观角度分析问题。\n\n问题：${state.question}\n\n研究信息：\n${researchContext}\n\n请提供你的思考过程和最终答案。以JSON格式返回：{"thinking": "思考过程", "answer": "最终答案"}`;
+  const prompt = `你是乐观派分析师（Bull Analyst）。你的任务是基于研究信息，从做多/看好的角度分析，并给出概率化的投资判断。
+
+【分析原则】
+1. 你代表的是"看多"立场，但必须基于事实和逻辑，而非盲目乐观
+2. 你需要给出具体的概率数字，而不是模糊的"看好"
+3. 考虑风险收益比，识别 Catalyst（催化剂）
+
+【用户问题】
+${state.question}
+
+【研究信息】
+${researchContext}
+
+【输出要求】
+请严格以 JSON 格式返回（不要包含其他文字）：
+{
+  "thinking": "详细的思考过程，包括：\n1. 为什么当前是做多时机\n2. 关键催化剂是什么\n3. 主要风险点是什么",
+  "answer": "给用户的最终建议（简洁明了）",
+  "probability": {
+    "baseRate": 60,  // 基础胜率（基于历史数据/估值分位）
+    "adjustedRate": 65,  // 调整后胜率（±10%以内，基于催化剂/消息）
+    "adjustmentReason": "为什么调整基础胜率"
+  },
+  "payoff": {
+    "upsidePotential": 25,  // 预期上涨空间 %（如 25%）
+    "downsideRisk": -10,   // 预期下跌风险 %（如 -10%）
+    "timeframe": "6-12个月",  // 预期时间框架
+    "expectedReturn": 15   // 预期收益率 %（probability × payoff）
+  },
+  "catalysts": [
+    {"description": "催化剂1描述", "impact": "high|medium|low", "timeline": "近期/中期/远期"},
+    {"description": "催化剂2描述", "impact": "high|medium|low", "timeline": "近期/中期/远期"}
+  ],
+  "keyRisks": ["风险1", "风险2"],
+  "confidenceLevel": 75  // 整体置信度 0-100
+}`;
 
   try {
     // 使用流式调用
@@ -591,13 +635,25 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
+      // EV 计算相关字段
+      probability: parsed.probability || null,
+      payoff: parsed.payoff || null,
+      catalysts: Array.isArray(parsed.catalysts) ? parsed.catalysts : [],
+      keyRisks: Array.isArray(parsed.keyRisks) ? parsed.keyRisks : [],
+      confidenceLevel: Number(parsed.confidenceLevel) || 50,
     };
 
     // 发送最终输出事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_output',
-        data: { thinking: result.thinking, answer: result.answer },
+        data: { 
+          thinking: result.thinking, 
+          answer: result.answer,
+          probability: result.probability,
+          payoff: result.payoff,
+          confidenceLevel: result.confidenceLevel,
+        },
       });
     }
 
@@ -605,12 +661,21 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
     return {
       optimisticThinking: result.thinking,
       optimisticAnswer: result.answer,
+      // 存储结构化数据供 EV 计算使用
+      optimisticData: {
+        probability: result.probability || { baseRate: 50, adjustedRate: 50, adjustmentReason: '默认' },
+        payoff: result.payoff || { upsidePotential: 10, downsideRisk: -10, timeframe: '未知', expectedReturn: 0 },
+        catalysts: result.catalysts || [],
+        keyRisks: result.keyRisks || [],
+        confidenceLevel: result.confidenceLevel || 50,
+      },
     };
   } catch (error) {
     logger.error('Optimistic initial node failed', { error: error instanceof Error ? error.message : String(error) });
     return {
       optimisticThinking: '分析过程出错',
       optimisticAnswer: DEFAULT_FALLBACK_ANSWER.optimistic,
+      optimisticData: null,
     };
   }
 };
@@ -631,7 +696,42 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
     : '暂无研究总结';
 
-  const prompt = `你是悲观派分析师。请基于以下研究信息，从悲观/谨慎角度分析问题。\n\n问题：${state.question}\n\n研究信息：\n${researchContext}\n\n请提供你的思考过程和最终答案。以JSON格式返回：{"thinking": "思考过程", "answer": "最终答案"}`;
+  const prompt = `你是悲观派分析师（Bear Analyst）。你的任务是基于研究信息，从做空/谨慎的角度分析，并给出概率化的风险提示。
+
+【分析原则】
+1. 你代表的是"看空/谨慎"立场，但必须基于事实和逻辑，而非单纯悲观
+2. 你需要给出具体的概率数字，而不是模糊的"不看好"
+3. 识别潜在下行风险、估值泡沫、宏观逆风
+
+【用户问题】
+${state.question}
+
+【研究信息】
+${researchContext}
+
+【输出要求】
+请严格以 JSON 格式返回（不要包含其他文字）：
+{
+  "thinking": "详细的思考过程，包括：\n1. 为什么当前应该谨慎/看空\n2. 主要风险因素是什么\n3. 什么情况下会改变观点",
+  "answer": "给用户的最终建议（简洁明了）",
+  "probability": {
+    "downsideProbability": 55,  // 下跌/风险发生的概率 %
+    "severity": "high",  // 风险严重程度：low/medium/high
+    "timeline": "3-6个月"  // 风险时间框架
+  },
+  "payoff": {
+    "upsideCap": 8,      // 上涨空间有限 %（如果上涨）
+    "downsideRisk": -20, // 预期下跌空间 %（如 -20%）
+    "timeframe": "6-12个月",
+    "expectedReturn": -8  // 预期收益率 %（负值表示亏损预期）
+  },
+  "riskFactors": [
+    {"description": "风险1描述", "severity": "high|medium|low", "probability": 70},
+    {"description": "风险2描述", "severity": "high|medium|low", "probability": 50}
+  ],
+  "catalystsForDecline": ["下跌催化剂1", "下跌催化剂2"],
+  "confidenceLevel": 70  // 整体置信度 0-100
+}`;
 
   try {
     // 使用流式调用
@@ -662,13 +762,25 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
+      // EV 计算相关字段
+      probability: parsed.probability || null,
+      payoff: parsed.payoff || null,
+      catalysts: Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [],
+      keyRisks: Array.isArray(parsed.catalystsForDecline) ? parsed.catalystsForDecline : [],
+      confidenceLevel: Number(parsed.confidenceLevel) || 50,
     };
 
     // 发送最终输出事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_output',
-        data: { thinking: result.thinking, answer: result.answer },
+        data: { 
+          thinking: result.thinking, 
+          answer: result.answer,
+          probability: result.probability,
+          payoff: result.payoff,
+          confidenceLevel: result.confidenceLevel,
+        },
       });
     }
 
@@ -676,12 +788,21 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
     return {
       pessimisticThinking: result.thinking,
       pessimisticAnswer: result.answer,
+      // 存储结构化数据供 EV 计算使用
+      pessimisticData: {
+        probability: result.probability || { downsideProbability: 50, severity: 'medium', timeline: '未知' },
+        payoff: result.payoff || { upsideCap: 10, downsideRisk: -10, timeframe: '未知', expectedReturn: 0 },
+        riskFactors: result.catalysts || [],
+        catalystsForDecline: result.keyRisks || [],
+        confidenceLevel: result.confidenceLevel || 50,
+      },
     };
   } catch (error) {
     logger.error('Pessimistic initial node failed', { error: error instanceof Error ? error.message : String(error) });
     return {
       pessimisticThinking: '分析过程出错',
       pessimisticAnswer: DEFAULT_FALLBACK_ANSWER.pessimistic,
+      pessimisticData: null,
     };
   }
 };

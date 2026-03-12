@@ -1,5 +1,6 @@
 'use client';
 
+import { PlusCircle } from 'lucide-react';
 import ConversationList from './ConversationList';
 import { Conversation } from '@/types/conversation';
 
@@ -9,6 +10,7 @@ interface SidebarProps {
   onSwitchConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
+  onAddHolding?: () => void;
 }
 
 export default function Sidebar({
@@ -17,6 +19,7 @@ export default function Sidebar({
   onSwitchConversation,
   onDeleteConversation,
   onNewConversation,
+  onAddHolding,
 }: SidebarProps) {
   return (
     <aside className="w-72 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col">
@@ -25,16 +28,26 @@ export default function Sidebar({
         <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">按主题管理你的对话</div>
       </div>
 
-      <div className="p-3">
+      <div className="p-3 space-y-2">
         <button
           onClick={onNewConversation}
-          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-4 py-2.5"
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-4 py-2.5 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           新建会话
         </button>
+        
+        {onAddHolding && (
+          <button
+            onClick={onAddHolding}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium text-sm px-4 py-2.5 transition-colors"
+          >
+            <PlusCircle className="w-4 h-4" />
+            添加持仓
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">

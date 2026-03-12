@@ -13,12 +13,12 @@ export interface HoldingItem {
     shares: number;
     costPrice: number;
     totalCost: number;
-    currentNav: number;
-    currentValue: number;
-    totalProfit: number;
-    profitRate: number;
-    dailyProfit: number;
-    isProfit: boolean;
+    currentNav: number | null;
+    currentValue: number | null;
+    totalProfit: number | null;
+    profitRate: number | null;
+    dailyProfit: number | null;
+    isProfit: boolean | null;
     navDate: string;
 }
 
@@ -109,16 +109,31 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
             take: 2,
         });
 
+        const shares = Number(holding.shares);
+        const costPrice = Number(holding.costPrice);
+
         if (navRecords.length === 0) {
-            // 净值数据不存在，跳过
+            // 净值数据不存在，仍然保留持仓，但净值相关字段为空
+            holdingItems.push({
+                fundCode: holding.fundCode,
+                fundName: holding.fundName,
+                shares,
+                costPrice,
+                totalCost: Math.round(shares * costPrice * 100) / 100,
+                currentNav: null as any,  // 未获取
+                currentValue: null as any,  // 未获取
+                totalProfit: null as any,  // 未获取
+                profitRate: null as any,  // 未获取
+                dailyProfit: null as any,  // 未获取
+                isProfit: null as any,  // 未获取
+                navDate: '未获取',
+            });
             continue;
         }
 
         const latestNav = navRecords[0];
         const prevNav = navRecords[1];
 
-        const shares = Number(holding.shares);
-        const costPrice = Number(holding.costPrice);
         const currentNav = Number(latestNav.unitNav);
 
         const totalCost = shares * costPrice;
@@ -151,10 +166,10 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
     }
 
     const totalCost = holdingItems.reduce((s, h) => s + h.totalCost, 0);
-    const totalValue = holdingItems.reduce((s, h) => s + h.currentValue, 0);
+    const totalValue = holdingItems.reduce((s, h) => s + (h.currentValue || 0), 0);
     const totalProfit = totalValue - totalCost;
     const totalProfitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
-    const dailyProfit = holdingItems.reduce((s, h) => s + h.dailyProfit, 0);
+    const dailyProfit = holdingItems.reduce((s, h) => s + (h.dailyProfit || 0), 0);
 
     return {
         holdings: holdingItems,
@@ -163,7 +178,7 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
         totalProfit: Math.round(totalProfit * 100) / 100,
         totalProfitRate: Math.round(totalProfitRate * 100) / 100,
         dailyProfit: Math.round(dailyProfit * 100) / 100,
-        profitCount: holdingItems.filter(h => h.isProfit).length,
+        profitCount: holdingItems.filter(h => h.isProfit === true).length,
         lossCount: holdingItems.filter(h => !h.isProfit).length,
         navDate: latestNavDate,
         hasData: holdingItems.length > 0,

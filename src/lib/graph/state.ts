@@ -46,6 +46,54 @@ export interface ResearchSummary {
 export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
 
 /**
+ * 乐观派数据（用于 EV 计算）
+ */
+export interface OptimisticData {
+  probability: {
+    baseRate: number;
+    adjustedRate: number;
+    adjustmentReason: string;
+  };
+  payoff: {
+    upsidePotential: number;
+    downsideRisk: number;
+    timeframe: string;
+    expectedReturn: number;
+  };
+  catalysts: Array<{
+    description: string;
+    impact: 'high' | 'medium' | 'low';
+    timeline: string;
+  }>;
+  keyRisks: string[];
+  confidenceLevel: number;
+}
+
+/**
+ * 悲观派数据（用于 EV 计算）
+ */
+export interface PessimisticData {
+  probability: {
+    downsideProbability: number;
+    severity: 'low' | 'medium' | 'high';
+    timeline: string;
+  };
+  payoff: {
+    upsideCap: number;
+    downsideRisk: number;
+    timeframe: string;
+    expectedReturn: number;
+  };
+  riskFactors: Array<{
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+    probability: number;
+  }>;
+  catalystsForDecline: string[];
+  confidenceLevel: number;
+}
+
+/**
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
@@ -163,6 +211,11 @@ export const GraphAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
   }),
+  // EV 计算数据：乐观派结构化输出
+  optimisticData: Annotation<OptimisticData | null>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => null,
+  }),
 
   // 悲观派
   pessimisticThinking: Annotation<string>({
@@ -176,6 +229,11 @@ export const GraphAnnotation = Annotation.Root({
   pessimisticRebuttal: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
+  }),
+  // EV 计算数据：悲观派结构化输出
+  pessimisticData: Annotation<PessimisticData | null>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => null,
   }),
 
   // 辩论控制

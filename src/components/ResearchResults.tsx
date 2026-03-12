@@ -42,7 +42,7 @@ export default function ResearchResults({
     };
 
     return (
-        <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+        <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl max-w-full overflow-x-auto">
             <div className="flex items-center gap-3 mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
                 <div className="w-8 h-8 rounded-full bg-linear-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
                     <span className="text-white text-[15px]">🧠</span>
@@ -64,7 +64,6 @@ export default function ResearchResults({
                     <span>Agent 协作流程</span>
                 </h4>
                 <div className="space-y-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                    
                     {/* CIO Planning Step */}
                     <div className="flex items-start gap-3">
                         <div className="min-w-20 text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -73,14 +72,22 @@ export default function ResearchResults({
                         <div className="flex-1 text-xs text-slate-600 dark:text-slate-400">
                             {cioPlanning ? (
                                 <span className="flex items-center gap-2">
-                                    <span className="animate-pulse">正在拆解查询，规划调查任务...</span>
+                                    <span className="animate-pulse">
+                                        正在拆解查询，规划调查任务...
+                                    </span>
                                 </span>
                             ) : (
                                 <span>任务规划完成</span>
                             )}
                         </div>
                         <div className="text-xs w-5 flex justify-end">
-                            {cioPlanning ? <span className="animate-spin inline-block">🔄</span> : '✅'}
+                            {cioPlanning ? (
+                                <span className="animate-spin inline-block">
+                                    🔄
+                                </span>
+                            ) : (
+                                "✅"
+                            )}
                         </div>
                     </div>
 
@@ -91,7 +98,10 @@ export default function ResearchResults({
                                 并行执行单元
                             </div>
                             {Object.values(agentTasks).map((task) => (
-                                <div key={task.id} className="flex items-start gap-3">
+                                <div
+                                    key={task.id}
+                                    className="flex items-start gap-3"
+                                >
                                     <div className="min-w-25 text-xs font-medium text-indigo-700 dark:text-indigo-400">
                                         {task.name}
                                     </div>
@@ -99,112 +109,291 @@ export default function ResearchResults({
                                         <div className="font-medium text-slate-800 dark:text-slate-200">
                                             {task.description}
                                         </div>
-                                        {task.status === 'running' && !task.progressLogs && task.progressMessage && (
-                                            <div className="text-[10px] text-slate-500 mt-0.5 animate-pulse">
-                                                {task.progressMessage}
-                                            </div>
-                                        )}
-                                        {task.progressLogs && task.progressLogs.length > 0 && (
-                                            <div className="mt-2 space-y-1.5 border-l-2 border-indigo-100 dark:border-indigo-900/50 pl-2 ml-1">
-                                                {task.progressLogs.map((log: string, i: number) => (
-                                                    <div key={i} className="relative flex items-center text-[10px] text-slate-500 dark:text-slate-400">
-                                                        <div className="absolute -left-[11px] w-1.5 h-1.5 rounded-full bg-indigo-300 dark:bg-indigo-600" />
-                                                        <span className={i === task.progressLogs!.length - 1 && task.status === 'running' ? 'animate-pulse text-indigo-600 dark:text-indigo-400 font-medium' : ''}>
-                                                            {log}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {task.status === 'done' && task.resultSummary && (
-                                            <div className="mt-2 text-slate-600 dark:text-slate-400">
-                                                <div className="text-xs font-medium mb-1" title={task.resultSummary}>
-                                                    结果: {task.resultSummary}
+                                        {task.status === "running" &&
+                                            !task.progressLogs &&
+                                            task.progressMessage && (
+                                                <div className="text-[10px] text-slate-500 mt-0.5 animate-pulse">
+                                                    {task.progressMessage}
                                                 </div>
-                                                {task.rawResult && (
-                                                    <details className="mt-1 group">
-                                                        <summary className="text-[10px] cursor-pointer text-indigo-500 hover:text-indigo-600 font-medium select-none flex items-center gap-1">
-                                                            <span className="group-open:rotate-90 transition-transform">▶</span>
-                                                            查看底层执行数据
-                                                        </summary>
-                                                        <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-700/50">
-                                                            {task.id.startsWith('web-agent') && task.rawResult.rawSnippets ? (
-                                                                <div className="space-y-3">
-                                                                    {task.rawResult.rawSnippets.map((snippet: any, sIdx: number) => (
-                                                                        <div key={sIdx} className="text-[10px] space-y-1 pb-2 border-b border-slate-200 dark:border-slate-700/50 last:border-0 last:pb-0">
-                                                                            <a href={snippet.url} target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline block truncate" title={snippet.title}>
-                                                                                {snippet.title}
-                                                                            </a>
-                                                                            <div className="text-slate-500 dark:text-slate-400 line-clamp-3" title={snippet.content}>
-                                                                                {snippet.content}
-                                                                            </div>
-                                                                            <a href={snippet.url} target="_blank" rel="noreferrer" className="text-slate-400 dark:text-slate-500 hover:text-indigo-500 text-[9px] truncate block">
-                                                                                {snippet.url}
-                                                                            </a>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            ) : task.id.startsWith('db-agent') && task.rawResult.data ? (
-                                                                (() => {
-                                                                    // data may be an object like { holdings: [...] } — find the first array inside
-                                                                    const data = task.rawResult.data;
-                                                                    const rows: any[] | null = Array.isArray(data)
-                                                                        ? data
-                                                                        : Object.values(data as Record<string, any>).find(v => Array.isArray(v)) ?? null;
-                                                                    return rows && rows.length > 0 ? (
-                                                                        <div className="overflow-x-auto">
-                                                                            <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
-                                                                                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                                                                                    <tr>
-                                                                                        {Object.keys(rows[0]).slice(0, 6).map(key => (
-                                                                                            <th key={key} className="px-2 py-1.5 font-medium whitespace-nowrap">{key}</th>
-                                                                                        ))}
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                                                                                    {rows.slice(0, 10).map((row: any, rIdx: number) => (
-                                                                                        <tr key={rIdx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors">
-                                                                                            {Object.keys(rows[0]).slice(0, 6).map(key => (
-                                                                                                <td key={key} className="px-2 py-1.5 whitespace-nowrap truncate max-w-[120px]" title={String(row[key])}>
-                                                                                                    {String(row[key])}
-                                                                                                </td>
-                                                                                            ))}
-                                                                                        </tr>
-                                                                                    ))}
-                                                                                </tbody>
-                                                                            </table>
-                                                                            {rows.length > 10 && (
-                                                                                <div className="text-center mt-2 text-[9px] text-slate-400">
-                                                                                    ... 及其他 {rows.length - 10} 条数据
+                                            )}
+                                        {task.progressLogs &&
+                                            task.progressLogs.length > 0 && (
+                                                <div className="mt-2 space-y-1.5 border-l-2 border-indigo-100 dark:border-indigo-900/50 pl-2 ml-1">
+                                                    {task.progressLogs.map(
+                                                        (
+                                                            log: string,
+                                                            i: number,
+                                                        ) => (
+                                                            <div
+                                                                key={i}
+                                                                className="relative flex items-center text-[10px] text-slate-500 dark:text-slate-400"
+                                                            >
+                                                                <div className="absolute -left-2.75 w-1.5 h-1.5 rounded-full bg-indigo-300 dark:bg-indigo-600" />
+                                                                <span
+                                                                    className={
+                                                                        i ===
+                                                                            task
+                                                                                .progressLogs!
+                                                                                .length -
+                                                                                1 &&
+                                                                        task.status ===
+                                                                            "running"
+                                                                            ? "animate-pulse text-indigo-600 dark:text-indigo-400 font-medium"
+                                                                            : ""
+                                                                    }
+                                                                >
+                                                                    {log}
+                                                                </span>
+                                                            </div>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            )}
+                                        {task.status === "done" &&
+                                            task.resultSummary && (
+                                                <div className="mt-2 text-slate-600 dark:text-slate-400">
+                                                    <div
+                                                        className="text-xs font-medium mb-1"
+                                                        title={
+                                                            task.resultSummary
+                                                        }
+                                                    >
+                                                        结果:{" "}
+                                                        {task.resultSummary}
+                                                    </div>
+                                                    {task.rawResult && (
+                                                        <details className="mt-1 group">
+                                                            <summary className="text-[10px] cursor-pointer text-indigo-500 hover:text-indigo-600 font-medium select-none flex items-center gap-1">
+                                                                <span className="group-open:rotate-90 transition-transform">
+                                                                    ▶
+                                                                </span>
+                                                                查看底层执行数据
+                                                            </summary>
+                                                            <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-700/50">
+                                                                {task.id.startsWith(
+                                                                    "web-agent",
+                                                                ) &&
+                                                                task.rawResult
+                                                                    .rawSnippets ? (
+                                                                    <div className="space-y-3">
+                                                                        {task.rawResult.rawSnippets.map(
+                                                                            (
+                                                                                snippet: any,
+                                                                                sIdx: number,
+                                                                            ) => (
+                                                                                <div
+                                                                                    key={
+                                                                                        sIdx
+                                                                                    }
+                                                                                    className="text-[10px] space-y-1 pb-2 border-b border-slate-200 dark:border-slate-700/50 last:border-0 last:pb-0"
+                                                                                >
+                                                                                    <a
+                                                                                        href={
+                                                                                            snippet.url
+                                                                                        }
+                                                                                        target="_blank"
+                                                                                        rel="noreferrer"
+                                                                                        className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline block truncate"
+                                                                                        title={
+                                                                                            snippet.title
+                                                                                        }
+                                                                                    >
+                                                                                        {
+                                                                                            snippet.title
+                                                                                        }
+                                                                                    </a>
+                                                                                    <div
+                                                                                        className="text-slate-500 dark:text-slate-400 line-clamp-3"
+                                                                                        title={
+                                                                                            snippet.content
+                                                                                        }
+                                                                                    >
+                                                                                        {
+                                                                                            snippet.content
+                                                                                        }
+                                                                                    </div>
+                                                                                    <a
+                                                                                        href={
+                                                                                            snippet.url
+                                                                                        }
+                                                                                        target="_blank"
+                                                                                        rel="noreferrer"
+                                                                                        className="text-slate-400 dark:text-slate-500 hover:text-indigo-500 text-[9px] truncate block"
+                                                                                    >
+                                                                                        {
+                                                                                            snippet.url
+                                                                                        }
+                                                                                    </a>
                                                                                 </div>
-                                                                            )}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap font-mono">
-                                                                            {JSON.stringify(data, null, 2)}
-                                                                        </pre>
-                                                                    );
-                                                                })()
-                                                            ) : (
-                                                                <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
-                                                                    {JSON.stringify(task.rawResult, null, 2)}
-                                                                </pre>
-                                                            )}
-                                                        </div>
-                                                    </details>
-                                                )}
-                                            </div>
-                                        )}
-                                        {task.status === 'error' && task.error && (
-                                            <div className="text-[10px] text-red-500 mt-1">
-                                                失败: {task.error}
-                                            </div>
-                                        )}
+                                                                            ),
+                                                                        )}
+                                                                    </div>
+                                                                ) : task.id.startsWith(
+                                                                      "db-agent",
+                                                                  ) &&
+                                                                  task.rawResult
+                                                                      .data ? (
+                                                                    (() => {
+                                                                        // data may be an object like { holdings: [...] } — find the first array inside
+                                                                        const data =
+                                                                            task
+                                                                                .rawResult
+                                                                                .data;
+                                                                        const rows:
+                                                                            | any[]
+                                                                            | null =
+                                                                            Array.isArray(
+                                                                                data,
+                                                                            )
+                                                                                ? data
+                                                                                : (Object.values(
+                                                                                      data as Record<
+                                                                                          string,
+                                                                                          any
+                                                                                      >,
+                                                                                  ).find(
+                                                                                      (
+                                                                                          v,
+                                                                                      ) =>
+                                                                                          Array.isArray(
+                                                                                              v,
+                                                                                          ),
+                                                                                  ) ??
+                                                                                  null);
+                                                                        return rows &&
+                                                                            rows.length >
+                                                                                0 ? (
+                                                                            <div className="overflow-x-auto">
+                                                                                <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
+                                                                                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                                                                                        <tr>
+                                                                                            {Object.keys(
+                                                                                                rows[0],
+                                                                                            )
+                                                                                                .slice(
+                                                                                                    0,
+                                                                                                    6,
+                                                                                                )
+                                                                                                .map(
+                                                                                                    (
+                                                                                                        key,
+                                                                                                    ) => (
+                                                                                                        <th
+                                                                                                            key={
+                                                                                                                key
+                                                                                                            }
+                                                                                                            className="px-2 py-1.5 font-medium whitespace-nowrap"
+                                                                                                        >
+                                                                                                            {
+                                                                                                                key
+                                                                                                            }
+                                                                                                        </th>
+                                                                                                    ),
+                                                                                                )}
+                                                                                        </tr>
+                                                                                    </thead>
+                                                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                                                                                        {rows
+                                                                                            .slice(
+                                                                                                0,
+                                                                                                10,
+                                                                                            )
+                                                                                            .map(
+                                                                                                (
+                                                                                                    row: any,
+                                                                                                    rIdx: number,
+                                                                                                ) => (
+                                                                                                    <tr
+                                                                                                        key={
+                                                                                                            rIdx
+                                                                                                        }
+                                                                                                        className="hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors"
+                                                                                                    >
+                                                                                                        {Object.keys(
+                                                                                                            rows[0],
+                                                                                                        )
+                                                                                                            .slice(
+                                                                                                                0,
+                                                                                                                6,
+                                                                                                            )
+                                                                                                            .map(
+                                                                                                                (
+                                                                                                                    key,
+                                                                                                                ) => (
+                                                                                                                    <td
+                                                                                                                        key={
+                                                                                                                            key
+                                                                                                                        }
+                                                                                                                        className="px-2 py-1.5 whitespace-nowrap truncate max-w-30"
+                                                                                                                        title={String(
+                                                                                                                            row[
+                                                                                                                                key
+                                                                                                                            ],
+                                                                                                                        )}
+                                                                                                                    >
+                                                                                                                        {String(
+                                                                                                                            row[
+                                                                                                                                key
+                                                                                                                            ],
+                                                                                                                        )}
+                                                                                                                    </td>
+                                                                                                                ),
+                                                                                                            )}
+                                                                                                    </tr>
+                                                                                                ),
+                                                                                            )}
+                                                                                    </tbody>
+                                                                                </table>
+                                                                                {rows.length >
+                                                                                    10 && (
+                                                                                    <div className="text-center mt-2 text-[9px] text-slate-400">
+                                                                                        ...
+                                                                                        及其他{" "}
+                                                                                        {rows.length -
+                                                                                            10}{" "}
+                                                                                        条数据
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap font-mono">
+                                                                                {JSON.stringify(
+                                                                                    data,
+                                                                                    null,
+                                                                                    2,
+                                                                                )}
+                                                                            </pre>
+                                                                        );
+                                                                    })()
+                                                                ) : (
+                                                                    <pre className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap style-wrap-break-word font-mono">
+                                                                        {JSON.stringify(
+                                                                            task.rawResult,
+                                                                            null,
+                                                                            2,
+                                                                        )}
+                                                                    </pre>
+                                                                )}
+                                                            </div>
+                                                        </details>
+                                                    )}
+                                                </div>
+                                            )}
+                                        {task.status === "error" &&
+                                            task.error && (
+                                                <div className="text-[10px] text-red-500 mt-1">
+                                                    失败: {task.error}
+                                                </div>
+                                            )}
                                     </div>
                                     <div className="text-xs w-5 flex justify-end">
-                                        {task.status === 'running' && <span className="animate-spin inline-block">🔄</span>}
-                                        {task.status === 'done' && '✅'}
-                                        {task.status === 'error' && '❌'}
+                                        {task.status === "running" && (
+                                            <span className="animate-spin inline-block">
+                                                🔄
+                                            </span>
+                                        )}
+                                        {task.status === "done" && "✅"}
+                                        {task.status === "error" && "❌"}
                                     </div>
                                 </div>
                             ))}
@@ -214,29 +403,36 @@ export default function ResearchResults({
             </div>
 
             {/* 搜索引擎统计 */}
-            {engineUsage && Object.keys(engineUsage).length > 0 && Object.values(engineUsage).some((v) => Number(v) > 0) && (
-                <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                    <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
-                        搜索引擎
-                    </h4>
-                <div className="flex items-center gap-3 flex-wrap">
-                    {engineUsage["bailian-websearch"] &&
-                        engineUsage["bailian-websearch"] > 0 && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-lg">☁️</span>
-                                <div>
-                                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                        百炼搜索
+            {engineUsage &&
+                Object.keys(engineUsage).length > 0 &&
+                Object.values(engineUsage).some((v) => Number(v) > 0) && (
+                    <div className="mb-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
+                            搜索引擎
+                        </h4>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            {engineUsage["bailian-websearch"] &&
+                                engineUsage["bailian-websearch"] > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg">☁️</span>
+                                        <div>
+                                            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                百炼搜索
+                                            </div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                {
+                                                    engineUsage[
+                                                        "bailian-websearch"
+                                                    ]
+                                                }{" "}
+                                                次
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        {engineUsage["bailian-websearch"]} 次
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                </div>
-            </div>
-            )}
+                                )}
+                        </div>
+                    </div>
+                )}
 
             {/* 研究发现 - 整合数据来源，可折叠 */}
             {allFindings && allFindings.length > 0 && (

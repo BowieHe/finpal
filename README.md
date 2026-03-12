@@ -1,136 +1,241 @@
-# FinPal - 基金投资助手
+# FinPal — AI-Powered Portfolio Intelligence
 
-基于 Next.js + Python Scheduler + PostgreSQL 的基金数据分析应用。
+> An agentic investment assistant built with **Next.js**, **LangGraph**, and **PostgreSQL**. FinPal orchestrates a team of specialized AI agents to analyze your portfolio, search the web, and debate investment strategies — all in real-time.
 
-## 🏗️ 架构
+![FinPal](finpal-homepage.png)
+
+[中文文档](README_CN.md)
+
+---
+
+## ✨ Key Features
+
+- **🏢 Agent Teams Architecture** — A "micro investment firm" powered by specialized AI agents, dynamically orchestrated by a CIO (Chief Investment Officer) agent.
+- **⚔️ Adversarial Debate** — Bull vs Bear analysts debate with multi-round argumentation, judged by a neutral arbiter after each round.
+- **📊 Real-time Streaming UI** — SSE-powered timeline showing agent collaboration, debate progress, and round-by-round verdicts as they happen.
+- **🔍 Dual Data Sources** — Portfolio data from PostgreSQL + live web intelligence via Alibaba Cloud Bailian MCP search.
+- **🛑 Task Interruption** — Abort long-running analyses mid-stream with proper server-side cancellation via `AbortController`.
+
+---
+
+## 🏗️ Architecture
 
 ```
-finpal/                        ← Next.js 项目（根目录）
-├── src/                       ← Next.js 源码
-│   ├── app/                   ← App Router
-│   ├── components/            ← React 组件
-│   └── lib/                   ← 工具库
-├── prisma/                    ← Prisma Schema
-├── package.json               ← Next.js 依赖
-└── ...                        ← 其他 Next.js 文件
-
-├── scheduler/                 ← Python 定时任务
-│   ├── src/                   ← Python 源码
-│   │   ├── main.py           ← FastAPI + Cron 入口
-│   │   ├── api.py            ← HTTP 触发接口
-│   │   ├── cron.py           ← 定时任务
-│   │   ├── fetcher.py        ← akshare 数据拉取
-│   │   └── database.py       ← PostgreSQL 写入
-│   ├── pyproject.toml        ← Python 依赖
-│   └── Dockerfile            ← 容器配置
-
-└── docker-compose.yml         ← 一起启动所有服务
+User Query
+   │
+   ▼
+┌────────────────────────────────────────────────────────┐
+│               CIO (Intent Planner)                     │
+│     Query analysis → Dynamic task decomposition        │
+└────────────────────┬───────────────────────────────────┘
+                     │ Send API (Fan-out)
+          ┌──────────┼──────────────┐
+          ▼          ▼              ▼
+    [DB-Agent]  [Web-Agent ×N]  [Quant-Agent]
+    Portfolio    Web search      Risk metrics
+    queries     per fund        (Sharpe, MDD)
+          └──────────┼──────────────┘
+                     ▼ Fan-in
+              [Gate Keeper]
+              Data quality check + routing
+                     │
+         ┌───────────┴───────────┐
+    Simple query           Complex analysis
+         │                       │
+    Direct Summary        ┌──────▼──────┐
+         │                │ Debate Loop  │
+         │                │  Bull  ⚔️  Bear
+         │                │    ↓         │
+         │                │ Round Judge  │ ← continues or stops
+         │                │    ↓ (loop)  │
+         │                └──────┬──────┘
+         │                       ▼
+         │               Final Verdict
+         └───────────────────────┘
+                     ▼
+              Structured Response
 ```
 
-**架构说明**：
-- **Next.js**（根目录）：前端展示、用户交互、数据查询（Prisma）
-- **Python Scheduler**（scheduler/）：定时任务、数据拉取、HTTP 触发
-- **PostgreSQL**：共享数据库，Next.js 读，Python 写
+### Agent Roles
 
-## 🚀 快速开始
+| Agent | Role | Tools |
+|-------|------|-------|
+| **DB-Agent** 🏦 | Portfolio data queries | `getPortfolioSummary`, `getHoldingDetail`, `compareFunds`, `getFundRiskMetrics` |
+| **Web-Agent** 🌐 | Live web intelligence | Bailian MCP web search (fund info, market news, manager profiles) |
+| **Quant-Agent** 📐 | Risk calculations | Pure TypeScript math — Sharpe ratio, Max Drawdown, Volatility (no LLM) |
+| **Round Judge** ⚖️ | Per-round debate arbiter | Decides winner + whether to continue (max 3 rounds) |
+| **Final Verdict** 📋 | Structured investment report | Generates `FinalVerdict` with recommendation, confidence, bull/bear points |
 
-### 1. 环境准备
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Node.js** ≥ 18, **pnpm** ≥ 8
+- **PostgreSQL** 14+ (via Docker or local)
+- **Python** 3.11+ with [uv](https://docs.astral.sh/uv/) (for scheduler only)
+- **OpenAI-compatible API key** (e.g., Alibaba Cloud Bailian / OpenAI / DeepSeek)
+
+### 1. Install Dependencies
 
 ```bash
-# 安装前端依赖
 pnpm install
-
-# 安装 Python 依赖（开发时用）
-cd scheduler
-pip install -e ".[dev]"
-# 或 uv sync
 ```
 
-### 2. 启动 PostgreSQL
+### 2. Configure Environment
 
 ```bash
-# 在项目根目录
+cp .env.local.example .env.local
+# Edit .env.local with your API keys and database URL
+```
+
+Key variables:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `OPENAI_API_KEY` | LLM API key |
+| `OPENAI_BASE_URL` | API base URL (for non-OpenAI providers) |
+| `OPENAI_MODEL` | Model name (default: `qwen-plus`) |
+| `MCP_BAILIAN_API_KEY` | Alibaba Cloud Bailian search API key |
+
+### 3. Start Database
+
+```bash
 docker compose up -d postgres
-```
-
-### 3. 初始化数据库（Prisma）
-
-```bash
-# 生成 Prisma Client
 npx prisma generate
-
-# 创建迁移（首次）
 npx prisma migrate dev --name init
 ```
 
-### 4. 启动 Scheduler
+### 4. Run Development Server
 
 ```bash
-# Docker 方式（推荐）
-docker compose up -d scheduler
-
-# 或本地开发
-cd scheduler
-python -m src.main
-```
-
-### 5. 启动前端
-
-```bash
-# 项目根目录
 pnpm dev
 ```
 
-访问：
-- 前端：http://localhost:3000
-- Scheduler HTTP：http://localhost:8001
+Visit **http://localhost:3000**
 
-## 📚 常用命令
+---
 
-```bash
-# Docker 操作
-docker compose up -d          # 启动所有服务
-docker compose logs -f        # 查看日志
+## 📁 Project Structure
 
-# 数据库
-npx prisma migrate dev        # 创建迁移
-npx prisma generate           # 生成 Prisma Client
-npx prisma studio             # 打开 Prisma Studio
-
-# Scheduler 手动触发
-curl -X POST http://localhost:8001/trigger
-curl http://localhost:8001/stats
-
-# 开发
-pnpm dev                      # 前端开发
-cd scheduler && python -m src.main  # Scheduler 本地开发
+```
+finpal/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # Main chat page + SSE handler
+│   │   └── api/chat/route.ts   # Chat API endpoint (SSE streaming)
+│   ├── components/             # React UI components
+│   │   ├── TimelineDebate.tsx   # Bull vs Bear debate timeline
+│   │   ├── DeciderResult.tsx    # Final verdict card
+│   │   ├── ResearchResults.tsx  # Agent collaboration panel
+│   │   ├── RoundDecisionCard.tsx# Per-round judge decision
+│   │   ├── MessageCard.tsx      # Chat message bubble
+│   │   └── ChatInput.tsx        # Input with Shift+Enter support
+│   ├── lib/
+│   │   ├── agents/             # Sub-agent implementations
+│   │   │   ├── db-agent.ts      # Database portfolio agent
+│   │   │   ├── web-agent.ts     # Web search agent
+│   │   │   └── quant-agent.ts   # Quantitative risk agent
+│   │   ├── graph/              # LangGraph orchestration
+│   │   │   ├── graph.ts         # Graph wiring (debate loop)
+│   │   │   ├── state.ts         # Graph state annotations
+│   │   │   ├── nodes.ts         # Debate + judge + verdict nodes
+│   │   │   ├── nodes/agent-adapters.ts  # Agent → graph adapters
+│   │   │   └── cio/            # CIO layer
+│   │   │       ├── intent-planner.ts  # Query decomposition
+│   │   │       ├── gate-keeper.ts     # Quality check + routing
+│   │   │       └── direct-summary.ts  # Simple query shortcut
+│   │   ├── tools/              # Database tool functions
+│   │   ├── mcp/                # MCP search integration
+│   │   └── llm/                # LLM client + streaming
+│   └── types/                  # TypeScript type definitions
+├── scheduler/                  # Python data sync service
+│   └── src/                    # Fund NAV fetcher + cron jobs
+├── prisma/                     # Database schema
+└── docker-compose.yml          # PostgreSQL + services
 ```
 
-## 📊 API 接口
+---
 
-### Next.js (http://localhost:3000)
+## 🔧 Common Commands
 
-| 接口 | 描述 |
-|------|------|
-| `GET /api/funds` | 基金列表 |
-| `GET /api/funds/:code` | 基金详情 |
-| `GET /api/funds/:code/nav` | 净值历史 |
+```bash
+# Development
+pnpm dev                        # Start Next.js dev server (+ Postgres)
+pnpm dev:web                    # Start Next.js only
 
-### Scheduler (http://localhost:8001)
+# Database
+pnpm db:migrate                 # Run Prisma migrations
+pnpm db:generate                # Generate Prisma client
+pnpm db:studio                  # Open Prisma Studio GUI
 
-| 接口 | 描述 |
-|------|------|
-| `POST /trigger` | 手动触发同步 |
-| `GET /stats` | 数据库统计 |
-| `GET /health` | 健康检查 |
+# Testing
+pnpm test                       # Run unit tests (vitest)
+pnpm typecheck                  # TypeScript type check
 
-## 🛠️ 技术栈
+# Docker
+pnpm up                         # Start all services
+pnpm down                       # Stop all services
+pnpm logs                       # View service logs
+```
 
-- **前端**：Next.js 14 + React + TypeScript + Tailwind CSS + Prisma
-- **数据同步**：Python + FastAPI + akshare + APScheduler
-- **数据库**：PostgreSQL
-- **部署**：Docker Compose
+---
 
-## 📝 License
+## ⚙️ Configuration & Usage Notes
+
+### 1. Environment Variables (`.env.local`)
+
+FinPal requires several API keys to function correctly. Copy `.env.local.example` to `.env.local` and fill in:
+
+- **LLM Settings**: Controls the brain of the assistant.
+  - `OPENAI_API_KEY`: Your model provider API key.
+  - `OPENAI_BASE_URL`: The endpoint (e.g., `https://dashscope.aliyuncs.com/compatible-mode/v1` for Bailian or `https://api.deepseek.com`).
+  - `OPENAI_MODEL`: The model name (e.g., `qwen-plus`, `deepseek-chat`).
+- **Search Settings**:
+  - `DASHSCOPE_API_KEY`: **Required** for the `Web-Agent` to perform searches via Alibaba Cloud Bailian.
+- **Database**:
+  - `DATABASE_URL`: `postgresql://finpal:finpal@localhost:5432/finpal` (standard for the included Docker setup).
+
+### 2. Manual Setup Sequence
+
+If `pnpm dev` fails or you are setting up for the first time:
+```bash
+# 1. Start Database
+docker compose up -d postgres
+
+# 2. Sync Schema
+npx prisma generate
+npx prisma migrate dev --name init
+
+# 3. (Optional) Run Scheduler for data sync
+cd scheduler && uv sync && uv run -m src.main
+```
+
+### 3. Critical Notes
+
+- **Proxy**: If you are in a restricted network, set `HTTP_PROXY` and `HTTPS_PROXY` in your `.env.local`.
+- **Search Engine**: The system defaults to `bailian-websearch` via MCP. Ensure your `DASHSCOPE_API_KEY` has search permissions enabled in the Bailian console.
+- **Port Conflicts**: Next.js runs on `3000`, Postgres on `5432`, and the Python Scheduler on `8001`. Ensure these ports are available.
+- **Thinking Process**: The `deepseek-reasoner` (R1) model is highly recommended for the debate nodes for better reasoning quality.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| **AI Orchestration** | LangGraph (LangChain.js), OpenAI-compatible LLMs |
+| **Search** | Alibaba Cloud Bailian MCP (Model Context Protocol) |
+| **Database** | PostgreSQL + Prisma ORM |
+| **Data Sync** | Python + FastAPI + akshare + APScheduler |
+| **Visualization** | Mermaid.js charts, ReactMarkdown |
+| **Deployment** | Docker Compose |
+
+---
+
+## 📜 License
 
 MIT

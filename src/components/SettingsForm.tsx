@@ -61,7 +61,7 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
           type="url"
           value={formData.apiUrl}
           onChange={(e) => handleChange('apiUrl', e.target.value)}
-          placeholder="https://api.deepseek.com/v1"
+          placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
           className={
             'w-full rounded-xl px-4 py-3 border bg-white dark:bg-slate-950 ' +
             'border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 ' +
@@ -85,7 +85,7 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
           type="text"
           value={formData.modelName}
           onChange={(e) => handleChange('modelName', e.target.value)}
-          placeholder="deepseek-reasoner"
+          placeholder="qwen3.5-plus"
           className={
             'w-full rounded-xl px-4 py-3 border bg-white dark:bg-slate-950 ' +
             'border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 ' +

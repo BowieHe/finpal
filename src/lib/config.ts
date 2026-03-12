@@ -16,15 +16,15 @@ export function getLLMConfig(): LLMConfig {
       // Migrate old configuration
       let needsUpdate = false;
 
-      // Fix old URL format
-      if (config.apiUrl === 'https://api.deepseek.com/v1') {
-        config.apiUrl = 'https://api.deepseek.com';
+      // Fix old DeepSeek URLs and migrate to DashScope
+      if (config.apiUrl?.includes('deepseek.com')) {
+        config.apiUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
         needsUpdate = true;
       }
 
-      // Fix old model name: deepseek-chat -> deepseek-reasoner
-      if (config.modelName === 'deepseek-chat') {
-        config.modelName = 'deepseek-reasoner';
+      // Fix old model names and migrate to qwen3.5-plus
+      if (config.modelName === 'deepseek-chat' || config.modelName === 'deepseek-reasoner') {
+        config.modelName = 'qwen3.5-plus';
         needsUpdate = true;
       }
 
