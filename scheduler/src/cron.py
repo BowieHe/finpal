@@ -28,28 +28,26 @@ def sync_job():
     except Exception as e:
         logger.error(f"❌ 基金列表同步失败: {e}")
     
-    # 2. 同步热门基金净值（前 200 只）
+    # 2. 同步活跃基金净值 (持有中 + 关联的)
     try:
-        logger.info("🔄 开始同步热门基金净值...")
-        funds = db.get_fund_count()
-        logger.info(f"   当前共有 {funds} 只基金")
+        logger.info("🔄 开始同步活跃基金净值...")
+        active_codes = db.get_active_fund_codes()
+        logger.info(f"   当前共有 {len(active_codes)} 只持仓基金")
         
-        # 获取前 200 只基金同步（简化：按字母顺序取前 200）
-        # 实际生产中可以按规模、热度等排序
-        logger.info("   （简化：只同步部分基金作为示例）")
-        
-        # 这里可以遍历所有基金，但耗时较长
-        # 示例：只同步几只常见基金
-        sample_codes = ["000001", "000002", "110001", "160106"]
-        for code in sample_codes:
+        for code in active_codes:
             try:
+                # 增量同步
                 sync_fund_nav(db, code, period="1月")
-                time.sleep(0.5)  # 避免请求过快
+                # 顺便检查关联基金数据是否需要更新
+                similar = db.get_similar_funds(code, limit=3)
+                for s in similar:
+                    sync_fund_nav(db, s["code"], period="2周")
+                time.sleep(0.5)
             except Exception as e:
                 logger.error(f"   ❌ 同步 {code} 失败: {e}")
                 continue
         
-        logger.info("✅ 热门基金净值同步完成")
+        logger.info("✅ 活跃基金净值同步完成")
         
     except Exception as e:
         logger.error(f"❌ 净值同步失败: {e}")
@@ -76,9 +74,21 @@ def start_scheduler():
     # 注册定时任务
     schedule.every().day.at(config.sync_time).do(sync_job)
     
-    # 启动时先执行一次（初始化）
-    logger.info("🚀 启动时先执行一次同步...")
-    sync_job()
+    # 启动时初始化检查
+    try:
+        db = Database()
+        count = db.get_fund_count()
+        logger.info(f"📊 启动检查: 当前基金基本信息数量 = {count}")
+        if count == 0:
+            logger.info("🚀 数据库为空，执行初始化同步基金列表...")
+            sync_all_funds(db)
+        else:
+            logger.info("✅ 基金列表已存在，跳过初始化")
+    except Exception as e:
+        logger.error(f"❌ 启动初始化检查失败: {e}", exc_info=True)
+    
+    # 启动时执行一次同步（可选，如果是刚启动且有持仓）
+    # sync_job()
     
     # 主循环
     logger.info("⏳ 进入定时等待循环...")

@@ -60,6 +60,7 @@ export async function POST(req: Request) {
             where: { fundCode },
         });
 
+        let result;
         if (existing) {
             // 追加买入：加权平均成本
             const newCostPrice = calculateWeightedCost(
@@ -89,32 +90,41 @@ export async function POST(req: Request) {
                     },
                 }),
             ]);
-
-            return NextResponse.json({ holding: updated[0], transaction: updated[1] });
+            result = { holding: updated[0], transaction: updated[1] };
         } else {
             // 新建持仓
-            const holding = await prisma.userHolding.create({
-                data: {
-                    fundCode,
-                    fundName,
-                    shares: sharesNum,
-                    costPrice: priceNum,
-                    buyDate,
-                    transactions: {
-                        create: {
-                            type: 'buy',
-                            date: buyDate,
-                            shares: sharesNum,
-                            price: priceNum,
-                            amount,
+            result = { 
+                holding: await prisma.userHolding.create({
+                    data: {
+                        fundCode,
+                        fundName,
+                        shares: sharesNum,
+                        costPrice: priceNum,
+                        buyDate,
+                        transactions: {
+                            create: {
+                                type: 'buy',
+                                date: buyDate,
+                                shares: sharesNum,
+                                price: priceNum,
+                                amount,
+                            },
                         },
                     },
-                },
-                include: { transactions: true },
-            });
-
-            return NextResponse.json({ holding }, { status: 201 });
+                    include: { transactions: true },
+                })
+            };
         }
+
+        // 触发 Python Scheduler 进行数据同步（异步触发，报错不影响主流程）
+        const schedulerUrl = process.env.SCHEDULER_URL || 'http://localhost:8000';
+        fetch(`${schedulerUrl}/sync_one`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fund_code: fundCode }),
+        }).catch(err => console.error('触发 Scheduler 同步失败:', err));
+
+        return NextResponse.json(result, { status: existing ? 200 : 201 });
     } catch (error) {
         console.error('POST /api/holdings error:', error);
         return NextResponse.json(

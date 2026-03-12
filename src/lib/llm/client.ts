@@ -1,46 +1,54 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { LLMConfig } from '@/types/config';
 import { createLogger } from '../logger';
+import { getConfig, clearConfigCache, validateConfig } from '../config/manager';
 
 const logger = createLogger('LLMClient');
 
-let currentLLM: ChatOpenAI | null = null;
-
-// 安全的配置获取，提供有意义的默认值
-const getSafeConfig = (): LLMConfig => {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    logger.warn('OPENAI_API_KEY not set, LLM calls will fail');
-  }
-
-  return {
-    apiUrl: process.env.OPENAI_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    modelName: process.env.OPENAI_MODEL || 'qwen3.5-plus',
-    apiKey: apiKey || '',
-  };
-};
-
-export const defaultLLMConfig: LLMConfig = getSafeConfig();
+/**
+ * Get configuration from DB with in-memory caching
+ * @deprecated Use getConfig from '@/lib/config/manager' instead
+ */
+export async function getPersistentConfig(): Promise<LLMConfig> {
+  return await getConfig();
+}
 
 /**
- * 创建 LLM 客户端
- * 注意：如果 apiKey 为空，会抛出错误
+ * Force refresh the configuration cache (e.g., after a settings update)
+ */
+export { clearConfigCache };
+
+/**
+ * Validate configuration and return detailed error info
+ */
+export { validateConfig };
+
+/**
+ * Create a new LLM client instance with the provided configuration
  */
 export function createLLMClient(config: LLMConfig): ChatOpenAI {
-  if (!config.apiKey) {
+  if (!config.apiKey || config.apiKey.trim() === '') {
     throw new Error(
-      '[LLM Client] API Key is required. Please set OPENAI_API_KEY environment variable.'
+      '[LLM Client] API Key is required. Please configure it in the settings.'
     );
   }
 
   logger.info('Creating LLM client', {
     hasApiKey: true,
     apiKeyLength: config.apiKey.length,
+    apiKeyPrefix: config.apiKey.substring(0, 10) + '...',
     apiUrl: config.apiUrl,
     modelName: config.modelName,
   });
 
+  // 重要：LangChain 会优先从环境变量读取 API Key
+  // 我们需要在创建客户端前设置环境变量，确保传入的 apiKey 被使用
+  process.env.OPENAI_API_KEY = config.apiKey;
+  if (config.apiUrl) {
+    process.env.OPENAI_BASE_URL = config.apiUrl;
+  }
+
+  // 确保 apiKey 被正确传递
   const client = new ChatOpenAI({
     openAIApiKey: config.apiKey,
     configuration: {
@@ -55,22 +63,30 @@ export function createLLMClient(config: LLMConfig): ChatOpenAI {
   return client;
 }
 
-export function setLLMInstance(config: LLMConfig) {
-  currentLLM = createLLMClient(config);
-}
-
-export function getLLMInstance(): ChatOpenAI {
-  if (!currentLLM) {
-    currentLLM = createLLMClient(defaultLLMConfig);
+/**
+ * Get an LLM instance. 
+ * Note: Since we are moving away from global singleton to avoid race conditions,
+ * this now returns a fresh instance based on the current persistent config.
+ * For true request-scoping, use createLLMClient(config) directly.
+ */
+export async function getLLMInstance(): Promise<ChatOpenAI> {
+  // 先验证配置
+  const validation = await validateConfig();
+  if (!validation.valid) {
+    throw new Error(validation.message || 'Configuration validation failed');
   }
-  return currentLLM;
+
+  logger.debug('getLLMInstance using config', {
+    apiUrl: validation.config.apiUrl,
+    modelName: validation.config.modelName,
+    apiKeyLength: validation.config.apiKey.length,
+  });
+
+  return createLLMClient(validation.config);
 }
 
 /**
- * 带指数退避的重试调用
- * @param operation 要执行的操作
- * @param maxRetries 最大重试次数
- * @param baseDelay 基础延迟（毫秒）
+ * Retry helper with exponential backoff
  */
 export async function withRetry<T>(
   operation: () => Promise<T>,
@@ -91,29 +107,33 @@ export async function withRetry<T>(
         );
       }
 
-      // 指数退避：1s, 2s, 4s
       const delay = baseDelay * Math.pow(2, attempt);
       logger.warn(`Attempt ${attempt + 1} failed, retrying`, { delay, error: lastError.message });
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  throw lastError;
+  throw lastError!;
 }
 
 /**
- * 流式调用 LLM 并实时回调
- * @param prompt 提示词
- * @param onChunk 每个字符/片段的回调
- * @param maxRetries 最大重试次数
- * @returns 完整响应内容
+ * Streaming utility
  */
 export async function streamWithCallback(
   prompt: string,
   onChunk: (chunk: string) => void,
-  maxRetries: number = 2
+  maxRetries: number = 2,
+  llmOverride?: ChatOpenAI
 ): Promise<string> {
-  const llm = getLLMInstance();
+  let llm: ChatOpenAI;
+  
+  if (llmOverride) {
+    llm = llmOverride;
+  } else {
+    // 获取 LLM 实例（会自动验证配置）
+    llm = await getLLMInstance();
+  }
+  
   let fullContent = '';
   
   const operation = async () => {

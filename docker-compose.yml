@@ -36,5 +36,26 @@ services:
                 condition: service_healthy
         restart: unless-stopped
 
+    # 3. Next.js Web 应用
+    web:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: finpal-web
+        environment:
+            - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
+            - SCHEDULER_URL=http://scheduler:8000
+            - NODE_ENV=production
+        ports:
+            - "3000:3000"
+        depends_on:
+            postgres:
+                condition: service_healthy
+            scheduler:
+                condition: service_started
+        restart: unless-stopped
+        entrypoint: ["/app/docker-entrypoint.sh"]
+        command: ["npm", "run", "start"]
+
 volumes:
     postgres_data:

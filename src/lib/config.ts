@@ -1,11 +1,21 @@
 import { LLMConfig } from '@/types/config';
-import { defaultLLMConfig } from '@/lib/llm/client';
+import { createLogger } from '@/lib/logger';
 
+const logger = createLogger('ConfigFrontend');
 const STORAGE_KEY = 'finpal_llm_config';
 
+/**
+ * 从 localStorage 获取配置（前端使用）
+ * 注意：实际 API Key 存储在服务端数据库，前端只存储非敏感信息
+ */
 export function getLLMConfig(): LLMConfig {
   if (typeof window === 'undefined') {
-    return defaultLLMConfig;
+    // 服务端渲染时返回空配置
+    return {
+      apiUrl: '',
+      modelName: '',
+      apiKey: '',
+    };
   }
 
   try {
@@ -31,16 +41,21 @@ export function getLLMConfig(): LLMConfig {
       // Update if changed
       if (needsUpdate) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-        console.log('[Config] Migrated old configuration to new format:', config);
+        logger.info('Migrated old configuration to new format', { config });
       }
 
       return config;
     }
   } catch (error) {
-    console.error('Failed to read LLM config from localStorage:', error);
+    logger.error('Failed to read LLM config from localStorage', { error: String(error) });
   }
 
-  return defaultLLMConfig;
+  // 默认返回硬编码配置（首次使用时的默认值）
+  return {
+    apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    modelName: 'qwen-vl-max',
+    apiKey: '',
+  };
 }
 
 export function setLLMConfig(config: LLMConfig): void {
@@ -51,6 +66,6 @@ export function setLLMConfig(config: LLMConfig): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch (error) {
-    console.error('Failed to save LLM config to localStorage:', error);
+    logger.error('Failed to save LLM config to localStorage', { error: String(error) });
   }
 }

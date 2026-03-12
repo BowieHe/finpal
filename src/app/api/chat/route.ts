@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createGraph } from '@/lib/graph/graph';
-import { setLLMInstance } from '@/lib/llm/client';
+import { clearConfigCache, validateConfig } from '@/lib/llm/client';
+import { prisma } from '@/lib/prisma';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('APIChat');
@@ -23,20 +24,56 @@ export async function POST(req: Request) {
 
     logger.info('Processing chat request', { question });
 
-    // 使用前端传来的 config 覆盖默认配置
+    // 首先验证配置是否完整
+    const validation = await validateConfig();
+    if (!validation.valid) {
+      logger.warn('Configuration validation failed', { missing: validation.missing });
+      return NextResponse.json(
+        { 
+          error: 'Configuration Error', 
+          message: validation.message,
+          missing: validation.missing,
+          details: '请在设置页面配置 API Key 和其他必要信息'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 使用前端传来的 config，如果用户临时修改了设置，我们应该确保后续调用能反映出来
     if (config?.apiKey) {
-      logger.info('Using custom LLM config from frontend', {
+      logger.info('Using custom LLM config from frontend, updating persistent settings', {
         apiUrl: config.apiUrl,
         modelName: config.modelName,
         hasApiKey: true,
       });
-      setLLMInstance(config);
+      
+      // 我们选择将前端传来的临时配置也同步到数据库中，以确保真正的"持久化"
+      // 这里的逻辑是：如果前端传了 config，说明用户在页面上点击了保存或正在使用新配置
+      await prisma.settings.upsert({
+        where: { id: 1 },
+        update: {
+          apiUrl: config.apiUrl,
+          modelName: config.modelName,
+          apiKey: config.apiKey,
+          dashscopeApiKey: config.dashscopeApiKey,
+          updatedAt: new Date(),
+        },
+        create: {
+          id: 1,
+          apiUrl: config.apiUrl,
+          modelName: config.modelName,
+          apiKey: config.apiKey,
+          dashscopeApiKey: config.dashscopeApiKey,
+        },
+      });
+      
+      clearConfigCache();
     }
 
     // 存储 dashscopeApiKey 到全局，供 MCP 使用
-    if (config?.dashscopeApiKey) {
-      (global as any).DASHSCOPE_API_KEY = config.dashscopeApiKey;
-      logger.info('DashScope API Key configured from frontend');
+    const persistentConfig = await prisma.settings.findUnique({ where: { id: 1 } });
+    if (persistentConfig?.dashscopeApiKey) {
+      (global as any).DASHSCOPE_API_KEY = persistentConfig.dashscopeApiKey;
     }
 
     // Check if client accepts SSE

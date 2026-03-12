@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { createLogger } from '@/lib/logger';
+import { LLMConfig } from '@/types/config';
 
 const logger = createLogger('VisionClient');
 
@@ -10,45 +11,27 @@ export interface VisionLLMConfig {
   modelName: string;
 }
 
-// 获取默认配置
-export const getDefaultVisionConfig = (): VisionLLMConfig => {
-  const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    logger.warn('DASHSCOPE_API_KEY or OPENAI_API_KEY not set, vision calls will fail');
-  }
-
-  return {
-    apiUrl: process.env.VISION_API_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKey: apiKey || '',
-    modelName: process.env.VISION_MODEL_NAME || 'qwen-vl-max',
-  };
-};
-
-// 创建 Vision LLM 客户端
-export function createVisionClient(config?: Partial<VisionLLMConfig>): OpenAI {
-  const defaultConfig = getDefaultVisionConfig();
-  const finalConfig = {
-    ...defaultConfig,
-    ...config,
-  };
-
-  if (!finalConfig.apiKey) {
+/**
+ * 创建 Vision LLM 客户端
+ * @param config - LLM 配置（从前端传来）
+ */
+export function createVisionClient(config: VisionLLMConfig): OpenAI {
+  if (!config.apiKey) {
     throw new Error(
-      '[Vision Client] API Key is required. Please set DASHSCOPE_API_KEY or OPENAI_API_KEY environment variable.'
+      '[Vision Client] API Key is required. Please configure it in settings.'
     );
   }
-
+  
   logger.info('Creating Vision LLM client', {
     hasApiKey: true,
-    apiKeyLength: finalConfig.apiKey.length,
-    apiUrl: finalConfig.apiUrl,
-    modelName: finalConfig.modelName,
+    apiKeyLength: config.apiKey.length,
+    apiUrl: config.apiUrl,
+    modelName: config.modelName,
   });
 
   return new OpenAI({
-    apiKey: finalConfig.apiKey,
-    baseURL: finalConfig.apiUrl,
+    apiKey: config.apiKey,
+    baseURL: config.apiUrl,
   });
 }
 
@@ -69,14 +52,22 @@ export interface FundScreenshotAnalysis {
   rawResponse?: string;
 }
 
-// 分析基金截图
+/**
+ * 分析基金截图
+ * @param imageBase64 - Base64 编码的图片
+ * @param prompt - 自定义提示词（可选）
+ * @param config - LLM 配置（从前端传来）
+ */
 export async function analyzeFundScreenshot(
   imageBase64: string,
   prompt?: string,
-  config?: Partial<VisionLLMConfig>
+  config?: LLMConfig,
 ): Promise<FundScreenshotAnalysis> {
+  if (!config) {
+    throw new Error('[Vision Client] Configuration is required');
+  }
+
   const client = createVisionClient(config);
-  const visionConfig = getDefaultVisionConfig();
 
   const defaultPrompt = `请分析这张基金持仓截图，提取以下信息：
 1. 基金代码和名称
@@ -107,7 +98,7 @@ export async function analyzeFundScreenshot(
     logger.info('Analyzing fund screenshot...');
 
     const response = await client.chat.completions.create({
-      model: visionConfig.modelName,
+      model: config.modelName || 'qwen-vl-max',
       messages: [
         {
           role: 'user',
@@ -156,15 +147,24 @@ export async function analyzeFundScreenshot(
   }
 }
 
-// 流式分析基金截图（支持实时输出）
+/**
+ * 流式分析基金截图（支持实时输出）
+ * @param imageBase64 - Base64 编码的图片
+ * @param onChunk - 流式回调函数
+ * @param prompt - 自定义提示词（可选）
+ * @param config - LLM 配置（从前端传来）
+ */
 export async function analyzeFundScreenshotStream(
   imageBase64: string,
   onChunk: (chunk: string) => void,
   prompt?: string,
-  config?: Partial<VisionLLMConfig>
+  config?: LLMConfig,
 ): Promise<string> {
+  if (!config) {
+    throw new Error('[Vision Client] Configuration is required');
+  }
+
   const client = createVisionClient(config);
-  const visionConfig = getDefaultVisionConfig();
 
   const defaultPrompt = `请分析这张基金持仓截图，提取以下信息：
 1. 基金代码和名称
@@ -179,7 +179,7 @@ export async function analyzeFundScreenshotStream(
     logger.info('Starting streaming vision analysis...');
 
     const stream = await client.chat.completions.create({
-      model: visionConfig.modelName,
+      model: config.modelName || 'qwen-vl-max',
       messages: [
         {
           role: 'user',

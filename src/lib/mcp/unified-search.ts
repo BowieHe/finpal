@@ -32,7 +32,7 @@ export const smartSearch = async (
 
         // 解析 MCP 返回的结果
         const content = response.content as Array<{ type: string; text: string }>;
-        
+
         logger.info('MCP response content', {
           query,
           contentItems: content?.length || 0,
@@ -40,17 +40,17 @@ export const smartSearch = async (
         });
 
         const textContent = content.find(c => c.type === 'text')?.text || '[]';
-        
+
         // 临时打印完整的 textContent 用于调试
         logger.info('MCP text content FULL', {
           query,
           textContentLength: textContent?.length || 0,
-          fullTextContent: textContent,
+          // fullTextContent: textContent,
         });
-        
+
         try {
           const parsed = JSON.parse(textContent);
-          
+
           // 处理两种格式:
           // 1. 数组格式: [{title, description, url}]
           // 2. 对象格式: {pages: [{snippet, title, url}]}
@@ -67,21 +67,21 @@ export const smartSearch = async (
           } else {
             results = [];
           }
-          
+
           logger.info('MCP parsed result', {
             query,
             resultType: typeof parsed,
             isArray: Array.isArray(parsed),
             hasPages: !!parsed.pages,
             resultsCount: results.length,
-            firstItem: results.length > 0 
+            firstItem: results.length > 0
               ? JSON.stringify(results[0]).substring(0, 200)
               : null,
           });
           return results;
         } catch (parseError) {
-          logger.error('MCP JSON parse error', { 
-            query, 
+          logger.error('MCP JSON parse error', {
+            query,
             error: String(parseError),
             textContent: textContent?.substring(0, 200),
           });
@@ -97,13 +97,13 @@ export const smartSearch = async (
     );
 
     // result 已经是转换后的格式
-    const items: SearchResultItem[] = Array.isArray(result) 
+    const items: SearchResultItem[] = Array.isArray(result)
       ? result.map((item: any, index: number) => ({
-          title: item.title || 'No title',
-          url: item.url || '',
-          description: item.description || '',
-          position: index + 1,
-        }))
+        title: item.title || 'No title',
+        url: item.url || '',
+        description: item.description || '',
+        position: index + 1,
+      }))
       : [];
 
     const duration = Date.now() - startTime;

@@ -2,42 +2,31 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { MCPConfig } from '../../types/mcp';
 import { createLogger } from '../logger';
+import { getConfig, validateConfig } from '../config/manager';
 
 const logger = createLogger('MCPManager');
-
-// MCP 服务器配置
-export const MCP_SERVERS: Record<string, MCPConfig> = {
-  'bailian-websearch': {
-    name: 'bailian-websearch',
-    url: 'https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp',
-    headers: {
-      'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY || ''}`,
-    },
-  },
-};
 
 export class MCPManager {
   private clients: Map<string, Client> = new Map();
 
   async getClient(engine: string): Promise<Client> {
-    const engineName = engine.toLowerCase() as keyof typeof MCP_SERVERS;
-    const config = MCP_SERVERS[engineName];
-
-    if (!config) {
-      throw new Error(`MCP server ${engineName} not found`);
+    const engineName = engine.toLowerCase();
+    
+    // 获取配置（会自动验证）
+    const validation = await validateConfig();
+    if (!validation.valid) {
+      throw new Error(validation.message || 'MCP configuration validation failed');
     }
+    
+    const config = validation.config;
 
     if (this.clients.has(engineName)) {
       return this.clients.get(engineName)!;
     }
 
-    // Check if API key is configured (from global or env)
-    const dashscopeApiKey = (global as any).DASHSCOPE_API_KEY || process.env.DASHSCOPE_API_KEY;
+    // Check if API key is configured
+    const dashscopeApiKey = config.dashscopeApiKey;
     
-    if (!config.url) {
-      throw new Error(`MCP server ${engineName} URL not configured`);
-    }
-
     if (!dashscopeApiKey) {
       throw new Error(
         `DASHSCOPE_API_KEY not configured. Please set it in settings or environment variable.`
@@ -50,8 +39,9 @@ export class MCPManager {
     });
 
     // Use StreamableHTTPClientTransport for Bailian MCP
+    const mcpUrl = 'https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp';
     const transport = new StreamableHTTPClientTransport(
-      new URL(config.url),
+      new URL(mcpUrl),
       {
         requestInit: {
           headers: {

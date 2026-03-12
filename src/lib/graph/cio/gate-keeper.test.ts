@@ -30,6 +30,28 @@ describe('GateKeeper', () => {
     expect(result.errors?.[0]).toMatch(/致命/);
   });
 
+  it('should route to planning_loop if tasks were executed', () => {
+    const route = gateKeeperRouter({
+      errors: [],
+      plan: { 
+        requiresDebate: true,
+        tasks: [{ agent: 'db-agent', task: 'portfolio_summary' }]
+      }
+    } as any);
+    expect(route).toBe('planning_loop');
+  });
+
+  it('should route to optimistic if no tasks were in the last plan and debate is required', () => {
+    const route = gateKeeperRouter({
+      errors: [],
+      plan: { 
+        requiresDebate: true,
+        tasks: [] // Empty tasks mean CIO finished planning
+      }
+    } as any);
+    expect(route).toBe('optimistic');
+  });
+
   it('should route to end_failure if state has critical errors', () => {
     const route = gateKeeperRouter({
       errors: ['[致命] 任务失败']

@@ -6,18 +6,18 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 
 # 复制依赖文件
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
 # 安装依赖
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+    uv sync --no-install-project --no-dev
 
 # 复制项目代码
 ADD . /app
 
 # 安装项目
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --no-dev
 
 # 添加到 PATH
 ENV PATH="/app/.venv/bin:$PATH"

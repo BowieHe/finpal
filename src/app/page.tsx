@@ -45,6 +45,16 @@ export default function Home() {
         setConversations(getConversations());
         setCurrentConversation(getCurrentConversation());
 
+        // Fetch LLM settings from DB
+        fetch('/api/settings')
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.apiKey) {
+                    setLlmConfig(data);
+                }
+            })
+            .catch(err => console.error('Failed to fetch settings:', err));
+
         const savedTheme =
             (localStorage.getItem("finpal_theme") as Theme) || "dark";
         setTheme(savedTheme);
@@ -129,11 +139,17 @@ export default function Home() {
 
         // Helper function to update message with search progress
         const updateMessageProgress = (updates: Partial<Message>) => {
-            Object.assign(userMessage, updates);
+            Object.assign(userMessage, {
+                ...updates,
+                timestamp: Date.now(), // 每次更新都刷新时间戳为最后更新时间
+            });
             updateMessageInConversation(
                 activeConversation.id,
                 userMessage.id,
-                updates,
+                {
+                    ...updates,
+                    timestamp: Date.now(),
+                },
             );
             setConversations(getConversations());
             setCurrentConversation(getCurrentConversation());
@@ -735,10 +751,24 @@ export default function Home() {
         }
     };
 
-    const handleSaveSettings = (config: LLMConfig) => {
-        setLlmConfig(config);
-        persistLLMConfig(config);
-        setIsSettingsOpen(false);
+    const handleSaveSettings = async (config: LLMConfig) => {
+        try {
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            
+            if (!response.ok) throw new Error('Failed to save settings');
+            
+            const savedConfig = await response.json();
+            setLlmConfig(savedConfig);
+            persistLLMConfig(savedConfig); // Keep localStorage as fallback
+            setIsSettingsOpen(false);
+        } catch (error) {
+            console.error('Save settings error:', error);
+            alert('保存设置失败，请重试');
+        }
     };
 
     const handleToggleTheme = () => {
@@ -849,6 +879,7 @@ export default function Home() {
                 isOpen={isAddHoldingModalOpen}
                 onClose={() => setIsAddHoldingModalOpen(false)}
                 onAddHolding={handleAddHolding}
+                config={llmConfig}
             />
         </div>
     );

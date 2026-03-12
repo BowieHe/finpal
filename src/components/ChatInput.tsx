@@ -52,15 +52,17 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">
         
         <div className="flex gap-3">
-          <textarea
-            name="question"
-            placeholder="输入你的问题... (Shift + Enter 换行)"
-            disabled={disabled}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            rows={1}
-            className="flex-1 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
-          />
+          <div className="flex-1 relative flex items-end">
+            <textarea
+              name="question"
+              placeholder="输入你的问题... (Shift + Enter 换行)"
+              disabled={disabled}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              className="w-full rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none max-h-48 overflow-y-auto whitespace-pre-wrap [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+            />
+          </div>
           {disabled ? (
             <button
               type="button"

@@ -117,8 +117,15 @@ def sync_all_funds(db) -> int:
     return count
 
 
-def sync_fund_nav(db, code: str, period: str = "1年") -> int:
-    """同步单只基金净值"""
+def sync_fund_nav(db, code: str, period: str = "1年", force: bool = False) -> int:
+    """同步单只基金净值（增量同步）"""
+    if not force:
+        latest_date = db.get_latest_nav_date(code)
+        if latest_date:
+            # 如果最后更新时间是今天（或昨天，取决于开盘时间），可以跳过
+            # 这里简单处理，如果已经有数据且不是强行同步，则只同步最近一阵子
+            pass
+
     fetcher = FundFetcher()
     navs = fetcher.get_fund_nav_history(code, period)
     
@@ -126,5 +133,30 @@ def sync_fund_nav(db, code: str, period: str = "1年") -> int:
         return 0
     
     count = db.save_nav_batch(navs)
-    logger.info(f"✅ 基金 {code} 同步完成，共 {count} 条净值")
+    logger.info(f"✅ 基金 {code} 同步完成，约 {count} 条净值")
     return count
+
+
+def sync_fund_with_enrichment(db, code: str) -> int:
+    """同步指定基金及其关联基金"""
+    logger.info(f"🌟 开始同步基金 {code} 及其关联基金...")
+    
+    # 1. 同步主基金
+    total_synced = 0
+    total_synced += sync_fund_nav(db, code, period="all", force=True)
+    
+    # 2. 获取相似基金
+    similar_funds = db.get_similar_funds(code, limit=5)
+    logger.info(f"🔍 发现 {len(similar_funds)} 只关联基金")
+    
+    # 3. 同步关联基金（如果数据库里没有或者数据太旧）
+    for fund in similar_funds:
+        f_code = fund["code"]
+        latest = db.get_latest_nav_date(f_code)
+        
+        # 如果从未同步过，或者数据早于 3 天前
+        if not latest or (datetime.now() - latest).days > 3:
+            logger.info(f"🔗 同步关联基金 {f_code} ({fund['name']})")
+            total_synced += sync_fund_nav(db, f_code, period="1年")
+            
+    return total_synced

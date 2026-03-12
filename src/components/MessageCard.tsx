@@ -39,7 +39,7 @@ const roleConfig: Record<string, { side: "center" | "left" | "right"; emoji?: st
 
 const createMarkdownComponents = (color: string) => ({
     p: ({ children }: { children?: React.ReactNode }) => (
-        <p className="mb-2 last:mb-0">{children}</p>
+        <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>
     ),
     ul: ({ children }: { children?: React.ReactNode }) => (
         <ul className="list-disc list-inside mb-2 text-left">{children}</ul>

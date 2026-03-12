@@ -316,7 +316,7 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   const startTime = Date.now();
   logger.info('Starting researcher node', { question: state.question });
 
-  const llm = getLLMInstance();
+  const llm = await getLLMInstance();
 
   // ---- Step 0: 持仓意图识别 + Tool 调用 ----
   let portfolioContext = '';
@@ -564,6 +564,7 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
     });
   }
 
+  const llm = await getLLMInstance();
   const researchSummary = state.researchSummary;
   const researchContext = researchSummary
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
@@ -581,6 +582,9 @@ ${state.question}
 
 【研究信息】
 ${researchContext}
+
+【补充数据 (来自底层 Agent)】
+${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
 
 【输出要求】
 请严格以 JSON 格式返回（不要包含其他文字）：
@@ -623,7 +627,8 @@ ${researchContext}
           });
         }
       },
-      2
+      2,
+      llm
     );
 
     // 解析最终结果
@@ -691,6 +696,7 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
     });
   }
 
+  const llm = await getLLMInstance();
   const researchSummary = state.researchSummary;
   const researchContext = researchSummary
     ? `关键事实：\n${researchSummary.key_facts.join('\n')}\n\n总结：${researchSummary.summary}`
@@ -708,6 +714,9 @@ ${state.question}
 
 【研究信息】
 ${researchContext}
+
+【补充数据 (来自底层 Agent)】
+${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
 
 【输出要求】
 请严格以 JSON 格式返回（不要包含其他文字）：
@@ -750,7 +759,8 @@ ${researchContext}
           });
         }
       },
-      2
+      2,
+      llm
     );
 
     // 解析最终结果
@@ -818,6 +828,7 @@ export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial
     });
   }
 
+  const llm = await getLLMInstance();
   const prompt = `你是乐观派分析师。现在进入反驳阶段。\n\n原问题：${state.question}\n\n你的初始观点：${state.optimisticAnswer}\n\n悲观派观点：${state.pessimisticAnswer}\n\n请针对悲观派的观点进行反驳，强化你的立场。以JSON格式返回：{"rebuttal": "反驳内容"}`;
 
   try {
@@ -1137,7 +1148,7 @@ export const plannerNode = async (state: GraphState): Promise<Partial<GraphState
   const startTime = Date.now();
   logger.info('Starting planner node', { question: state.question });
 
-  const llm = getLLMInstance();
+  const llm = await getLLMInstance();
   const prompt = `你是研究规划专家。请为以下问题制定研究计划。\n\n问题：${state.question}\n\n请生成 ${state.breadth} 个搜索查询来全面研究这个问题。以JSON格式返回：{"queries": ["查询1", "查询2", "查询3"], "reasoning": "规划理由"}`;
 
   try {
@@ -1288,7 +1299,7 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
   }
 
   // 生成研究总结（支持流式关键事实）
-  const llm = getLLMInstance();
+  const llm = await getLLMInstance();
   const findingsText = allFindings.map(f => `查询：${f.query}\n结果：${f.content.substring(0, 500)}`).join('\n\n');
   const summaryPrompt = `基于以下研究发现，生成关键事实和总结。\n\n${findingsText}\n\n以JSON格式返回：{"key_facts": ["事实1", "事实2"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
 
@@ -1373,7 +1384,7 @@ export const deepCheckNode = async (state: GraphState): Promise<Partial<GraphSta
     return { shouldContinue: false };
   }
 
-  const llm = getLLMInstance();
+  const llm = await getLLMInstance();
   const findingsSummary = state.allFindings.map(f => `查询：${f.query}\n内容摘要：${f.content.substring(0, 300)}`).join('\n\n');
   const prompt = `你是研究质量评估专家。请评估当前研究是否充分回答问题。\n\n原问题：${state.question}\n\n当前研究发现：\n${findingsSummary}\n\n请判断：\n1. 研究是否充分？（true/false）\n2. 如不充分，还需要研究哪些方面？\n3. 理由\n\n以JSON格式返回：{"sufficient": true/false, "additional_queries": ["查询1"], "reason": "理由"}`;
 

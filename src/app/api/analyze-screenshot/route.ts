@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeFundScreenshot, FundScreenshotAnalysis } from '@/lib/vision/client';
 import { createLogger } from '@/lib/logger';
+import { LLMConfig } from '@/types/config';
 
 const logger = createLogger('AnalyzeScreenshotAPI');
 
@@ -13,11 +14,22 @@ export async function POST(request: NextRequest) {
 
     // 解析请求体
     const body = await request.json();
-    const { image, prompt } = body;
+    const { image, prompt, config } = body;
 
     if (!image) {
       return NextResponse.json(
         { error: 'Image is required' },
+        { status: 400 }
+      );
+    }
+
+    // 验证配置
+    if (!config || !config.apiKey) {
+      return NextResponse.json(
+        { 
+          error: 'Configuration required',
+          message: '请在设置页面配置 API Key 后再使用截图分析功能'
+        },
         { status: 400 }
       );
     }
@@ -50,11 +62,14 @@ export async function POST(request: NextRequest) {
 
     logger.info('Analyzing screenshot...', { 
       imageSize: sizeInBytes,
-      hasCustomPrompt: !!prompt 
+      hasCustomPrompt: !!prompt,
+      hasConfig: true,
+      apiUrl: config.apiUrl,
+      modelName: config.modelName,
     });
 
-    // 调用 Vision LLM 分析
-    const result = await analyzeFundScreenshot(base64Data, prompt);
+    // 调用 Vision LLM 分析（传入前端传来的配置）
+    const result = await analyzeFundScreenshot(base64Data, prompt, config);
 
     logger.info('Screenshot analysis completed', { 
       fundCount: result.funds?.length || 0 

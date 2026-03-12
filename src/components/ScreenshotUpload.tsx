@@ -2,12 +2,14 @@
 
 import { useState, useRef, ChangeEvent } from 'react';
 import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
+import { LLMConfig } from '@/types/config';
 
 interface ScreenshotUploadProps {
   onAnalysisComplete?: (data: any) => void;
+  config?: LLMConfig; // 从前端传入的配置
 }
 
-export default function ScreenshotUpload({ onAnalysisComplete }: ScreenshotUploadProps) {
+export default function ScreenshotUpload({ onAnalysisComplete, config }: ScreenshotUploadProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -42,6 +44,12 @@ export default function ScreenshotUpload({ onAnalysisComplete }: ScreenshotUploa
   const handleAnalyze = async () => {
     if (!selectedImage) return;
 
+    // 检查配置
+    if (!config || !config.apiKey) {
+      setError('请先配置 API Key');
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
 
@@ -49,13 +57,16 @@ export default function ScreenshotUpload({ onAnalysisComplete }: ScreenshotUploa
       const response = await fetch('/api/analyze-screenshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: selectedImage }),
+        body: JSON.stringify({ 
+          image: selectedImage,
+          config: config, // 传递配置给后端
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '分析失败');
+        throw new Error(data.message || data.error || '分析失败');
       }
 
       setResult(data.data);
@@ -136,10 +147,17 @@ export default function ScreenshotUpload({ onAnalysisComplete }: ScreenshotUploa
       {selectedImage && !isAnalyzing && !result && (
         <button
           onClick={handleAnalyze}
-          className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+          disabled={!config?.apiKey}
+          className={`
+            w-full py-3 px-4 font-medium rounded-xl transition-colors flex items-center justify-center gap-2
+            ${config?.apiKey 
+              ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
+              : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            }
+          `}
         >
           <ImageIcon size={18} />
-          分析截图
+          {config?.apiKey ? '分析截图' : '请先配置 API Key'}
         </button>
       )}
 

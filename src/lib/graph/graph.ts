@@ -12,20 +12,27 @@ import {
 import { intentPlannerNode } from './cio/intent-planner';
 import { gateKeeperNode, gateKeeperRouter } from './cio/gate-keeper';
 import { directSummaryNode } from './cio/direct-summary';
+import { dataSynthesizerNode } from './cio/data-synthesizer';
 import { dbAgentAdapter, webAgentAdapter, quantAgentAdapter } from './nodes/agent-adapters';
 
 /**
- * CIO 动态派发逻辑
+ * CIO 派发入口路由器
+ * - 如果有任务：返回 Send[] 进入并行适配器
+ * - 如果没任务：返回字符串 'gateKeeper' 直接进入分析状态
  */
-const dispatchTasks = (state: GraphState): Send[] => {
-  if (!state.plan || !state.plan.tasks) return [];
+const intentPlannerRouter = (state: GraphState): any => {
+  const hasTasks = state.plan && state.plan.tasks && state.plan.tasks.length > 0;
   
-  return state.plan.tasks.map((task, idx) => {
-    return new Send(`adapter_${task.agent}`, {
-      ...state,
-      payload: { taskDef: task, taskIdx: idx }
+  if (hasTasks) {
+    return state.plan!.tasks.map((task, idx) => {
+      return new Send(`adapter_${task.agent}`, {
+        ...state,
+        payload: { taskDef: task, taskIdx: idx }
+      });
     });
-  });
+  }
+
+  return 'gateKeeper';
 };
 
 /**
@@ -54,6 +61,7 @@ export const createStandardGraph = () => {
     .addNode('intentPlanner', intentPlannerNode)
     .addNode('gateKeeper', gateKeeperNode)
     .addNode('directSummary', directSummaryNode)
+    .addNode('dataSynthesizer', dataSynthesizerNode)
     
     // Agent Adapters
     .addNode('adapter_db-agent', dbAgentAdapter)
@@ -73,8 +81,13 @@ export const createStandardGraph = () => {
     // ===== Graph Wiring =====
     .addEdge(START, 'intentPlanner')
     
-    // 动态派发 (Fan-out)
-    .addConditionalEdges('intentPlanner', dispatchTasks)
+    // 动态派发 (Fan-out or Skip)
+    .addConditionalEdges('intentPlanner', intentPlannerRouter, [
+      'adapter_db-agent',
+      'adapter_web-agent',
+      'adapter_quant-agent',
+      'gateKeeper'
+    ])
     
     // 收集所有并发 Agent 结果到 gateKeeper (Fan-in)
     .addEdge('adapter_db-agent', 'gateKeeper')
@@ -83,10 +96,14 @@ export const createStandardGraph = () => {
     
     // gateKeeper 根据结果状态决定下一步路线
     .addConditionalEdges('gateKeeper', gateKeeperRouter, {
-      optimistic: 'optimistic',
+      optimistic: 'dataSynthesizer', // 辩论前先合成数据
       direct_summary: 'directSummary',
+      planning_loop: 'intentPlanner',
       end_failure: END
     })
+    
+    // 合成完成后进入正式辩论
+    .addEdge('dataSynthesizer', 'optimistic')
     
     // 非辩论路线：直接生成总结
     .addEdge('directSummary', END)

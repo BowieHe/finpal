@@ -91,6 +91,14 @@ export const gateKeeperRouter = (state: GraphState) => {
     return 'end_failure'; 
   }
 
+  // 核心逻辑改动：如果刚刚执行完了某些任务，必须回到 intentPlanner 让它评估是否需要下一波
+  const executedTasksCount = state.plan?.tasks?.length || 0;
+  if (executedTasksCount > 0) {
+    logger.info('Gate Keeper Route: Tasks executed -> planning_loop');
+    return 'planning_loop';
+  }
+
+  // 如果 plan 里的 tasks 为空，说明 Planner 认为信息已经够了
   if (state.plan && !state.plan.requiresDebate) {
     // 短路流程：不辩论，直接让 Judge （或一个直接回答节点）总结出最终答案
     logger.info('Gate Keeper Route: No Debate -> direct_summary');

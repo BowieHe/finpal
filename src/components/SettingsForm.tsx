@@ -14,13 +14,14 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
   const [errors, setErrors] = useState<Partial<Record<keyof LLMConfig, string>>>({});
   const [showApiKey, setShowApiKey] = useState(false);
   const [showDashscopeKey, setShowDashscopeKey] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleChange = (field: keyof LLMConfig, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const newErrors: Partial<Record<keyof LLMConfig, string>> = {};
@@ -48,7 +49,12 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
       return;
     }
 
-    onSave(formData);
+    setIsSaving(true);
+    try {
+      await onSave(formData);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -188,9 +194,10 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
       <div className="flex gap-3 pt-4">
         <button
           type="submit"
-          className="flex-1 inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-4 py-2.5 shadow-sm"
+          disabled={isSaving}
+          className="flex-1 inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-4 py-2.5 shadow-sm disabled:opacity-50"
         >
-          保存
+          {isSaving ? '保存中...' : '保存'}
         </button>
         <button
           type="button"

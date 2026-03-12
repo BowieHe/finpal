@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "docker compose up -d postgres && next dev",
     "dev:web": "next dev",
+    "dev:local": "docker compose up -d postgres scheduler && next dev",
     "dev:scheduler": "cd apps/scheduler && python -m src.main",
     "build": "next build",
     "up": "docker compose up -d",
@@ -33,7 +34,6 @@
     "eslint": "^9.39.3",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.8",
-    "prisma": "^5.10.0",
     "tailwindcss": "4.2.0",
     "typescript": "5.9.3",
     "vitest": "^4.0.18"
@@ -55,6 +55,7 @@
     "next": "16.1.6",
     "openai": "^6.27.0",
     "playwright": "^1.58.2",
+    "prisma": "^5.10.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",

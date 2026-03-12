@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { X, Plus, Upload, Camera, Loader2 } from 'lucide-react';
 import ScreenshotUpload from './ScreenshotUpload';
+import { LLMConfig } from '@/types/config';
 
 interface AddHoldingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddHolding: (holding: HoldingData) => void;
+  config?: LLMConfig;
 }
 
 export interface HoldingData {
@@ -18,7 +20,7 @@ export interface HoldingData {
   buyDate: string;
 }
 
-export default function AddHoldingModal({ isOpen, onClose, onAddHolding }: AddHoldingModalProps) {
+export default function AddHoldingModal({ isOpen, onClose, onAddHolding, config }: AddHoldingModalProps) {
   const [activeTab, setActiveTab] = useState<'manual' | 'image'>('manual');
   const [formData, setFormData] = useState<HoldingData>({
     fundCode: '',
@@ -236,7 +238,10 @@ export default function AddHoldingModal({ isOpen, onClose, onAddHolding }: AddHo
           ) : (
             <div className="space-y-4">
               {!recognizedFunds.length ? (
-                <ScreenshotUpload onAnalysisComplete={handleImageAnalysisComplete} />
+                <ScreenshotUpload 
+                  onAnalysisComplete={handleImageAnalysisComplete} 
+                  config={config}
+                />
               ) : (
                 <div className="space-y-4">
                   {/* 识别的基金列表 */}

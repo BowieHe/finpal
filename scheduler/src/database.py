@@ -18,6 +18,7 @@ class Database:
     
     def __init__(self, database_url: Optional[str] = None):
         self.database_url = database_url or config.database_url
+        logger.info(f"🔌 正在连接数据库: {self.database_url.split('@')[-1]}") # 隐藏密码
         self._ensure_tables()
     
     def _get_conn(self):
@@ -113,6 +114,42 @@ class Database:
                 cur.execute("SELECT COUNT(*) FROM fund_basic")
                 return cur.fetchone()[0]
     
+    def get_active_fund_codes(self) -> List[str]:
+        """获取所有持仓基金的代码"""
+        # 注意：user_holdings 表可能在另一个模式或由 Prisma 管理，但由于是同一个 DB
+        sql = "SELECT DISTINCT fund_code FROM user_holdings"
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                    return [row[0] for row in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"获取持仓基金失败: {e}")
+            return []
+
+    def get_similar_funds(self, code: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取同类型或同公司的基金"""
+        sql = """
+        WITH target AS (
+            SELECT category, company FROM fund_basic WHERE code = %s
+        )
+        (SELECT code, name, category, company FROM fund_basic, target 
+         WHERE fund_basic.category = target.category AND fund_basic.code != %s
+         LIMIT %s)
+        UNION
+        (SELECT code, name, category, company FROM fund_basic, target 
+         WHERE fund_basic.company = target.company AND fund_basic.code != %s
+         LIMIT %s)
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql, (code, code, limit, code, limit))
+                    return cur.fetchall()
+        except Exception as e:
+            logger.error(f"获取相似基金失败: {e}")
+            return []
+    
     # ========== 净值操作 ==========
     
     def save_nav(self, fund_code: str, nav_date: datetime, 
@@ -161,6 +198,15 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM fund_nav")
                 return cur.fetchone()[0]
+
+    def get_latest_nav_date(self, fund_code: str) -> Optional[datetime]:
+        """获取基金最新的净值日期"""
+        sql = "SELECT MAX(nav_date) FROM fund_nav WHERE fund_code = %s"
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (fund_code,))
+                res = cur.fetchone()
+                return res[0] if res else None
     
     # ========== 统计信息 ==========
     
