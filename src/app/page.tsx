@@ -5,6 +5,7 @@ import ChatInput from "@/components/ChatInput";
 import MessageList from "@/components/MessageList";
 import Sidebar from "@/components/Sidebar";
 import SettingsModal from "@/components/SettingsModal";
+import PersonaModal from "@/components/PersonaModal";
 import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Conversation, Message } from "@/types/conversation";
@@ -28,6 +29,7 @@ export default function Home() {
         useState<Conversation | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isPersonaModalOpen, setIsPersonaModalOpen] = useState(false);
     const [isAddHoldingModalOpen, setIsAddHoldingModalOpen] = useState(false);
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
     const [theme, setTheme] = useState<Theme>("dark");
@@ -817,6 +819,7 @@ export default function Home() {
                     onDeleteConversation={handleDeleteConversation}
                     onNewConversation={handleNewConversation}
                     onAddHolding={() => setIsAddHoldingModalOpen(true)}
+                    onTogglePersona={() => setIsPersonaModalOpen(true)}
                 />
 
                 <main className="min-w-0 h-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -873,6 +876,11 @@ export default function Home() {
                 config={llmConfig}
                 onSave={handleSaveSettings}
                 onClose={() => setIsSettingsOpen(false)}
+            />
+
+             <PersonaModal
+                isOpen={isPersonaModalOpen}
+                onClose={() => setIsPersonaModalOpen(false)}
             />
 
             <AddHoldingModal

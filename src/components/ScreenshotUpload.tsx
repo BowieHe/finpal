@@ -234,14 +234,56 @@ export default function ScreenshotUpload({ onAnalysisComplete, config }: Screens
                   </div>
 
                   {fund.chartTrend && (
-                    <div className="mt-2 text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">趋势:</span>
-                      <span className="ml-2 text-slate-900 dark:text-slate-100">
-                        {fund.chartTrend === 'up' && '📈 上涨'}
-                        {fund.chartTrend === 'down' && '📉 下跌'}
-                        {fund.chartTrend === 'volatile' && '📊 震荡'}
-                        {fund.chartTrend === 'stable' && '➡️ 平稳'}
-                      </span>
+                    <div className="mt-2 text-sm flex flex-wrap gap-y-2 gap-x-4">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500 dark:text-slate-400">趋势:</span>
+                        <span className="text-slate-900 dark:text-slate-100 font-medium">
+                          {fund.chartTrend === 'up' && '📈 上涨'}
+                          {fund.chartTrend === 'down' && '📉 下跌'}
+                          {fund.chartTrend === 'volatile' && '📊 震荡'}
+                          {fund.chartTrend === 'stable' && '➡️ 平稳'}
+                        </span>
+                      </div>
+                      {fund.behavioralStyle && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-500 dark:text-slate-400">风格:</span>
+                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 rounded text-xs font-bold">
+                            ✨ {fund.behavioralStyle}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {fund.tradePoints && fund.tradePoints.length > 0 && (
+                    <div className="mt-3 p-2 bg-slate-100/50 dark:bg-slate-900/50 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">识别到的交易点</p>
+                      <div className="space-y-1.5">
+                        {fund.tradePoints.map((tp: any, idx: number) => (
+                          <div key={idx} className="flex items-start gap-2 text-xs">
+                            <span className={`
+                              mt-0.5 px-1.5 py-0.5 rounded-sm font-bold text-[10px]
+                              ${tp.type === 'buy' 
+                                ? 'bg-red-500 text-white' 
+                                : 'bg-blue-500 text-white'
+                              }
+                            `}>
+                              {tp.type === 'buy' ? '买' : '卖'}
+                            </span>
+                            <div className="flex-1">
+                              <span className="font-medium text-slate-700 dark:text-slate-300">
+                                {tp.position === 'low' && '低位抄底'}
+                                {tp.position === 'high' && '高位操作'}
+                                {tp.position === 'rebound' && '反弹操作'}
+                                {tp.position === 'drop' && '下跌抛售'}
+                              </span>
+                              <span className="ml-2 text-slate-500 dark:text-slate-400 italic">
+                                — {tp.description}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

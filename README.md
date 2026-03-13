@@ -10,11 +10,11 @@
 
 ## ✨ Key Features
 
-- **🏢 Agent Teams Architecture** — A "micro investment firm" powered by specialized AI agents, dynamically orchestrated by a CIO (Chief Investment Officer) agent.
-- **⚔️ Adversarial Debate** — Bull vs Bear analysts debate with multi-round argumentation, judged by a neutral arbiter after each round.
-- **📊 Real-time Streaming UI** — SSE-powered timeline showing agent collaboration, debate progress, and round-by-round verdicts as they happen.
-- **🔍 Dual Data Sources** — Portfolio data from PostgreSQL + live web intelligence via Alibaba Cloud Bailian MCP search.
-- **🛑 Task Interruption** — Abort long-running analyses mid-stream with proper server-side cancellation via `AbortController`.
+- **🏢 Agent Teams Architecture** — A "micro investment firm" dynamically orchestrated by a CIO (Chief Investment Officer).
+- **⚔️ Adversarial Debate** — Bull vs Bear analysts debate with multi-round argumentation and neutral judge arbitration.
+- **📊 Real-time Streaming UI** — SSE-powered timeline showing agent collaboration and debate progress in real-time.
+- **🧠 Dynamic Persona (Karma Collection)** — Tracks behaviors and intent via KarmaLogs to build an evolving investment profile using recursive synthesis.
+- **🔍 Dual Data Sources** — Portfolio data (PostgreSQL) + live web intelligence (Alibaba Cloud Bailian).
 
 ---
 
