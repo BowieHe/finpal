@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeFundScreenshot, FundScreenshotAnalysis } from '@/lib/vision/client';
 import { createLogger } from '@/lib/logger';
 import { LLMConfig } from '@/types/config';
+import { KarmaService } from '@/lib/services/karmaService';
+import { SynthesisService } from '@/lib/services/synthesisService';
 
 const logger = createLogger('AnalyzeScreenshotAPI');
 
-export const runtime = 'edge';
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
@@ -71,17 +72,54 @@ export async function POST(request: NextRequest) {
     // 调用 Vision LLM 分析（传入前端传来的配置）
     const result = await analyzeFundScreenshot(base64Data, prompt, config);
 
+    // 记录业力日志 (KarmaLog)
+    if (result.funds && result.funds.length > 0) {
+      for (const fund of result.funds) {
+        if (fund.behavioralStyle || (fund.tradePoints && fund.tradePoints.length > 0)) {
+          await KarmaService.logEvent({
+            source: 'screenshot',
+            type: 'behavior',
+            content: `分析了基金 ${fund.name} (${fund.code}) 的截图，识别到风格: ${fund.behavioralStyle || '未知'}`,
+            interpretation: {
+              fundCode: fund.code,
+              style: fund.behavioralStyle,
+              tradePoints: fund.tradePoints
+            }
+          });
+        }
+      }
+    }
+
     logger.info('Screenshot analysis completed', { 
       fundCount: result.funds?.length || 0 
     });
+
+    // 尝试触发自动合成 (如果累积了足够多的新日志)
+    const recentLogs = await KarmaService.getRecentLogs(10);
+    if (recentLogs.length >= 5) {
+      logger.info('Triggering automatic profile synthesis...');
+      const latestProfile = await KarmaService.getLatestProfile();
+      const lastUpdateTime = latestProfile?.updatedAt || new Date(0);
+      const newLogsCount = recentLogs.filter((l: any) => l.createdAt > lastUpdateTime).length;
+      
+      if (newLogsCount >= 5) {
+        // 非阻塞异步运行，不影响截图返回速度
+        SynthesisService.synthesizeProfile().catch(err => 
+          logger.error('Automatic synthesis failed', { err })
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
       data: result,
     });
 
-  } catch (error) {
-    logger.error('Screenshot analysis failed', { error });
+  } catch (error: any) {
+    logger.error('Screenshot analysis failed', { 
+      error: error.message || error,
+      stack: error.stack
+    });
     
     return NextResponse.json(
       { 

@@ -1,6 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { 
+    Loader2, 
+    CheckCircle2, 
+    XCircle, 
+    Settings, 
+    Bot, 
+    Database, 
+    Globe, 
+    LineChart,
+    ChevronRight,
+    Search,
+    MessageSquare,
+    Zap
+} from "lucide-react";
 
 interface ResearchResultsProps {
     searchResults: any[];
@@ -65,28 +79,27 @@ export default function ResearchResults({
                 </h4>
                 <div className="space-y-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                     {/* CIO Planning Step */}
-                    <div className="flex items-start gap-3">
-                        <div className="min-w-20 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            ⚙️ CIO 首脑
+                    <div className="flex items-center gap-3">
+                        <div className="min-w-20 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            <Settings className="w-3.5 h-3.5 text-slate-500" />
+                            <span>CIO 首脑</span>
                         </div>
                         <div className="flex-1 text-xs text-slate-600 dark:text-slate-400">
                             {cioPlanning ? (
                                 <span className="flex items-center gap-2">
-                                    <span className="animate-pulse">
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-medium">
                                         正在拆解查询，规划调查任务...
                                     </span>
                                 </span>
                             ) : (
-                                <span>任务规划完成</span>
+                                <span className="text-slate-500">任务规划完成</span>
                             )}
                         </div>
-                        <div className="text-xs w-5 flex justify-end">
+                        <div className="w-5 flex justify-end">
                             {cioPlanning ? (
-                                <span className="animate-spin inline-block">
-                                    🔄
-                                </span>
+                                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
                             ) : (
-                                "✅"
+                                <CheckCircle2 className="w-4 h-4 text-green-500" />
                             )}
                         </div>
                     </div>
@@ -102,8 +115,9 @@ export default function ResearchResults({
                                     key={task.id}
                                     className="flex items-start gap-3"
                                 >
-                                    <div className="min-w-25 text-xs font-medium text-indigo-700 dark:text-indigo-400">
-                                        {task.name}
+                                    <div className="min-w-25 flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-400">
+                                        <Bot className="w-3.5 h-3.5" />
+                                        <span>{task.name}</span>
                                     </div>
                                     <div className="flex-1 text-xs text-slate-600 dark:text-slate-400">
                                         <div className="font-medium text-slate-800 dark:text-slate-200">
@@ -386,14 +400,16 @@ export default function ResearchResults({
                                                 </div>
                                             )}
                                     </div>
-                                    <div className="text-xs w-5 flex justify-end">
+                                    <div className="w-5 flex justify-end">
                                         {task.status === "running" && (
-                                            <span className="animate-spin inline-block">
-                                                🔄
-                                            </span>
+                                            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
                                         )}
-                                        {task.status === "done" && "✅"}
-                                        {task.status === "error" && "❌"}
+                                        {task.status === "done" && (
+                                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                        )}
+                                        {task.status === "error" && (
+                                            <XCircle className="w-4 h-4 text-red-500" />
+                                        )}
                                     </div>
                                 </div>
                             ))}

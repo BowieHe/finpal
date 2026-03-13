@@ -5,6 +5,7 @@ import ChatInput from "@/components/ChatInput";
 import MessageList from "@/components/MessageList";
 import Sidebar from "@/components/Sidebar";
 import SettingsModal from "@/components/SettingsModal";
+import PersonaModal from "@/components/PersonaModal";
 import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Conversation, Message } from "@/types/conversation";
@@ -28,6 +29,7 @@ export default function Home() {
         useState<Conversation | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isPersonaModalOpen, setIsPersonaModalOpen] = useState(false);
     const [isAddHoldingModalOpen, setIsAddHoldingModalOpen] = useState(false);
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => getLLMConfig());
     const [theme, setTheme] = useState<Theme>("dark");
@@ -292,6 +294,7 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "complete",
                                                 finalVerdict: event.data,
+                                                cioPlanning: false,
                                             });
                                             break;
                                         case "planning":
@@ -607,6 +610,7 @@ export default function Home() {
                                                     status: "complete",
                                                     debateSummary: event.data.summary,
                                                     debateWinner: event.data.winner || "draw",
+                                                    cioPlanning: false,
                                                 });
                                             }
                                             if (event.result) {
@@ -615,10 +619,13 @@ export default function Home() {
                                             break;
                                         case "error":
                                             console.error("[Page] SSE 'error' event received:", event);
-                                            if (event.error) {
-                                                throw new Error(event.error);
-                                            } else if (event.data && event.data.error) {
-                                                throw new Error(event.data.error);
+                                            if (event.error || (event.data && event.data.error)) {
+                                                const errorText = event.error || event.data.error;
+                                                updateMessageProgress({
+                                                    status: "error",
+                                                    cioPlanning: false,
+                                                });
+                                                throw new Error(errorText);
                                             }
                                             break;
                                     }
@@ -676,6 +683,7 @@ export default function Home() {
                             engineUsage: finalResult.engineUsage,
                             round: finalResult.round,
                             finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
+                            cioPlanning: false,
                         } as any,
                     );
 
@@ -817,6 +825,7 @@ export default function Home() {
                     onDeleteConversation={handleDeleteConversation}
                     onNewConversation={handleNewConversation}
                     onAddHolding={() => setIsAddHoldingModalOpen(true)}
+                    onTogglePersona={() => setIsPersonaModalOpen(true)}
                 />
 
                 <main className="min-w-0 h-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -873,6 +882,11 @@ export default function Home() {
                 config={llmConfig}
                 onSave={handleSaveSettings}
                 onClose={() => setIsSettingsOpen(false)}
+            />
+
+             <PersonaModal
+                isOpen={isPersonaModalOpen}
+                onClose={() => setIsPersonaModalOpen(false)}
             />
 
             <AddHoldingModal

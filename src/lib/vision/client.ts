@@ -46,6 +46,12 @@ export interface FundScreenshotAnalysis {
     profit?: number;
     profitRate?: number;
     chartTrend?: 'up' | 'down' | 'volatile' | 'stable';
+    tradePoints?: {
+      type: 'buy' | 'sell';
+      position: 'low' | 'high' | 'rebound' | 'drop';
+      description: string;
+    }[];
+    behavioralStyle?: string;
   }[];
   totalProfit?: number;
   analysisDate?: string;
@@ -74,7 +80,10 @@ export async function analyzeFundScreenshot(
 2. 持仓份额
 3. 持仓成本/当前净值
 4. 持有收益和收益率
-5. 收益曲线/走势图的趋势（上涨、下跌、震荡、平稳）
+5. 收益曲线/走势图的分析：
+   - 识别图中的“买”(红色)和“卖”(蓝色)标记。
+   - 分析这些交易点在曲线中的相对位置（如：低位抄底、反弹中继、高位追涨）。
+   - 给出该基金的投资风格偏好建议。
 
 请以 JSON 格式返回：
 {
@@ -87,7 +96,11 @@ export async function analyzeFundScreenshot(
       "currentNav": 当前净值,
       "profit": 持有收益,
       "profitRate": 收益率（百分比数字）,
-      "chartTrend": "up|down|volatile|stable"
+      "chartTrend": "up|down|volatile|stable",
+      "tradePoints": [
+        { "type": "buy|sell", "position": "low|high|rebound|drop", "description": "描述" }
+      ],
+      "behavioralStyle": "例如：抄底型、动量追逐型、稳健型"
     }
   ],
   "totalProfit": 总收益,

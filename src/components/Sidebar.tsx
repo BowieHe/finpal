@@ -11,6 +11,7 @@ interface SidebarProps {
   onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
   onAddHolding?: () => void;
+  onTogglePersona?: () => void;
 }
 
 export default function Sidebar({
@@ -20,6 +21,7 @@ export default function Sidebar({
   onDeleteConversation,
   onNewConversation,
   onAddHolding,
+  onTogglePersona,
 }: SidebarProps) {
   return (
     <aside className="w-72 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col">
@@ -50,7 +52,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
+       <div className="flex-1 overflow-y-auto px-2 pb-3">
         <ConversationList
           conversations={conversations}
           currentConversationId={currentConversationId}
@@ -58,6 +60,23 @@ export default function Sidebar({
           onDeleteConversation={onDeleteConversation}
         />
       </div>
+
+      {onTogglePersona && (
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+          <button
+            onClick={onTogglePersona}
+            className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <span className="text-white font-black text-xs italic">DNA</span>
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-bold text-slate-800 dark:text-slate-200">我的投资画像</p>
+              <p className="text-[10px] text-slate-500 font-semibold tracking-wider">PERSONA EVOLUTION</p>
+            </div>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
