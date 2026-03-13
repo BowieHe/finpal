@@ -294,6 +294,7 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "complete",
                                                 finalVerdict: event.data,
+                                                cioPlanning: false,
                                             });
                                             break;
                                         case "planning":
@@ -609,6 +610,7 @@ export default function Home() {
                                                     status: "complete",
                                                     debateSummary: event.data.summary,
                                                     debateWinner: event.data.winner || "draw",
+                                                    cioPlanning: false,
                                                 });
                                             }
                                             if (event.result) {
@@ -617,10 +619,13 @@ export default function Home() {
                                             break;
                                         case "error":
                                             console.error("[Page] SSE 'error' event received:", event);
-                                            if (event.error) {
-                                                throw new Error(event.error);
-                                            } else if (event.data && event.data.error) {
-                                                throw new Error(event.data.error);
+                                            if (event.error || (event.data && event.data.error)) {
+                                                const errorText = event.error || event.data.error;
+                                                updateMessageProgress({
+                                                    status: "error",
+                                                    cioPlanning: false,
+                                                });
+                                                throw new Error(errorText);
                                             }
                                             break;
                                     }
@@ -678,6 +683,7 @@ export default function Home() {
                             engineUsage: finalResult.engineUsage,
                             round: finalResult.round,
                             finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
+                            cioPlanning: false,
                         } as any,
                     );
 

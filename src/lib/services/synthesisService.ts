@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { createLogger } from '@/lib/logger';
 import { KarmaService } from './karmaService';
 import OpenAI from 'openai';
-
-const prisma = new PrismaClient();
 const logger = createLogger('SynthesisService');
 
 export class SynthesisService {

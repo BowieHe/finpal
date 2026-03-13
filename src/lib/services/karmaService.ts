@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { createLogger } from '@/lib/logger';
-
-const prisma = new PrismaClient();
 const logger = createLogger('KarmaService');
 
 export type KarmaSource = 'screenshot' | 'chat' | 'analysis';
@@ -35,10 +33,10 @@ export class KarmaService {
       logger.info('Karma event logged', { id: record.id, type: event.type });
       return record;
     } catch (error: any) {
-      logger.error('Failed to log karma event', { 
+      logger.error('Failed to log karma event', {
         error: error.message || error,
         stack: error.stack,
-        event 
+        event
       });
       throw error;
     }
