@@ -41,9 +41,10 @@ export const gateKeeperNode = async (state: GraphState): Promise<Partial<GraphSt
     if (!result || result.status === 'error' || result.status === 'partial') {
       const msg = `任务 ${task.agent}(${task.task}) ${result?.status === 'partial' ? '部分完成' : '失败/未返回'}: ${result?.error || 'No result'}`;
       
-      if (task.canSkip) {
+      // 宽松策略：如果是 Web-Agent 且只是 partial（搜到 0 条），或者明确标注了 canSkip
+      if (task.canSkip || (task.agent === 'web-agent' && result?.status === 'partial')) {
         newWarnings.push(msg);
-        logger.warn('Gate Keeper warning (skipped task)', { msg });
+        logger.warn('Gate Keeper warning (skipped or partial web task)', { msg });
       } else {
         newErrors.push(`[致命] ${msg}`);
         logger.error('Gate Keeper error (critical task)', { msg });
@@ -73,7 +74,8 @@ export const gateKeeperNode = async (state: GraphState): Promise<Partial<GraphSt
 
   return {
     warnings: newWarnings,
-    errors: newErrors
+    errors: newErrors,
+    currentDepth: (state.currentDepth || 0) + 1
   };
 };
 
@@ -91,10 +93,13 @@ export const gateKeeperRouter = (state: GraphState) => {
     return 'end_failure'; 
   }
 
-  // 核心逻辑改动：如果刚刚执行完了某些任务，必须回到 intentPlanner 让它评估是否需要下一波
+  // 核心逻辑改动：如果刚刚执行完了某些任务，且未达到最大深度，必须回到 intentPlanner 让它评估是否需要下一波
   const executedTasksCount = state.plan?.tasks?.length || 0;
-  if (executedTasksCount > 0) {
-    logger.info('Gate Keeper Route: Tasks executed -> planning_loop');
+  const currentDepth = state.currentDepth || 0;
+  const maxDepth = state.maxDepth || 2;
+
+  if (executedTasksCount > 0 && currentDepth < maxDepth) {
+    logger.info('Gate Keeper Route: Tasks executed -> planning_loop', { currentDepth, maxDepth });
     return 'planning_loop';
   }
 

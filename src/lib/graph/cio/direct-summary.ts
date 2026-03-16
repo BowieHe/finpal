@@ -40,14 +40,28 @@ ${contextStr}
 2. 引用数据时要准确。
 3. 如果存在适合图表展示的数据关系（如资产配置的饼图、近期收益的趋势折线图或柱状图、流程结构等），请务必在你的回答中嵌入 Markdown 的 \`\`\`mermaid\`\`\` 代码块以呈现直观的图表。如果是对比项清单，也可以使用普通的 Markdown 表格。
 
-请以JSON格式返回：{"summary": "你的最终 Markdown 回答内容"}`;
+【输出要求】
+请直接流式输出你的回答内容（Markdown 格式），最后在一个独立的 Markdown JSON 代码块中返回：
+\`\`\`json
+{"summary": "你的最终 Markdown 回答内容"}
+\`\`\`
+`;
 
   try {
     let streamedContent = '';
+    let jsonStarted = false;
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',

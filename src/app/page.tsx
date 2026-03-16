@@ -140,31 +140,72 @@ export default function Home() {
         setCurrentConversation(getCurrentConversation());
 
         // Helper function to update message with search progress
+        // OPTIMIZATION: Use ref-based or batch updates to avoid layout shift and slow localStorage reads
         const updateMessageProgress = (updates: Partial<Message>) => {
-            Object.assign(userMessage, {
-                ...updates,
-                timestamp: Date.now(), // 每次更新都刷新时间戳为最后更新时间
-            });
+            // Update the local object reference for immediate access in the next SSE callback
+            Object.assign(userMessage, updates);
+            
+            // Still persist to conversation list but maybe throttled? 
             updateMessageInConversation(
                 activeConversation.id,
                 userMessage.id,
-                {
-                    ...updates,
-                    timestamp: Date.now(),
-                },
+                { ...updates, timestamp: Date.now() },
             );
-            setConversations(getConversations());
-            setCurrentConversation(getCurrentConversation());
+            
+            // Update state with minimal object churn
+            setCurrentConversation(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    messages: prev.messages.map(m => m.id === userMessage.id ? { ...m, ...updates } : m)
+                };
+            });
         };
 
         // 用于累积流式内容的变量
+        let currentRound = 1;
         let optimisticStreamContent = "";
         let pessimisticStreamContent = "";
         let optimisticRebuttalStreamContent = "";
         let pessimisticRebuttalStreamContent = "";
         let deciderStreamContent = "";
-        let deciderCardCreated = false; // track if finalVerdict pending card has been pushed
-        let roundJudgeCardCreated = false; // track if current round's pending judge card has been pushed
+        let deciderCardCreated = false;
+        let roundJudgeCardCreated = false;
+        
+        const updateDebateHistory = (roundNum: number, role: 'optimistic' | 'pessimistic', chunk: string, isThinking = false) => {
+            const history = [...(userMessage.debateHistory || [])];
+            let round = history.find(r => r.round === roundNum);
+            
+            if (!round) {
+                round = { round: roundNum };
+                history.push(round);
+            }
+            
+            if (role === 'optimistic') {
+                if (isThinking) round.optimisticThinking = (round.optimisticThinking || "") + chunk;
+                else {
+                    round.optimisticAnswer = (round.optimisticAnswer || "") + chunk;
+                    if (roundNum === 1) optimisticStreamContent += chunk;
+                    else optimisticRebuttalStreamContent += chunk;
+                }
+            } else {
+                if (isThinking) round.pessimisticThinking = (round.pessimisticThinking || "") + chunk;
+                else {
+                    round.pessimisticAnswer = (round.pessimisticAnswer || "") + chunk;
+                    if (roundNum === 1) pessimisticStreamContent += chunk;
+                    else pessimisticRebuttalStreamContent += chunk;
+                }
+            }
+            
+            updateMessageProgress({ 
+                debateHistory: history,
+                // 为了向后兼容某些组件，同时更新顶层字段
+                optimisticAnswer: roundNum === 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticAnswer,
+                pessimisticAnswer: roundNum === 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticAnswer,
+                optimisticRebuttal: roundNum > 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticRebuttal,
+                pessimisticRebuttal: roundNum > 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticRebuttal,
+            });
+        };
 
         const getAgentName = (id: string) => {
             if (id.startsWith("db-")) return "🏦 持仓专员";
@@ -291,11 +332,27 @@ export default function Home() {
                                             });
                                             break;
                                         case "final_verdict":
-                                            updateMessageProgress({
-                                                status: "complete",
+                                            finalResult = {
+                                                ...finalResult,
                                                 finalVerdict: event.data,
                                                 cioPlanning: false,
-                                            });
+                                            };
+                                            if (finalResult) {
+                                                // 合并时确保不覆盖已有的流式内容（如果新内容较短或为空）
+                                                const safeUpdates: Partial<Message> = { ...finalResult };
+                                                // The following lines are now redundant if debateHistory is the source of truth
+                                                // if (optimisticStreamContent && (!safeUpdates.optimisticAnswer || safeUpdates.optimisticAnswer.length < optimisticStreamContent.length)) {
+                                                //     safeUpdates.optimisticAnswer = optimisticStreamContent;
+                                                // }
+                                                // if (pessimisticStreamContent && (!safeUpdates.pessimisticAnswer || safeUpdates.pessimisticAnswer.length < pessimisticStreamContent.length)) {
+                                                //     safeUpdates.pessimisticAnswer = pessimisticStreamContent;
+                                                // }
+
+                                                updateMessageProgress({
+                                                    ...safeUpdates,
+                                                    status: "complete",
+                                                });
+                                            }
                                             break;
                                         case "planning":
                                             updateMessageProgress({
@@ -412,6 +469,9 @@ export default function Home() {
                                             });
                                             break;
                                         case "node_start":
+                                            if (event.data?.node === "round_judge") {
+                                                currentRound = event.data.round || currentRound;
+                                            }
                                             // 处理裁决完成事件
                                             if (
                                                 event.data.node ===
@@ -513,52 +573,20 @@ export default function Home() {
                                             }
                                             break;
                                         case "stream_chunk":
-                                            // 流式打字机效果 - 累积显示
-                                            if (
-                                                event.data.node &&
-                                                event.data.chunk
-                                            ) {
-                                                const node = event.data
-                                                    .node as string;
-                                                const chunk = event.data
-                                                    .chunk as string;
-                                                // 根据节点类型更新对应的内容
-                                                switch (node) {
-                                                    case "optimistic":
-                                                        optimisticStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            optimisticAnswer:
-                                                                optimisticStreamContent,
-                                                        });
+                                            if (event.data?.chunk) {
+                                                const chunk = event.data.chunk;
+                                                switch (event.data.node) {
+                                                    case "optimistic_initial":
+                                                        updateDebateHistory(1, 'optimistic', chunk);
                                                         break;
-                                                    case "pessimistic":
-                                                        pessimisticStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            pessimisticAnswer:
-                                                                pessimisticStreamContent,
-                                                        });
+                                                    case "pessimistic_initial":
+                                                        updateDebateHistory(1, 'pessimistic', chunk);
                                                         break;
                                                     case "optimistic_rebuttal":
-                                                        optimisticRebuttalStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            optimisticRebuttal:
-                                                                optimisticRebuttalStreamContent,
-                                                        });
+                                                        updateDebateHistory(currentRound, 'optimistic', chunk);
                                                         break;
                                                     case "pessimistic_rebuttal":
-                                                        pessimisticRebuttalStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            pessimisticRebuttal:
-                                                                pessimisticRebuttalStreamContent,
-                                                        });
+                                                        updateDebateHistory(currentRound, 'pessimistic', chunk);
                                                         break;
                                                     case "round_judge":
                                                         // On first round_judge chunk: immediately show a pending judge card
@@ -580,8 +608,6 @@ export default function Home() {
                                                         }
                                                         break;
                                                     case "decider":
-                                                        deciderStreamContent +=
-                                                            chunk;
                                                         // On the very first decider chunk, push a pending decision card immediately
                                                         if (!deciderCardCreated) {
                                                             deciderCardCreated = true;
@@ -597,6 +623,17 @@ export default function Home() {
                                                             updateMessageProgress({
                                                                 status: "analyzing",
                                                                 decisions: [...existingDecisions, pendingDecision],
+                                                            });
+                                                        }
+                                                        break;
+                                                    case "reflector":
+                                                        {
+                                                            const depth = event.data.depth || 0;
+                                                            const currentReflections = { ...(userMessage.reflections || {}) };
+                                                            currentReflections[depth] = (currentReflections[depth] || "") + chunk;
+                                                            updateMessageProgress({
+                                                                status: "analyzing",
+                                                                reflections: currentReflections
                                                             });
                                                         }
                                                         break;
@@ -662,27 +699,43 @@ export default function Home() {
 
                 if (finalResult) {
                     // 更新现有消息而不是添加新消息
-                    // 注意：不覆盖 searchResults，保留之前实时更新的结果
+                    // 合并时确保不覆盖已有的流式内容（如果新内容较短或为空）
+                    const safeOptimistic = (optimisticStreamContent && (!finalResult.optimisticAnswer || finalResult.optimisticAnswer.length < optimisticStreamContent.length)) 
+                        ? optimisticStreamContent 
+                        : finalResult.optimisticAnswer;
+                    
+                    const safePessimistic = (pessimisticStreamContent && (!finalResult.pessimisticAnswer || finalResult.pessimisticAnswer.length < pessimisticStreamContent.length))
+                        ? pessimisticStreamContent
+                        : finalResult.pessimisticAnswer;
+
+                    const safeOptimisticRebuttal = (optimisticRebuttalStreamContent && (!finalResult.optimisticRebuttal || finalResult.optimisticRebuttal.length < optimisticRebuttalStreamContent.length))
+                        ? optimisticRebuttalStreamContent
+                        : finalResult.optimisticRebuttal;
+
+                    const safePessimisticRebuttal = (pessimisticRebuttalStreamContent && (!finalResult.pessimisticRebuttal || finalResult.pessimisticRebuttal.length < pessimisticRebuttalStreamContent.length))
+                        ? pessimisticRebuttalStreamContent
+                        : finalResult.pessimisticRebuttal;
+
                     updateMessageInConversation(
                         activeConversation.id,
                         userMessage.id,
                         {
                             status: "complete",
-                            optimisticAnswer: finalResult.optimisticAnswer,
-                            pessimisticAnswer: finalResult.pessimisticAnswer,
-                            optimisticRebuttal: finalResult.optimisticRebuttal,
-                            pessimisticRebuttal:
-                                finalResult.pessimisticRebuttal,
+                            optimisticAnswer: safeOptimistic,
+                            pessimisticAnswer: safePessimistic,
+                            optimisticRebuttal: safeOptimisticRebuttal,
+                            pessimisticRebuttal: safePessimisticRebuttal,
                             debateWinner: finalResult.debateWinner,
                             debateSummary: finalResult.debateSummary,
-                            // 不覆盖 searchResults，保留之前实时更新的结果
-                            allFindings: (finalResult as any).allFindings,
-                            researchSummary: finalResult.researchSummary,
+                            // 不覆盖 searchResults/allFindings，保留之前实时更新的结果
+                            allFindings: (finalResult as any).allFindings || userMessage.allFindings,
+                            researchSummary: finalResult.researchSummary || userMessage.researchSummary,
                             dbResults:
                                 finalResult.dbResults || currentDbResults,
-                            engineUsage: finalResult.engineUsage,
-                            round: finalResult.round,
+                            engineUsage: finalResult.engineUsage || userMessage.engineUsage,
+                            round: finalResult.round || userMessage.round,
                             finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
+                            reflections: (finalResult as any).reflections || userMessage.reflections, 
                             cioPlanning: false,
                         } as any,
                     );

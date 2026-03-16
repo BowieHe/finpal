@@ -35,6 +35,7 @@ interface MessageListProps {
     cioPlanning?: boolean;
     agentTasks?: Record<string, any>;
     finalVerdict?: any;
+    reflections?: Record<number, string>;
   }>;
   isLoading?: boolean;
 }
@@ -131,7 +132,9 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
             message.researchSummary.summary
           );
           const hasAgentTasks = message.agentTasks && Object.keys(message.agentTasks).length > 0;
-          const shouldShowResearch = hasSearchResults || hasResearchSummary || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
+          const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
+          const hasAllFindings = message.allFindings && message.allFindings.length > 0;
+          const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
 
@@ -145,7 +148,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               />
               
               {/* Analyzing State - No spinner */}
-              {isAnalyzing && (
+              {/* Analyzing State - Only shown when no search or debate content yet */}
+              {isAnalyzing && !shouldShowResearch && debateMessages.length === 0 && (
                 <div className="my-4 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
@@ -176,13 +180,18 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                     cioPlanning={message.cioPlanning}
                     agentTasks={message.agentTasks}
                     finalVerdict={message.finalVerdict}
+                    reflections={message.reflections}
                   />
                 </div>
               )}
 
               {/* Timeline Debate - 多空辩论 */}
               {debateMessages.length > 0 && (
-                <TimelineDebate messages={debateMessages} decisions={message.decisions} />
+                <TimelineDebate 
+                  messages={debateMessages} 
+                  decisions={message.decisions}
+                  debateHistory={(message as any).debateHistory}
+                />
               )}
 
               {/* Final Decision */}

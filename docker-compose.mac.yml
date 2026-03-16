@@ -44,7 +44,7 @@ services:
             context: .
             dockerfile: Dockerfile
             args:
-                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-alpine-linuxarm64
+                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-bookworm-slim-linuxarm64
         container_name: finpal-web-mac
         environment:
             - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal

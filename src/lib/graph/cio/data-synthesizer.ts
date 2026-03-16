@@ -1,4 +1,4 @@
-import { GraphState, ResearchSummary, DataPoint } from '../state';
+import { GraphState, ResearchSummary, DataPoint, ResearchFinding } from '../state';
 import { createLogger } from '../../logger';
 
 const logger = createLogger('DataSynthesizer');
@@ -13,9 +13,11 @@ export const dataSynthesizerNode = async (state: GraphState): Promise<Partial<Gr
   
   const collectedData = state.collectedData || {};
   const existingSummary = state.researchSummary || { key_facts: [], data_points: [], summary: '' };
+  const existingFindings = state.allFindings || [];
   
   let keyFacts: string[] = [...existingSummary.key_facts];
   let dataPoints: DataPoint[] = [...existingSummary.data_points];
+  let allFindings: ResearchFinding[] = [...existingFindings];
   let summaryText = existingSummary.summary;
 
   // 1. 处理来自 DB-Agent 的结果
@@ -38,14 +40,16 @@ export const dataSynthesizerNode = async (state: GraphState): Promise<Partial<Gr
       }
     }
     
-    // 2. 处理来自 Web-Agent 的结果 (如果不是通过原有 researcherNode 而是通过 CIO 迭代获取的)
+    // 2. 处理来自 Web-Agent 的结果
     if (key.startsWith('web-agent_')) {
-       if (result.status === 'success' && result.data) {
-         if (result.task === 'fund_info') {
-           keyFacts.push(`[全网检索] 基金 ${result.params?.fundCode} 最新信息: ${result.data.summary || '已获取最新净值/公告'}`);
-         } else if (result.task === 'market_news') {
-           keyFacts.push(`[市场动态] 搜索词 "${result.params?.query}": ${result.data.summary}`);
-         }
+       if (result.status === 'success' || result.status === 'partial') {
+         // 添加到关键事实
+         const label = result.task === 'fund_info' ? '全网检索' : 
+                       result.task === 'market_news' ? '市场动态' : 
+                       result.task === 'fetch_page' ? '网页深读' : '搜索';
+         
+         const queryLabel = result.query || '未知查询';
+         keyFacts.push(`[${label}] 搜索词 "${queryLabel}": ${result.summary || '已获取内容'}`);
        }
     }
   });

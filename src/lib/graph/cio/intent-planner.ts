@@ -6,12 +6,16 @@ import { ExecutionPlan } from '../../agents/types';
 
 const logger = createLogger('IntentPlanner');
 
-function buildIntentPrompt(question: string, collectedData: Record<string, any> = {}): string {
+function buildIntentPrompt(question: string, collectedData: Record<string, any> = {}, allFindings: any[] = []): string {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
 
   const dataContext = Object.keys(collectedData).length > 0
     ? `\n=== 已获信息 (Context) ===\n${JSON.stringify(collectedData, null, 2)}\n`
+    : '';
+
+  const findingsContext = allFindings.length > 0
+    ? `\n=== 深度研究发现 (Deep Research Findings) ===\n${allFindings.map(f => `查询: ${f.query}\n内容: ${f.content.substring(0, 500)}...\n来源: ${f.sources.join(', ')}`).join('\n---\n')}\n`
     : '';
 
   return `你是经验丰富的 CIO（首席投资官）。
@@ -21,8 +25,12 @@ ${dataContext}
 
 ### 核心规划原则（必须严格遵守）：
 1. **数据驱动，禁止盲猜**：
-   - 即使你在对话历史中见过某个基金代码，如果他在本轮的 === 已获信息 === 中不存在，且用户提到“我的持仓”，你**必须**先派发 DB-Agent(portfolio_summary) 来确认真实持仓。
-   - 禁止在没拿到数据库确认前，就根据用户的模糊描述（如“恒生红利”）去猜一个代码（如 019261）并派发任务。
+   - 优先核实真实持仓：若涉及“我的持仓”且数据未到位，必须先派发 DB-Agent(portfolio_summary)。
+   - **知识差距分析**：对比用户问题与当前已获信息，识别缺失的关键事实。
+
+2. **多维搜索与深读**：
+   - **广度优先**：首轮应生成多维度搜索任务。
+   - **深度优先**：若已搜到关键网页或公告，应派发 Web-Agent(fetch_page) 进行深读，而非仅看摘要。
 
 2. **顺序依赖管理**：
    - 如果用户的问题涉及“我的持仓”，且当前已获信息为空：
@@ -46,7 +54,7 @@ ${dataContext}
         // 按照 Agent 要求填写的参数
       },
       "priority": number, // 优先级 1最高，同优先级并行执行
-      "canSkip": boolean  // 如果这个子任务失败，是否允许忽略它继续走后续流程？
+      "canSkip": boolean  // 重要：对于 Web-Agent 搜索任务，除非是核心前置逻辑，否则建议设为 true，以防止网络波动导致整个流程中断。
     }
   ]
 }
@@ -62,6 +70,7 @@ ${dataContext}
 - task: "fund_info", params: { "fundCode": "代码", "query": "" }
 - task: "market_news", params: { "query": "搜索词" }
 - task: "manager_info", params: { "fundCode": "代码", "query": "搜索词" }
+- task: "fetch_page", params: { "url": "网页链接", "fundCode": "代码(可选)" }
 
 3. Quant-Agent (通常由系统在后续阶段自动触发，CIO 阶段除非极其特殊的计算否则不发)
 
@@ -91,7 +100,7 @@ export const intentPlannerNode = async (state: GraphState): Promise<Partial<Grap
     iterationCount: state.round 
   });
   
-  const prompt = buildIntentPrompt(state.question, state.collectedData);
+  const prompt = buildIntentPrompt(state.question, state.collectedData, state.allFindings);
   // logger.debug('Generated Intent Prompt', { prompt }); // Sensitive but useful for deep debug
 
 

@@ -35,13 +35,14 @@ export interface DBAgentOutput {
 
 // ==================== Web-Agent ====================
 
-export type WebAgentTask = 'fund_info' | 'market_news' | 'manager_info';
+export type WebAgentTask = 'fund_info' | 'market_news' | 'manager_info' | 'fetch_page';
 
 export interface WebAgentInput {
   task: WebAgentTask;
   params: {
-    query: string;
+    query?: string;
     fundCode?: string;   // 归属基金代码，便于后续多基金数据聚合
+    url?: string;        // 用于 fetch_page 任务
   };
   onProgress?: (msg: string) => void;
 }
@@ -53,6 +54,7 @@ export interface WebAgentOutput {
   status: 'success' | 'partial' | 'error';
   sources: string[];       // 信息来源 URL（可溯源）
   summary: string;         // 结构化摘要
+  query?: string;          // 此次执行使用的搜索词（用于 UI 展示）
   rawSnippets: Array<{ title: string; url: string; content: string }>; // 结构化的搜索结果片段
   error?: string;
   durationMs: number;

@@ -15,6 +15,14 @@ export interface RoundDecision {
   pending?: boolean; // true while decider is still streaming
 }
 
+export interface DebateRound {
+  round: number;
+  optimisticAnswer?: string;
+  pessimisticAnswer?: string;
+  optimisticThinking?: string;
+  pessimisticThinking?: string;
+}
+
 export interface Message {
   id: string;
   question: string;
@@ -43,6 +51,12 @@ export interface Message {
   cioPlanning?: boolean;
   agentTasks?: Record<string, AgentTask>;
   finalVerdict?: FinalVerdict;
+  // Deep Search logic reflections (depth -> reasoning)
+  reflections?: Record<number, string>;
+  // NEW: Multi-round debate support
+  debateHistory?: DebateRound[];
+  // NEW: Comprehensive search findings
+  allFindings?: any[];
 }
 
 export interface AgentTask {

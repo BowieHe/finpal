@@ -2,6 +2,7 @@
 
 import { MessageCard, MessageCardProps } from "./MessageCard";
 import RoundDecisionCard, { RoundDecision } from "./RoundDecisionCard";
+import { DebateRound } from "@/types/conversation";
 
 export interface TimelineMessage extends MessageCardProps {
     id?: string;
@@ -10,49 +11,75 @@ export interface TimelineMessage extends MessageCardProps {
 interface TimelineDebateProps {
     messages: TimelineMessage[];
     decisions?: RoundDecision[];
+    debateHistory?: DebateRound[];
 }
 
 export function TimelineDebate({
     messages,
     decisions = [],
+    debateHistory = [],
 }: TimelineDebateProps) {
-    if (messages.length === 0) return null;
-
-    // Separate user messages and debate messages
+    // If we have debateHistory, use it as the source of truth for rounds
+    const hasHistory = debateHistory && debateHistory.length > 0;
+    
+    // Separate user messages
     const userMessages = messages.filter((m) => m.role === "user");
     const debateMessages = messages.filter((m) => m.role !== "user");
 
-    // Group debate messages into rounds
-    const rounds: Array<{
+    // Group debate messages into rounds (legacy or fallback)
+    const legacyRounds: Array<{
         optimistic?: TimelineMessage;
         pessimistic?: TimelineMessage;
     }> = [];
-    let currentRound: {
-        optimistic?: TimelineMessage;
-        pessimistic?: TimelineMessage;
-    } = {};
+    
+    if (!hasHistory) {
+        let currentRound: {
+            optimistic?: TimelineMessage;
+            pessimistic?: TimelineMessage;
+        } = {};
 
-    debateMessages.forEach((msg) => {
-        if (msg.role === "optimistic") {
-            if (currentRound.optimistic) {
-                rounds.push(currentRound);
-                currentRound = { optimistic: msg };
-            } else {
-                currentRound.optimistic = msg;
+        debateMessages.forEach((msg) => {
+            if (msg.role === "optimistic") {
+                if (currentRound.optimistic) {
+                    legacyRounds.push(currentRound);
+                    currentRound = { optimistic: msg };
+                } else {
+                    currentRound.optimistic = msg;
+                }
+            } else if (msg.role === "pessimistic") {
+                if (currentRound.pessimistic) {
+                    legacyRounds.push(currentRound);
+                    currentRound = { pessimistic: msg };
+                } else {
+                    currentRound.pessimistic = msg;
+                }
             }
-        } else if (msg.role === "pessimistic") {
-            if (currentRound.pessimistic) {
-                rounds.push(currentRound);
-                currentRound = { pessimistic: msg };
-            } else {
-                currentRound.pessimistic = msg;
-            }
+        });
+
+        if (currentRound.optimistic || currentRound.pessimistic) {
+            legacyRounds.push(currentRound);
         }
-    });
-
-    if (currentRound.optimistic || currentRound.pessimistic) {
-        rounds.push(currentRound);
     }
+
+    // Modern rounds from history
+    const modernRounds = debateHistory.map(round => ({
+        optimistic: round.optimisticAnswer ? {
+            role: "optimistic" as const,
+            content: round.optimisticAnswer,
+            thinking: round.optimisticThinking,
+            timestamp: undefined, // Add missing optional property
+        } : undefined,
+        pessimistic: round.pessimisticAnswer ? {
+            role: "pessimistic" as const,
+            content: round.pessimisticAnswer,
+            thinking: round.pessimisticThinking,
+            timestamp: undefined, // Add missing optional property
+        } : undefined,
+    }));
+
+    const rounds = hasHistory ? modernRounds : legacyRounds;
+    
+    if (rounds.length === 0 && userMessages.length === 0) return null;
 
     return (
         <div className="relative py-4">

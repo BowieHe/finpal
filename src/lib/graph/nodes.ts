@@ -35,8 +35,8 @@ async function fetchPortfolioContext(question: string, progressCallback?: Progre
   try {
     if (progressCallback) {
       progressCallback({
-        type: 'db_query',
-        data: { message: '正在加载您的持仓总览...' },
+        type: 'node_start',
+        data: { node: 'db_query', message: '正在加载您的持仓总览...' },
       });
     }
     // 始终获取持仓总览
@@ -76,8 +76,8 @@ ${summary.holdings.map(h =>
       if (needsRiskAnalysis) {
         if (progressCallback) {
           progressCallback({
-            type: 'db_query',
-            data: { message: '正在计算每只基金的风险指标...' },
+            type: 'node_start',
+            data: { node: 'db_query', message: '正在计算每只基金的风险指标...' },
           });
         }
         for (const holding of summary.holdings) {
@@ -118,8 +118,8 @@ ${summary.holdings.map(h =>
     if (fundCodes.length > 0) {
       if (progressCallback) {
         progressCallback({
-          type: 'db_query',
-          data: { message: `正在横向对比基金: ${fundCodes.join(', ')}...` },
+          type: 'node_start',
+          data: { node: 'db_query', message: `正在横向对比基金: ${fundCodes.join(', ')}...` },
         });
       }
       try {
@@ -177,28 +177,26 @@ export function getContentString(content: unknown): string {
 }
 
 export function extractJSONFromText(text: string): Record<string, unknown> | null {
+  // 1. Try simple parse
   try {
     return JSON.parse(text);
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
 
+  // 2. Try markdown code block
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
     try {
       return JSON.parse(codeBlockMatch[1].trim());
-    } catch {
-      // continue
-    }
+    } catch { /* ignore */ }
   }
 
-  const jsonMatch = text.match(/\{[\s\S]*?\}/);
-  if (jsonMatch) {
+  // 3. Try to find the last occurrence of { ... } which is common for our hybrid approach
+  const lastJsonMatch = text.match(/\{[\s\S]*\}/g);
+  if (lastJsonMatch) {
+    const lastMatch = lastJsonMatch[lastJsonMatch.length - 1];
     try {
-      return JSON.parse(jsonMatch[0]);
-    } catch {
-      logger.error('Failed to parse JSON from text', { textPreview: text.substring(0, 100) });
-    }
+      return JSON.parse(lastMatch);
+    } catch { /* ignore */ }
   }
 
   return null;
@@ -434,21 +432,6 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
   }
 
   // 4. 生成研究总结（支持流式关键事实）
-
-  // 发送搜索完成事件
-  if (state.progressCallback) {
-    state.progressCallback({
-      type: 'search_complete',
-      data: {
-        searchCount: searchResults.length,
-        engineUsage,
-      },
-    });
-  }
-
-  // 4. 生成研究总结（支持流式关键事实）
-
-  // 4. 生成研究总结（支持流式关键事实）
   let summary: ResearchSummary = {
     key_facts: [],
     data_points: [],
@@ -480,12 +463,23 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
 
     // 使用流式调用生成研究总结
     let streamedContent = '';
+    let jsonStarted = false;
     let currentKeyFacts: string[] = [];
 
     const fullResponse = await streamWithCallback(
       summaryPrompt,
       (chunk) => {
         streamedContent += chunk;
+
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+
+        if (jsonStarted) return;
+        
+        // Optional: Send research thinking to UI? 
+        // For now, let's just filter it and if we want it in UI, we'd add it to progressCallback
         try {
           const match = streamedContent.match(/"key_facts"\s*:\s*\[([^\]]*)\]/);
           if (match) {
@@ -517,12 +511,12 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
       data_points: Array.isArray(parsed.data_points)
         ? (parsed.data_points as Array<{ source: string; value: string; context: string }>)
         : [],
-      summary: String(parsed.summary || '搜索完成'),
+      summary: String(parsed.summary || "搜索完成"),
     };
 
     if (state.progressCallback) {
       state.progressCallback({
-        type: 'research_summary',
+        type: "research_summary",
         data: {
           keyFacts: summary.key_facts,
           dataPoints: summary.data_points,
@@ -531,8 +525,8 @@ export const researcherNode = async (state: GraphState): Promise<Partial<GraphSt
       });
     }
   } catch (error) {
-    logger.error('Summary failed', { error: error instanceof Error ? error.message : String(error) });
-    summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    logger.error("Summary failed", { error: error instanceof Error ? error.message : String(error) });
+    summary.summary = `搜索完成，但总结失败: ${error instanceof Error ? error.message : "Unknown error"}`;
   }
 
   const duration = Date.now() - startTime;
@@ -573,7 +567,7 @@ export const optimisticInitialNode = async (state: GraphState): Promise<Partial<
   const prompt = `你是乐观派分析师（Bull Analyst）。你的任务是基于研究信息，从做多/看好的角度分析，并给出概率化的投资判断。
 
 【分析原则】
-1. 你代表的是"看多"立场，但必须基于事实和逻辑，而非盲目乐观
+1. 你代表的是"看多"立场，但必须基于事实 and 逻辑，而非盲目乐观
 2. 你需要给出具体的概率数字，而不是模糊的"看好"
 3. 考虑风险收益比，识别 Catalyst（催化剂）
 
@@ -584,39 +578,56 @@ ${state.question}
 ${researchContext}
 
 【补充数据 (来自底层 Agent)】
-${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
+${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
 
 【输出要求】
-请严格以 JSON 格式返回（不要包含其他文字）：
+请直接开始你的分析（内容包含“思考过程”和“最终建议”两个部分，使用 Markdown 标题），最后在一个独立的 Markdown JSON 代码块中返回结构化数据。
+结构如下：
+
+## 思考过程
+(你的详细思考过程...)
+
+## 最终建议
+(给用户的简洁建议...)
+
+\`\`\`json
 {
-  "thinking": "详细的思考过程，包括：\n1. 为什么当前是做多时机\n2. 关键催化剂是什么\n3. 主要风险点是什么",
-  "answer": "给用户的最终建议（简洁明了）",
-  "probability": {
-    "baseRate": 60,  // 基础胜率（基于历史数据/估值分位）
-    "adjustedRate": 65,  // 调整后胜率（±10%以内，基于催化剂/消息）
-    "adjustmentReason": "为什么调整基础胜率"
-  },
-  "payoff": {
-    "upsidePotential": 25,  // 预期上涨空间 %（如 25%）
-    "downsideRisk": -10,   // 预期下跌风险 %（如 -10%）
-    "timeframe": "6-12个月",  // 预期时间框架
-    "expectedReturn": 15   // 预期收益率 %（probability × payoff）
-  },
-  "catalysts": [
-    {"description": "催化剂1描述", "impact": "high|medium|low", "timeline": "近期/中期/远期"},
-    {"description": "催化剂2描述", "impact": "high|medium|low", "timeline": "近期/中期/远期"}
-  ],
-  "keyRisks": ["风险1", "风险2"],
-  "confidenceLevel": 75  // 整体置信度 0-100
-}`;
+  "thinking": "...",
+  "answer": "...",
+  "probability": { ... },
+  "payoff": { ... },
+  "catalysts": [ ... ],
+  "keyRisks": [ ... ],
+  "confidenceLevel": 75
+}
+\`\`\`
+`;
 
   try {
     // 使用流式调用
     let streamedContent = '';
+    let jsonStarted = false;
+
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+
+        // 拦截 JSON 块不发给 UI
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          const cleanChunk = chunk.split('```json')[0];
+          if (cleanChunk && state.progressCallback) {
+            state.progressCallback({
+              type: 'stream_chunk',
+              data: { node: 'optimistic', chunk: cleanChunk },
+            });
+          }
+          return;
+        }
+
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
@@ -640,7 +651,6 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
-      // EV 计算相关字段
       probability: parsed.probability || null,
       payoff: parsed.payoff || null,
       catalysts: Array.isArray(parsed.catalysts) ? parsed.catalysts : [],
@@ -648,17 +658,11 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
       confidenceLevel: Number(parsed.confidenceLevel) || 50,
     };
 
-    // 发送最终输出事件
+    // 发送最终输出事件（供展示图标/详细数据，如果前端有监听）
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_output',
-        data: { 
-          thinking: result.thinking, 
-          answer: result.answer,
-          probability: result.probability,
-          payoff: result.payoff,
-          confidenceLevel: result.confidenceLevel,
-        },
+        data: { ...result },
       });
     }
 
@@ -666,7 +670,6 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
     return {
       optimisticThinking: result.thinking,
       optimisticAnswer: result.answer,
-      // 存储结构化数据供 EV 计算使用
       optimisticData: {
         probability: result.probability || { baseRate: 50, adjustedRate: 50, adjustmentReason: '默认' },
         payoff: result.payoff || { upsidePotential: 10, downsideRisk: -10, timeframe: '未知', expectedReturn: 0 },
@@ -705,7 +708,7 @@ export const pessimisticInitialNode = async (state: GraphState): Promise<Partial
   const prompt = `你是悲观派分析师（Bear Analyst）。你的任务是基于研究信息，从做空/谨慎的角度分析，并给出概率化的风险提示。
 
 【分析原则】
-1. 你代表的是"看空/谨慎"立场，但必须基于事实和逻辑，而非单纯悲观
+1. 你代表的是"看空/谨慎"立场，但必须基于事实 and 逻辑，而非单纯悲观
 2. 你需要给出具体的概率数字，而不是模糊的"不看好"
 3. 识别潜在下行风险、估值泡沫、宏观逆风
 
@@ -716,39 +719,54 @@ ${state.question}
 ${researchContext}
 
 【补充数据 (来自底层 Agent)】
-${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
+${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.collectedData, null, 2) : '无'}
 
 【输出要求】
-请严格以 JSON 格式返回（不要包含其他文字）：
+请直接开始你的分析（内容包含“思考过程”和“最终建议”两个部分，使用 Markdown 标题），最后在一个独立的 Markdown JSON 代码块中返回结构化数据。
+结构如下：
+
+## 思考过程
+(你的详细思考过程...)
+
+## 最终建议
+(给用户的简洁建议...)
+
+\`\`\`json
 {
-  "thinking": "详细的思考过程，包括：\n1. 为什么当前应该谨慎/看空\n2. 主要风险因素是什么\n3. 什么情况下会改变观点",
-  "answer": "给用户的最终建议（简洁明了）",
-  "probability": {
-    "downsideProbability": 55,  // 下跌/风险发生的概率 %
-    "severity": "high",  // 风险严重程度：low/medium/high
-    "timeline": "3-6个月"  // 风险时间框架
-  },
-  "payoff": {
-    "upsideCap": 8,      // 上涨空间有限 %（如果上涨）
-    "downsideRisk": -20, // 预期下跌空间 %（如 -20%）
-    "timeframe": "6-12个月",
-    "expectedReturn": -8  // 预期收益率 %（负值表示亏损预期）
-  },
-  "riskFactors": [
-    {"description": "风险1描述", "severity": "high|medium|low", "probability": 70},
-    {"description": "风险2描述", "severity": "high|medium|low", "probability": 50}
-  ],
-  "catalystsForDecline": ["下跌催化剂1", "下跌催化剂2"],
-  "confidenceLevel": 70  // 整体置信度 0-100
-}`;
+  "thinking": "...",
+  "answer": "...",
+  "probability": { ... },
+  "payoff": { ... },
+  "riskFactors": [ ... ],
+  "catalystsForDecline": [ ... ],
+  "confidenceLevel": 70
+}
+\`\`\`
+`;
 
   try {
-    // 使用流式调用
     let streamedContent = '';
+    let jsonStarted = false;
+
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          const cleanChunk = chunk.split('```json')[0];
+          if (cleanChunk && state.progressCallback) {
+            state.progressCallback({
+              type: 'stream_chunk',
+              data: { node: 'pessimistic', chunk: cleanChunk },
+            });
+          }
+          return;
+        }
+
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
@@ -763,7 +781,6 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
       llm
     );
 
-    // 解析最终结果
     const parsed = extractJSONFromText(fullResponse);
     if (!parsed) {
       throw new Error('Failed to parse pessimistic response');
@@ -772,25 +789,17 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
     const result: PersonaOutput = {
       thinking: String(parsed.thinking || ''),
       answer: String(parsed.answer || ''),
-      // EV 计算相关字段
       probability: parsed.probability || null,
       payoff: parsed.payoff || null,
-      catalysts: Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [],
-      keyRisks: Array.isArray(parsed.catalystsForDecline) ? parsed.catalystsForDecline : [],
+      riskFactors: Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [],
+      catalystsForDecline: Array.isArray(parsed.catalystsForDecline) ? parsed.catalystsForDecline : [],
       confidenceLevel: Number(parsed.confidenceLevel) || 50,
     };
 
-    // 发送最终输出事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_output',
-        data: { 
-          thinking: result.thinking, 
-          answer: result.answer,
-          probability: result.probability,
-          payoff: result.payoff,
-          confidenceLevel: result.confidenceLevel,
-        },
+        data: { ...result },
       });
     }
 
@@ -798,12 +807,11 @@ ${Object.keys(state.collectedData).length > 0 ? JSON.stringify(state.collectedDa
     return {
       pessimisticThinking: result.thinking,
       pessimisticAnswer: result.answer,
-      // 存储结构化数据供 EV 计算使用
       pessimisticData: {
         probability: result.probability || { downsideProbability: 50, severity: 'medium', timeline: '未知' },
         payoff: result.payoff || { upsideCap: 10, downsideRisk: -10, timeframe: '未知', expectedReturn: 0 },
-        riskFactors: result.catalysts || [],
-        catalystsForDecline: result.keyRisks || [],
+        riskFactors: result.riskFactors || [],
+        catalystsForDecline: result.catalystsForDecline || [],
         confidenceLevel: result.confidenceLevel || 50,
       },
     };
@@ -829,37 +837,54 @@ export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial
   }
 
   const llm = await getLLMInstance();
-  const prompt = `你是乐观派分析师。现在进入反驳阶段。\n\n原问题：${state.question}\n\n你的初始观点：${state.optimisticAnswer}\n\n悲观派观点：${state.pessimisticAnswer}\n\n请针对悲观派的观点进行反驳，强化你的立场。以JSON格式返回：{"rebuttal": "反驳内容"}`;
+  const prompt = `你是乐观派分析师。现在进入反驳阶段。
+
+## 原问题
+${state.question}
+
+## 你的初始观点
+${state.optimisticAnswer}
+
+## 悲观派观点
+${state.pessimisticAnswer}
+
+请针对悲观派的观点进行反驳，强化你的立场。
+
+【输出要求】
+请流式输出你的反驳过程，最后在一个独立的 Markdown JSON 代码块中返回：
+\`\`\`json
+{"rebuttal": "你的最终反驳内容"}
+\`\`\`
+`;
 
   try {
-    // 使用流式调用
     let streamedContent = '';
+    let jsonStarted = false;
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
-            data: {
-              node: 'optimistic_rebuttal',
-              chunk: chunk,
-            },
+            data: { node: 'optimistic_rebuttal', chunk },
           });
         }
       },
-      2
+      2,
+      llm
     );
 
-    // 解析最终结果
     const parsed = extractJSONFromText(fullResponse);
-    if (!parsed) {
-      throw new Error('Failed to parse optimistic rebuttal response');
-    }
+    if (!parsed) throw new Error('Failed to parse optimistic rebuttal response');
 
     const rebuttal = String(parsed.rebuttal || '');
-
-    // 发送最终反驳事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_rebuttal',
@@ -867,10 +892,9 @@ export const optimisticRebuttalNode = async (state: GraphState): Promise<Partial
       });
     }
 
-    logger.info('Optimistic rebuttal node completed', { duration: Date.now() - startTime });
     return { optimisticRebuttal: rebuttal };
   } catch (error) {
-    logger.error('Optimistic rebuttal node failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('Optimistic rebuttal node failed', { error: String(error) });
     return { optimisticRebuttal: '反驳过程出错' };
   }
 };
@@ -886,37 +910,58 @@ export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partia
     });
   }
 
-  const prompt = `你是悲观派分析师。现在进入反驳阶段。\n\n原问题：${state.question}\n\n你的初始观点：${state.pessimisticAnswer}\n\n乐观派观点：${state.optimisticAnswer}\n\n乐观派反驳：${state.optimisticRebuttal}\n\n请针对乐观派的观点和反驳进行再反驳，强化你的立场。以JSON格式返回：{"rebuttal": "反驳内容"}`;
+  const llm = await getLLMInstance();
+  const prompt = `你是悲观派分析师。现在进入反驳阶段。
+
+## 原问题
+${state.question}
+
+## 你的初始观点
+${state.pessimisticAnswer}
+
+## 乐观派观点
+${state.optimisticAnswer}
+
+## 乐观派反驳
+${state.optimisticRebuttal}
+
+请针对乐观派的观点和反驳进行再反驳，强化你的立场。
+
+【输出要求】
+请流式输出你的反驳过程，最后在一个独立的 Markdown JSON 代码块中返回：
+\`\`\`json
+{"rebuttal": "你的最终反驳内容"}
+\`\`\`
+`;
 
   try {
-    // 使用流式调用
     let streamedContent = '';
+    let jsonStarted = false;
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
-            data: {
-              node: 'pessimistic_rebuttal',
-              chunk: chunk,
-            },
+            data: { node: 'pessimistic_rebuttal', chunk },
           });
         }
       },
-      2
+      2,
+      llm
     );
 
-    // 解析最终结果
     const parsed = extractJSONFromText(fullResponse);
-    if (!parsed) {
-      throw new Error('Failed to parse pessimistic rebuttal response');
-    }
+    if (!parsed) throw new Error('Failed to parse pessimistic rebuttal response');
 
     const rebuttal = String(parsed.rebuttal || '');
-
-    // 发送最终反驳事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_rebuttal',
@@ -924,20 +969,19 @@ export const pessimisticRebuttalNode = async (state: GraphState): Promise<Partia
       });
     }
 
-    logger.info('Pessimistic rebuttal node completed', { duration: Date.now() - startTime });
     return { pessimisticRebuttal: rebuttal };
   } catch (error) {
-    logger.error('Pessimistic rebuttal node failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('Pessimistic rebuttal node failed', { error: String(error) });
     return { pessimisticRebuttal: '反驳过程出错' };
   }
 };
 
 // ==================== Round Judge Node ====================
-// Lightweight: per-round judge. Decides winner of this round and whether to continue.
+
 export const roundJudgeNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   const currentRound = state.round + 1;
-  logger.info('Starting round judge node', { round: currentRound, maxRounds: state.maxRounds });
+  logger.info('Starting round judge node', { round: currentRound });
 
   if (state.progressCallback) {
     state.progressCallback({
@@ -946,31 +990,38 @@ export const roundJudgeNode = async (state: GraphState): Promise<Partial<GraphSt
     });
   }
 
-  // Build context from latest rebuttal or initial arguments
   const latestOptimistic = state.optimisticRebuttal || state.optimisticAnswer;
   const latestPessimistic = state.pessimisticRebuttal || state.pessimisticAnswer;
 
-  const prompt = `你是公正的轮次裁判员。请基于本轮辩论内容做出简洁裁判。
+  const prompt = `你是公正的轮次裁判员。请基于本轮辩论内容做出裁判。
 
-原问题：${state.question}
+## 轮次
+Round ${currentRound}
 
-(Round ${currentRound})
-乐观派近期论点：${latestOptimistic.substring(0, 600)}
-悲观派近期论点：${latestPessimistic.substring(0, 600)}
+## 双方论点
+乐观派：${latestOptimistic.substring(0, 600)}
+悲观派：${latestPessimistic.substring(0, 600)}
 
-请裁判：
-1. 本轮哪方认为更有说服力？（optimistic / pessimistic / draw）
-2. 是否需要继续辩论（只有当双方轮次生产了实质的新论点时才进行,否则不需要）
-3. 简短裁判理由（不超过 60 字）
-
-以 JSON 返回：{"winner": "optimistic|pessimistic|draw", "should_continue": true/false, "reason": "理由"}`;
+【输出要求】
+请输出裁判思考，最后在一个独立的 Markdown JSON 代码块中返回：
+\`\`\`json
+{"winner": "optimistic|pessimistic|draw", "should_continue": true/false, "reason": "理由"}
+\`\`\`
+`;
 
   try {
     let streamedContent = '';
+    let jsonStarted = false;
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
@@ -982,46 +1033,34 @@ export const roundJudgeNode = async (state: GraphState): Promise<Partial<GraphSt
     );
 
     const parsed = extractJSONFromText(fullResponse);
-    const winner = (parsed?.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw';
+    const winner = (parsed?.winner as any) || 'draw';
     const shouldContinue = Boolean(parsed?.should_continue);
     const reason = String(parsed?.reason || '');
 
     if (state.progressCallback) {
       state.progressCallback({
         type: 'round_judge',
-        data: {
-          round: currentRound,
-          winner,
-          shouldContinue,
-          reason,
-          node: 'round_judge',
-        },
+        data: { round: currentRound, winner, shouldContinue, reason, node: 'round_judge' },
       });
     }
 
-    logger.info('Round judge completed', { duration: Date.now() - startTime, round: currentRound, winner, shouldContinue });
-    return {
-      debateWinner: winner,
-      shouldContinue,
-      round: currentRound,
-    };
+    return { debateWinner: winner, shouldContinue, round: currentRound };
   } catch (error) {
-    logger.error('Round judge failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('Round judge failed', { error: String(error) });
     return { debateWinner: 'draw', shouldContinue: false, round: currentRound };
   }
 };
 
 // ==================== Final Verdict Node ====================
-// Comprehensive: synthesizes all debate rounds + collected data → structured FinalVerdict.
+
 export const finalVerdictNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
   logger.info('Starting decider node');
 
-  // 发送裁决开始事件
   if (state.progressCallback) {
     state.progressCallback({
       type: 'node_start',
-      data: { node: 'decider', message: '正在裁决最终结果并生成结构化报告...' },
+      data: { node: 'decider', message: '正在生成最终裁决报告...' },
     });
   }
 
@@ -1031,100 +1070,82 @@ export const finalVerdictNode = async (state: GraphState): Promise<Partial<Graph
     dataContext += `\n--- 数据 ${key} ---\n${JSON.stringify(result, null, 2)}`;
   }
 
-  const prompt = `你是公正的裁决者与首席投资官。请基于以下系统收集的资产数据以及辩论内容，做出最终裁决并生成专业的投资建议报告。
+  const prompt = `你是首席投资官。请生成最终裁决报告。
 
-原问题：${state.question}
+## 问题
+${state.question}
 
-系统收集的数据集：
+## 数据
 ${dataContext || '暂无数据'}
 
-乐观派观点：${state.optimisticAnswer}
-乐观派反驳：${state.optimisticRebuttal}
+## 辩论记录
+乐观派最终立场：${state.optimisticRebuttal || state.optimisticAnswer}
+悲观派最终立场：${state.pessimisticRebuttal || state.pessimisticAnswer}
 
-悲观派观点：${state.pessimisticAnswer}
-悲观派反驳：${state.pessimisticRebuttal}
-
-请裁决：
-1. 哪方观点更有说服力？（optimistic/pessimistic/draw）
-2. 是否继续辩论？（通常为 false，除非双方毫无建树）
-3. 裁决理由
-4. **FinalVerdict 结构化输出**（综合以上所有信息）
-
-以JSON格式返回，必须符合以下结构（不要有其他内容）：
+【输出要求】
+请直接流式输出你的详细报告内容（Markdown 格式），最后在一个独立的 Markdown JSON 代码块中返回结构化数据：
+\`\`\`json
 {
-  "winner": "optimistic|pessimistic|draw",
+  "winner": "...",
   "should_continue": false,
-  "reason": "理由",
+  "reason": "...",
   "final_verdict": {
-    "summary": "一句话结论",
-    "recommendation": "strong_buy|hold|reduce|avoid|info_only",
+    "summary": "...",
+    "recommendation": "...",
     "confidence": 85,
-    "bullPoints": ["看多理由1", "看多理由2"],
-    "bearPoints": ["看空风险1", "看空风险2"],
-    "comparisonTable": [  // 如果是对比分析则填充，否则可省略
-      { "fundCode": "000001", "sharpe": 0.5, "mdd": -15.2, "recommendation": "buy" }
-    ],
-    "riskWarnings": [" Gatekeeper传入的警告 或 市场系统性风险"],
-    "sources": ["数据来源URL"]
+    "bullPoints": [...],
+    "bearPoints": [...],
+    "riskWarnings": [...],
+    "sources": [...]
   }
-}`;
+}
+\`\`\`
+`;
 
   try {
-    // 使用流式调用
     let streamedContent = '';
+    let jsonStarted = false;
     const fullResponse = await streamWithCallback(
       prompt,
       (chunk) => {
         streamedContent += chunk;
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+        if (jsonStarted) return;
+
         if (state.progressCallback) {
           state.progressCallback({
             type: 'stream_chunk',
-            data: {
-              node: 'decider',
-              chunk: chunk,
-            },
+            data: { node: 'decider', chunk },
           });
         }
       },
       2
     );
 
-    // 解析最终结果
     const parsed = extractJSONFromText(fullResponse);
-    if (!parsed) {
-      throw new Error('Failed to parse decider response');
-    }
+    if (!parsed) throw new Error('Failed to parse decider response');
 
     const result: DeciderOutput = {
-      winner: (parsed.winner as 'optimistic' | 'pessimistic' | 'draw') || 'draw',
+      winner: (parsed.winner as any) || 'draw',
       should_continue: Boolean(parsed.should_continue),
       reason: String(parsed.reason || ''),
       final_verdict: parsed.final_verdict as FinalVerdict,
     };
 
-    // 发送最终的结构化裁决事件
     if (state.progressCallback) {
       state.progressCallback({
         type: 'final_verdict',
-        data: result.final_verdict as unknown as Record<string, unknown>,
+        data: result.final_verdict as any,
       });
-
-      // Maintain legacy event for node_start completion
       state.progressCallback({
         type: 'node_start',
-        data: {
-          node: 'decider_complete',
-          message: '裁决完成',
-          winner: result.winner,
-          summary: result.final_verdict?.summary || '裁决已生成',
-          shouldContinue: result.should_continue,
-          reason: result.reason,
-          round: state.round + 1,
-        },
+        data: { node: 'decider_complete', message: '裁决完成', winner: result.winner },
       });
     }
 
-    logger.info('Decider node completed', { duration: Date.now() - startTime, winner: result.winner });
     return {
       debateWinner: result.winner,
       debateSummary: JSON.stringify(result.final_verdict),
@@ -1132,13 +1153,8 @@ ${dataContext || '暂无数据'}
       round: state.round + 1,
     };
   } catch (error) {
-    logger.error('Decider node failed', { error: error instanceof Error ? error.message : String(error) });
-    return {
-      debateWinner: 'draw',
-      debateSummary: '裁决过程出错',
-      shouldContinue: false,
-      round: state.round + 1,
-    };
+    logger.error('Decider node failed', { error: String(error) });
+    return { debateWinner: 'draw', debateSummary: '裁决过程出错', shouldContinue: false, round: state.round + 1 };
   }
 };
 
@@ -1149,7 +1165,11 @@ export const plannerNode = async (state: GraphState): Promise<Partial<GraphState
   logger.info('Starting planner node', { question: state.question });
 
   const llm = await getLLMInstance();
-  const prompt = `你是研究规划专家。请为以下问题制定研究计划。\n\n问题：${state.question}\n\n请生成 ${state.breadth} 个搜索查询来全面研究这个问题。以JSON格式返回：{"queries": ["查询1", "查询2", "查询3"], "reasoning": "规划理由"}`;
+  const prompt = `你是研究规划专家。请为以下问题制定研究计划。
+
+问题：${state.question}
+
+请生成 ${state.breadth} 个搜索查询来全面研究这个问题。以JSON格式返回：{"queries": ["查询1", "查询2", "查询3"], "reasoning": "规划理由"}`;
 
   try {
     const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
@@ -1192,26 +1212,17 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
   const findings: ResearchFinding[] = [];
   const totalTasks = pendingTasks.length;
 
-  // 发送开始搜索的进度事件
   if (state.progressCallback && totalTasks > 0) {
     state.progressCallback({
       type: 'searching',
-      data: {
-        currentQuery: pendingTasks[0].query,
-        currentIndex: 1,
-        totalQueries: totalTasks,
-        progress: 0,
-      },
+      data: { currentQuery: pendingTasks[0].query, currentIndex: 1, totalQueries: totalTasks, progress: 0 },
     });
   }
 
   await Promise.all(
     pendingTasks.map(async (task, index) => {
       try {
-        // 更新任务状态
         task.status = 'researching';
-
-        // 发送搜索进度事件
         if (state.progressCallback) {
           state.progressCallback({
             type: 'searching',
@@ -1225,8 +1236,6 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
         }
 
         const result = await smartSearch(task.query);
-
-        // 任务完成
         task.status = 'completed';
         task.result = JSON.stringify(result.results);
         task.sources = result.results.map(r => r.url).filter(Boolean) as string[];
@@ -1238,7 +1247,6 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
           sources: task.sources || [],
         });
 
-        // 发送搜索结果事件
         if (state.progressCallback) {
           state.progressCallback({
             type: 'search_result',
@@ -1252,93 +1260,48 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
             },
           });
         }
-
-        // 更新搜索进度
-        if (state.progressCallback) {
-          state.progressCallback({
-            type: 'searching',
-            data: {
-              currentQuery: task.query,
-              currentIndex: index + 1,
-              totalQueries: totalTasks,
-              progress: Math.round(((index + 1) / totalTasks) * 100),
-            },
-          });
-        }
       } catch (error) {
         task.status = 'failed';
-        logger.error('Research task failed', { query: task.query, error: error instanceof Error ? error.message : String(error) });
+        logger.error('Research task failed', { query: task.query, error: String(error) });
       }
     })
   );
 
   const allFindings = [...state.allFindings, ...findings];
 
-  // 发送搜索完成事件
   if (state.progressCallback) {
     state.progressCallback({
       type: 'search_complete',
-      data: {
-        searchCount: findings.length,
-        totalTasks,
-      },
+      data: { searchCount: findings.length, totalTasks },
     });
-  }
-
-  // 发送分析中事件
-
-  // 发送分析中事件
-  if (state.progressCallback) {
     state.progressCallback({
       type: 'analyzing',
-      data: {
-        message: '正在分析研究发现...',
-        keyFactsCount: 0,
-      },
+      data: { message: '正在分析研究发现...', keyFactsCount: 0 },
     });
   }
 
-  // 生成研究总结（支持流式关键事实）
   const llm = await getLLMInstance();
   const findingsText = allFindings.map(f => `查询：${f.query}\n结果：${f.content.substring(0, 500)}`).join('\n\n');
-  const summaryPrompt = `基于以下研究发现，生成关键事实和总结。\n\n${findingsText}\n\n以JSON格式返回：{"key_facts": ["事实1", "事实2"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}`;
+  const summaryPrompt = `针对研究发现，生成关键事实和总结。
 
-  let researchSummary: ResearchSummary = {
-    key_facts: [],
-    data_points: [],
-    summary: '研究完成',
-  };
+结果：
+${findingsText}
+
+请流式输出你的分析过程（Markdown），最后在一个独立的 Markdown JSON 代码块中返回：
+\`\`\`json
+{"key_facts": ["事实1"], "data_points": [{"source": "来源", "value": "数值", "context": "上下文"}], "summary": "总结"}
+\`\`\`
+`;
+
+  let researchSummary: ResearchSummary = { key_facts: [], data_points: [], summary: '研究完成' };
 
   try {
-    // 使用流式调用生成研究总结
     let streamedContent = '';
-    let currentKeyFacts: string[] = [];
-
     const fullResponse = await streamWithCallback(
       summaryPrompt,
       (chunk) => {
         streamedContent += chunk;
-        try {
-          const match = streamedContent.match(/"key_facts"\s*:\s*\[([^\]]*)\]/);
-          if (match) {
-            const factsText = match[1];
-            const factMatches = factsText.match(/"([^"]*)"/g);
-            if (factMatches && factMatches.length > currentKeyFacts.length) {
-              currentKeyFacts = factMatches.map(f => f.replace(/"/g, ''));
-              if (state.progressCallback && currentKeyFacts.length > 0) {
-                state.progressCallback({
-                  type: 'research_summary_stream',
-                  data: {
-                    keyFacts: currentKeyFacts,
-                    partial: true,
-                  },
-                });
-              }
-            }
-          }
-        } catch {
-          // 解析失败时忽略
-        }
+        // 这里不需要拦截，因为研究总结是内部流
       },
       2
     );
@@ -1350,70 +1313,108 @@ export const parallelResearchNode = async (state: GraphState): Promise<Partial<G
       summary: String(parsed.summary || '研究完成'),
     };
 
-    // 发送最终研究总结
     if (state.progressCallback) {
       state.progressCallback({
         type: 'research_summary',
-        data: {
-          keyFacts: researchSummary.key_facts,
-          dataPoints: researchSummary.data_points,
-          summary: researchSummary.summary,
-        },
+        data: { ...researchSummary },
       });
     }
   } catch (error) {
-    logger.error('Summary generation failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('Summary generation failed', { error: String(error) });
   }
 
-  logger.info('Parallel research node completed', { duration: Date.now() - startTime, findingCount: findings.length });
-  return {
-    subTasks: state.subTasks,
-    allFindings,
-    researchSummary,
-    currentDepth: state.currentDepth + 1,
-  };
+  return { subTasks: state.subTasks, allFindings, researchSummary, currentDepth: state.currentDepth + 1 };
 };
 
 export const deepCheckNode = async (state: GraphState): Promise<Partial<GraphState>> => {
   const startTime = Date.now();
-  logger.info('Starting deep check node', { currentDepth: state.currentDepth, maxDepth: state.maxDepth });
+  if (state.currentDepth >= state.maxDepth) return { shouldContinue: false };
 
-  // 检查是否达到最大深度
-  if (state.currentDepth >= state.maxDepth) {
-    logger.info('Max depth reached, completing research');
-    return { shouldContinue: false };
+  logger.info('Starting deep search reflection check');
+
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'reflector', message: '正在评估研究深度并规划下一路径...' },
+    });
   }
 
-  const llm = await getLLMInstance();
   const findingsSummary = state.allFindings.map(f => `查询：${f.query}\n内容摘要：${f.content.substring(0, 300)}`).join('\n\n');
-  const prompt = `你是研究质量评估专家。请评估当前研究是否充分回答问题。\n\n原问题：${state.question}\n\n当前研究发现：\n${findingsSummary}\n\n请判断：\n1. 研究是否充分？（true/false）\n2. 如不充分，还需要研究哪些方面？\n3. 理由\n\n以JSON格式返回：{"sufficient": true/false, "additional_queries": ["查询1"], "reason": "理由"}`;
+  const prompt = `你是研究评估专家。判断当前研究是否充分，是否需要进一步下钻。
+  
+原问题：${state.question}
+
+当前研究发现：
+${findingsSummary}
+
+【输出要求】
+请直接开始你的评估思考（为什么充分或为什么需要继续），最后在一个独立的 Markdown JSON 代码块中返回结构化数据。
+结构如下：
+\`\`\`json
+{
+  "sufficient": true/false,
+  "reason": "你的简短总结理由",
+  "additional_queries": ["如果需要继续，提供1-3个新的深度搜索词"]
+}
+\`\`\`
+`;
 
   try {
-    const response = await withRetry(() => llm.invoke(prompt), 2, 1000);
-    const parsed = await safeJsonParse(response);
-    const sufficient = Boolean(parsed.sufficient);
+    let streamedContent = '';
+    let jsonStarted = false;
+    const fullResponse = await streamWithCallback(
+      prompt,
+      (chunk) => {
+        streamedContent += chunk;
+        if (!jsonStarted && streamedContent.includes('```json')) {
+          jsonStarted = true;
+          return;
+        }
+        if (jsonStarted) return;
 
-    // 如果需要更多研究，添加新任务
+        if (state.progressCallback) {
+          state.progressCallback({
+            type: 'stream_chunk',
+            data: { node: 'reflector', chunk, depth: state.currentDepth },
+          });
+        }
+      },
+      2
+    );
+
+    const parsed = extractJSONFromText(fullResponse);
+    if (!parsed) throw new Error('Failed to parse deep check response');
+
+    const sufficient = Boolean(parsed.sufficient);
+    const reason = String(parsed.reason || '');
+
+    if (state.progressCallback) {
+      state.progressCallback({
+        type: 'agent_done',
+        data: { agentId: 'reflector', summary: reason, node: 'reflector' }
+      });
+    }
+
     if (!sufficient && Array.isArray(parsed.additional_queries)) {
-      const newQueries = parsed.additional_queries as string[];
-      const newTasks: ResearchSubTask[] = newQueries.map((query, index) => ({
-        id: `task-${state.currentDepth}-${index}`,
+      const newTasks: ResearchSubTask[] = parsed.additional_queries.map((query: string, index: number) => ({
+        id: `task-${state.currentDepth + 1}-${index}`, // 使用 nextDepth 的任务 ID
         query,
-        depth: state.currentDepth,
+        depth: state.currentDepth + 1,
         status: 'pending',
       }));
-
-      logger.info('Deep check: more research needed', { newTaskCount: newTasks.length });
-      return {
-        subTasks: [...state.subTasks, ...newTasks],
+      
+      logger.info('Deep check determined more research needed', { newTasksCount: newTasks.length });
+      return { 
+        subTasks: newTasks, // 这里返回单次循环的新任务，reducer 会自动 concat
         shouldContinue: true,
+        round: state.round // 保持 round 不变，由 judge 控制 round
       };
     }
 
-    logger.info('Deep check: research sufficient', { duration: Date.now() - startTime });
+    logger.info('Deep check determined research is sufficient');
     return { shouldContinue: false };
   } catch (error) {
-    logger.error('Deep check failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('Deep check failed', { error: String(error) });
     return { shouldContinue: false };
   }
 };

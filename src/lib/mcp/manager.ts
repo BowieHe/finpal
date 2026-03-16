@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { MCPConfig } from '../../types/mcp';
 import { createLogger } from '../logger';
 import { getConfig, validateConfig } from '../config/manager';
@@ -12,6 +13,10 @@ export class MCPManager {
   async getClient(engine: string): Promise<Client> {
     const engineName = engine.toLowerCase();
     
+    if (this.clients.has(engineName)) {
+      return this.clients.get(engineName)!;
+    }
+
     // 获取配置（会自动验证）
     const validation = await validateConfig();
     if (!validation.valid) {
@@ -20,36 +25,42 @@ export class MCPManager {
     
     const config = validation.config;
 
-    if (this.clients.has(engineName)) {
-      return this.clients.get(engineName)!;
-    }
-
-    // Check if API key is configured
-    const dashscopeApiKey = config.dashscopeApiKey;
-    
-    if (!dashscopeApiKey) {
-      throw new Error(
-        `DASHSCOPE_API_KEY not configured. Please set it in settings or environment variable.`
-      );
-    }
-
     const client = new Client({
       name: 'finpal',
       version: '1.0.0',
     });
 
-    // Use StreamableHTTPClientTransport for Bailian MCP
-    const mcpUrl = 'https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp';
-    const transport = new StreamableHTTPClientTransport(
-      new URL(mcpUrl),
-      {
-        requestInit: {
-          headers: {
-            'Authorization': `Bearer ${dashscopeApiKey}`,
-          },
-        },
+    let transport;
+
+    if (engineName === 'playwright') {
+      logger.info('[MCP Manager] Connecting to Playwright MCP via Stdio');
+      transport = new StdioClientTransport({
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-playwright'],
+      });
+    } else {
+      // Check if API key is configured
+      const dashscopeApiKey = config.dashscopeApiKey;
+      
+      if (!dashscopeApiKey) {
+        throw new Error(
+          `DASHSCOPE_API_KEY not configured. Please set it in settings or environment variable.`
+        );
       }
-    );
+
+      // Use StreamableHTTPClientTransport for Bailian MCP
+      const mcpUrl = 'https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp';
+      transport = new StreamableHTTPClientTransport(
+        new URL(mcpUrl),
+        {
+          requestInit: {
+            headers: {
+              'Authorization': `Bearer ${dashscopeApiKey}`,
+            },
+          },
+        }
+      );
+    }
 
     await client.connect(transport);
 

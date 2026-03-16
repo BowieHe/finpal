@@ -1,9 +1,9 @@
-ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-alpine
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-bookworm-slim
 FROM ${BASE_IMAGE} AS base
 
-# 安装依赖
+# 安装基础库
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
+RUN apt-get update && apt-get install -y --no-install-recommends libc6 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # 安装 pnpm
@@ -30,7 +30,12 @@ RUN pnpm build
 
 # 生产环境
 FROM base AS runner
-RUN apk add --no-cache openssl netcat-openbsd
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl \
+    netcat-traditional \
+    ca-certificates \
+    && npx playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 ENV NODE_ENV=production

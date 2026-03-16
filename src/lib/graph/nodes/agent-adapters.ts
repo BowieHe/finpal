@@ -1,5 +1,5 @@
-import { GraphState } from '../state';
-import { AgentTask } from '../../agents/types';
+import { GraphState, ResearchFinding } from '../state';
+import { AgentTask, WebAgentOutput } from '../../agents/types';
 import { createLogger } from '../../logger';
 import { dbAgent } from '../../agents/db-agent';
 import { webAgent } from '../../agents/web-agent';
@@ -103,8 +103,19 @@ export const webAgentAdapter = async (state: GraphState & { payload: DispatchPay
 
   const resultKey = `web-agent_${taskDef.task}_${taskIdx}`;
 
+  // 实时更新 allFindings，解决“最后才显示”的问题
+  const newFindings: ResearchFinding[] = result.status === 'success' || result.status === 'partial' 
+    ? (result.rawSnippets || []).map(snippet => ({
+        query: result.query || taskDef.params.query as string || '全网搜索',
+        content: snippet.content,
+        depth: state.currentDepth || 0,
+        sources: [snippet.url]
+      }))
+    : [];
+
   return {
-    collectedData: { [resultKey]: result }
+    collectedData: { [resultKey]: result },
+    allFindings: newFindings
   };
 };
 

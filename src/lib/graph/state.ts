@@ -159,7 +159,7 @@ export const GraphAnnotation = Annotation.Root({
   }),
   maxDepth: Annotation<number>({
     reducer: (prev, next) => next ?? prev,
-    default: () => 2,
+    default: () => 4,
   }),
   breadth: Annotation<number>({
     reducer: (prev, next) => next ?? prev,
@@ -168,11 +168,11 @@ export const GraphAnnotation = Annotation.Root({
 
   // Deep Research 任务和发现
   subTasks: Annotation<ResearchSubTask[]>({
-    reducer: (prev, next) => next ?? prev,
+    reducer: (prev, next) => prev.concat(next),
     default: () => [],
   }),
   allFindings: Annotation<ResearchFinding[]>({
-    reducer: (prev, next) => next ?? prev,
+    reducer: (prev, next) => prev.concat(next),
     default: () => [],
   }),
   researchPlan: Annotation<string[]>({
@@ -182,7 +182,7 @@ export const GraphAnnotation = Annotation.Root({
 
   // 搜索结果
   searchResults: Annotation<SearchResult[]>({
-    reducer: (prev, next) => next ?? prev,
+    reducer: (prev, next) => prev.concat(next),
     default: () => [],
   }),
 
