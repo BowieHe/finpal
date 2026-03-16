@@ -116,7 +116,7 @@ class Database:
     
     def get_active_fund_codes(self) -> List[str]:
         """获取所有持仓基金的代码"""
-        # 注意：user_holdings 表可能在另一个模式或由 Prisma 管理，但由于是同一个 DB
+        # 注意：user_holdings 表由主应用管理，但属于同一个数据库
         sql = "SELECT DISTINCT fund_code FROM user_holdings"
         try:
             with self._get_conn() as conn:

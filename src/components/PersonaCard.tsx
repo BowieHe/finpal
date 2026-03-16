@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { type UserProfile, type KarmaLog } from '@prisma/client';
 import { Sparkles, History, TrendingUp, AlertTriangle, RefreshCcw } from 'lucide-react';
 
 export default function PersonaCard() {

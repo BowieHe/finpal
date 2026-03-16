@@ -1,4 +1,5 @@
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:20-alpine AS base
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-alpine
+FROM ${BASE_IMAGE} AS base
 
 # 安装依赖
 FROM base AS deps
@@ -21,9 +22,6 @@ RUN npm install -g pnpm
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 生成 Prisma Client
-RUN npx prisma generate
-
 # 确保 public 目录存在
 RUN mkdir -p public
 
@@ -45,11 +43,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# 复制 node_modules（包含 Prisma）
+# 复制 node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 
-# 复制 Prisma schema 和 entrypoint
-COPY --from=builder /app/prisma ./prisma
+# 复制 entrypoint
 COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
 
 # 确保 entrypoint 脚本可执行

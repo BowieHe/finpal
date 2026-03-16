@@ -1,4 +1,5 @@
-import { prisma } from '../prisma';
+import { query } from '../db';
+import { SettingsSchema } from '../db-schema';
 import { createLogger } from '../logger';
 
 const logger = createLogger('ConfigManager');
@@ -37,17 +38,17 @@ export async function getConfig(): Promise<AppConfig> {
   }
 
   try {
-    const settings = await prisma.settings.findUnique({
-      where: { id: 1 }
-    });
+    const result = await query('SELECT * FROM settings WHERE id = 1');
+    const settingsRaw = result.rows[0];
+    const settings = settingsRaw ? SettingsSchema.parse(settingsRaw) : null;
 
-    if (settings?.apiKey) {
+    if (settings?.api_key) {
       // 数据库有值，使用数据库配置
       cachedConfig = {
-        apiUrl: settings.apiUrl || defaultConfig.apiUrl,
-        modelName: settings.modelName || defaultConfig.modelName,
-        apiKey: settings.apiKey,
-        dashscopeApiKey: settings.dashscopeApiKey || defaultConfig.dashscopeApiKey,
+        apiUrl: settings.api_url || defaultConfig.apiUrl,
+        modelName: settings.model_name || defaultConfig.modelName,
+        apiKey: settings.api_key,
+        dashscopeApiKey: settings.dashscope_api_key || defaultConfig.dashscopeApiKey,
       };
       logger.info('Config loaded from database', {
         hasApiKey: true,

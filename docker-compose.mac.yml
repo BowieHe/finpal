@@ -1,7 +1,7 @@
 services:
-    # 1. PostgreSQL 数据库
+    # 1. PostgreSQL 数据库 (使用官方多架构镜像确保 ARM 支持)
     postgres:
-        image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:18-alpine
+        image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:18-alpine-linuxarm64
         container_name: finpal-postgres
         environment:
             POSTGRES_USER: finpal
@@ -10,7 +10,7 @@ services:
         ports:
             - "5432:5432"
         volumes:
-            - postgres_data:/var/lib/postgresql/data
+            - postgres_data_mac:/var/lib/postgresql/data
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U finpal -d finpal"]
             interval: 10s
@@ -18,14 +18,14 @@ services:
             retries: 5
         restart: unless-stopped
 
-    # 2. Python Scheduler（FastAPI + Cron）
+    # 2. Python Scheduler
     scheduler:
         build:
             context: ./scheduler
             dockerfile: Dockerfile
             args:
-                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-        container_name: finpal-scheduler
+                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/astral-sh/uv:python3.11-bookworm-slim-linuxarm64
+        container_name: finpal-scheduler-mac
         environment:
             - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
             - HTTP_HOST=0.0.0.0
@@ -44,8 +44,8 @@ services:
             context: .
             dockerfile: Dockerfile
             args:
-                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-alpine
-        container_name: finpal-web
+                - BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:20-alpine-linuxarm64
+        container_name: finpal-web-mac
         environment:
             - DATABASE_URL=postgresql://finpal:finpal@postgres:5432/finpal
             - SCHEDULER_URL=http://scheduler:8000
@@ -59,7 +59,7 @@ services:
                 condition: service_started
         restart: unless-stopped
         entrypoint: ["/app/docker-entrypoint.sh"]
-        command: ["npm", "run", "start"]
+        command: ["node", "server.js"]
 
 volumes:
-    postgres_data:
+    postgres_data_mac:

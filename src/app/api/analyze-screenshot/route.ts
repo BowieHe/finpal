@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
     if (recentLogs.length >= 5) {
       logger.info('Triggering automatic profile synthesis...');
       const latestProfile = await KarmaService.getLatestProfile();
-      const lastUpdateTime = latestProfile?.updatedAt || new Date(0);
-      const newLogsCount = recentLogs.filter((l: any) => l.createdAt > lastUpdateTime).length;
+      const lastUpdateTime = latestProfile?.updated_at || new Date(0);
+      const newLogsCount = recentLogs.filter((l: any) => l.created_at > lastUpdateTime).length;
       
       if (newLogsCount >= 5) {
         // 非阻塞异步运行，不影响截图返回速度
