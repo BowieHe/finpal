@@ -1,9 +1,5 @@
-/**
- * 基金对比 Tool
- * 支持多只基金收益率和风险指标的横向对比
- */
-
-import prisma from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { FundNavSchema, FundBasicSchema, UserHoldingSchema } from '@/lib/db-schema';
 import { calcAnnualizedVolatility, calcMaxDrawdown } from '@/lib/agents/quant-agent';
 
 // ==================== 类型定义 ====================
@@ -47,17 +43,15 @@ async function calculatePeriodReturn(
     const targetDate = new Date(latestDate);
     targetDate.setDate(targetDate.getDate() - days);
 
-    const pastNav = await prisma.fundNav.findFirst({
-        where: {
-            fundCode,
-            navDate: { lte: targetDate },
-        },
-        orderBy: { navDate: 'desc' },
-    });
+    const pastNavResult = await query(
+        'SELECT * FROM fund_nav WHERE fund_code = $1 AND nav_date <= $2 ORDER BY nav_date DESC LIMIT 1',
+        [fundCode, targetDate]
+    );
 
-    if (!pastNav) return null;
+    if (pastNavResult.rows.length === 0) return null;
+    const pastNav = FundNavSchema.parse(pastNavResult.rows[0]);
 
-    const past = Number(pastNav.unitNav);
+    const past = pastNav.unit_nav;
     if (past === 0) return null;
 
     return Math.round(((latestNav - past) / past) * 10000) / 100; // 保留2位小数
@@ -76,25 +70,23 @@ export async function compareFunds(fundCodes: string[]): Promise<FundComparisonR
     const uniqueCodes = [...new Set(fundCodes)];
 
     // 获取当前持仓中的基金代码
-    const holdingCodes = await prisma.userHolding
-        .findMany({ select: { fundCode: true } })
-        .then(rows => new Set(rows.map(r => r.fundCode)));
+    const holdingResult = await query('SELECT fund_code FROM user_holdings');
+    const holdingCodes = new Set(holdingResult.rows.map(r => r.fund_code));
 
     const results: FundComparisonItem[] = [];
 
     for (const fundCode of uniqueCodes) {
         // 基金基础信息
-        const fundBasic = await prisma.fundBasic.findUnique({
-            where: { code: fundCode },
-        });
+        const fundBasicResult = await query('SELECT * FROM fund_basic WHERE code = $1', [fundCode]);
+        const fundBasic = fundBasicResult.rows.length > 0 ? FundBasicSchema.parse(fundBasicResult.rows[0]) : null;
 
         // 最新净值
-        const latestNavRecord = await prisma.fundNav.findFirst({
-            where: { fundCode },
-            orderBy: { navDate: 'desc' },
-        });
+        const latestNavResult = await query(
+            'SELECT * FROM fund_nav WHERE fund_code = $1 ORDER BY nav_date DESC LIMIT 1',
+            [fundCode]
+        );
 
-        if (!latestNavRecord) {
+        if (latestNavResult.rows.length === 0) {
             results.push({
                 fundCode,
                 fundName: fundBasic?.name ?? fundCode,
@@ -112,8 +104,9 @@ export async function compareFunds(fundCodes: string[]): Promise<FundComparisonR
             continue;
         }
 
-        const latestNav = Number(latestNavRecord.unitNav);
-        const latestDate = latestNavRecord.navDate;
+        const latestNavRecord = FundNavSchema.parse(latestNavResult.rows[0]);
+        const latestNav = latestNavRecord.unit_nav;
+        const latestDate = latestNavRecord.nav_date;
 
         // 并行计算各时段收益率
         const [return1m, return3m, return6m, return1y] = await Promise.all([
@@ -124,24 +117,20 @@ export async function compareFunds(fundCodes: string[]): Promise<FundComparisonR
         ]);
 
         // 计算近1年波动率和最大回撤（最近252个交易日）
-        const yearNavs = await prisma.fundNav.findMany({
-            where: {
-                fundCode,
-                navDate: { gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) },
-            },
-            orderBy: { navDate: 'asc' },
-            select: { unitNav: true, navDate: true, dailyReturn: true },
-        });
+        const yearNavResult = await query(
+            'SELECT unit_nav, nav_date, daily_return FROM fund_nav WHERE fund_code = $1 AND nav_date >= $2 ORDER BY nav_date ASC',
+            [fundCode, new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)]
+        );
+        const yearNavs = yearNavResult.rows.map(row => FundNavSchema.partial().parse(row));
 
         let volatility: number | null = null;
         let maxDrawdown: number | null = null;
 
         if (yearNavs.length >= 20) {
-            // 年化波动率 和 最大回撤（复用 Quant-Agent 共享函数）
             const returns = yearNavs
-                .map(n => (n.dailyReturn !== null ? Number(n.dailyReturn) : null))
-                .filter((r): r is number => r !== null);
-            const navValues = yearNavs.map(n => Number(n.unitNav));
+                .map(n => n.daily_return)
+                .filter((r): r is number => r !== null && r !== undefined);
+            const navValues = yearNavs.map(n => n.unit_nav as number);
 
             volatility = calcAnnualizedVolatility(returns);
             maxDrawdown = calcMaxDrawdown(navValues);

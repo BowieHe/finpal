@@ -14,7 +14,7 @@
 - **⚔️ Adversarial Debate** — Bull vs Bear analysts debate with multi-round argumentation and neutral judge arbitration.
 - **📊 Real-time Streaming UI** — SSE-powered timeline showing agent collaboration and debate progress in real-time.
 - **🧠 Dynamic Persona (Karma Collection)** — Tracks behaviors and intent via KarmaLogs to build an evolving investment profile using recursive synthesis.
-- **🔍 Dual Data Sources** — Portfolio data (PostgreSQL) + live web intelligence (Alibaba Cloud Bailian).
+- **🔍 Dual Data Sources** — Portfolio data (PostgreSQL + Native SQL) + live web intelligence (Alibaba Cloud Bailian).
 
 ---
 
@@ -104,8 +104,7 @@ Key variables:
 
 ```bash
 docker compose up -d postgres
-npx prisma generate
-npx prisma migrate dev --name init
+# Schema is managed via native SQL / migrations (manual or tool-based)
 ```
 
 ### 4. Run Development Server
@@ -153,7 +152,7 @@ finpal/
 │   └── types/                  # TypeScript type definitions
 ├── scheduler/                  # Python data sync service
 │   └── src/                    # Fund NAV fetcher + cron jobs
-├── prisma/                     # Database schema
+├── src/                    # Application source code
 └── docker-compose.yml          # PostgreSQL + services
 ```
 
@@ -167,9 +166,7 @@ pnpm dev                        # Start Next.js dev server (+ Postgres)
 pnpm dev:web                    # Start Next.js only
 
 # Database
-pnpm db:migrate                 # Run Prisma migrations
-pnpm db:generate                # Generate Prisma client
-pnpm db:studio                  # Open Prisma Studio GUI
+# Use your preferred SQL tool or scripts
 
 # Testing
 pnpm test                       # Run unit tests (vitest)
@@ -206,8 +203,7 @@ If `pnpm dev` fails or you are setting up for the first time:
 docker compose up -d postgres
 
 # 2. Sync Schema
-npx prisma generate
-npx prisma migrate dev --name init
+# (Use SQL scripts or tool-based migration)
 
 # 3. (Optional) Run Scheduler for data sync
 cd scheduler && uv sync && uv run -m src.main
@@ -229,7 +225,7 @@ cd scheduler && uv sync && uv run -m src.main
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | **AI Orchestration** | LangGraph (LangChain.js), OpenAI-compatible LLMs |
 | **Search** | Alibaba Cloud Bailian MCP (Model Context Protocol) |
-| **Database** | PostgreSQL + Prisma ORM |
+| **Database** | PostgreSQL + Native SQL (pg) + Zod |
 | **Data Sync** | Python + FastAPI + akshare + APScheduler |
 | **Visualization** | Mermaid.js charts, ReactMarkdown |
 | **Deployment** | Docker Compose |

@@ -1,9 +1,5 @@
-/**
- * 持仓分析 Tools
- * 供 LangGraph researcherNode 调用，从数据库获取持仓和净值数据
- */
-
-import prisma from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { UserHoldingSchema, FundNavSchema, FundBasicSchema, HoldingTransactionSchema } from '@/lib/db-schema';
 
 // ==================== 类型定义 ====================
 
@@ -77,9 +73,8 @@ export interface HoldingDetail {
  */
 export async function getPortfolioSummary(): Promise<PortfolioSummary> {
     // 获取所有持仓
-    const holdings = await prisma.userHolding.findMany({
-        orderBy: { createdAt: 'asc' },
-    });
+    const holdingsResult = await query('SELECT * FROM user_holdings ORDER BY created_at ASC');
+    const holdings = holdingsResult.rows.map(row => UserHoldingSchema.parse(row));
 
     if (holdings.length === 0) {
         return {
@@ -97,35 +92,33 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
         };
     }
 
-    // 批量获取每只基金的最新两个交易日净值
-    const fundCodes = holdings.map(h => h.fundCode);
     const holdingItems: HoldingItem[] = [];
-    let latestNavDate = '';
+    let latestNavDateStr = '';
 
     for (const holding of holdings) {
-        const navRecords = await prisma.fundNav.findMany({
-            where: { fundCode: holding.fundCode },
-            orderBy: { navDate: 'desc' },
-            take: 2,
-        });
+        // 获取最近两个交易日的净值
+        const navResult = await query(
+            'SELECT * FROM fund_nav WHERE fund_code = $1 ORDER BY nav_date DESC LIMIT 2',
+            [holding.fund_code]
+        );
+        const navRecords = navResult.rows.map(row => FundNavSchema.parse(row));
 
-        const shares = Number(holding.shares);
-        const costPrice = Number(holding.costPrice);
+        const shares = holding.shares;
+        const costPrice = holding.cost_price;
 
         if (navRecords.length === 0) {
-            // 净值数据不存在，仍然保留持仓，但净值相关字段为空
             holdingItems.push({
-                fundCode: holding.fundCode,
-                fundName: holding.fundName,
+                fundCode: holding.fund_code,
+                fundName: holding.fund_name,
                 shares,
                 costPrice,
                 totalCost: Math.round(shares * costPrice * 100) / 100,
-                currentNav: null as any,  // 未获取
-                currentValue: null as any,  // 未获取
-                totalProfit: null as any,  // 未获取
-                profitRate: null as any,  // 未获取
-                dailyProfit: null as any,  // 未获取
-                isProfit: null as any,  // 未获取
+                currentNav: null,
+                currentValue: null,
+                totalProfit: null,
+                profitRate: null,
+                dailyProfit: null,
+                isProfit: null,
                 navDate: '未获取',
             });
             continue;
@@ -134,24 +127,23 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
         const latestNav = navRecords[0];
         const prevNav = navRecords[1];
 
-        const currentNav = Number(latestNav.unitNav);
-
+        const currentNav = latestNav.unit_nav;
         const totalCost = shares * costPrice;
         const currentValue = shares * currentNav;
         const totalProfit = currentValue - totalCost;
         const profitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
         const dailyProfit = prevNav
-            ? shares * (currentNav - Number(prevNav.unitNav))
+            ? shares * (currentNav - prevNav.unit_nav)
             : 0;
 
-        const navDateStr = latestNav.navDate.toISOString().split('T')[0];
-        if (!latestNavDate || navDateStr > latestNavDate) {
-            latestNavDate = navDateStr;
+        const navDateStr = latestNav.nav_date.toISOString().split('T')[0];
+        if (!latestNavDateStr || navDateStr > latestNavDateStr) {
+            latestNavDateStr = navDateStr;
         }
 
         holdingItems.push({
-            fundCode: holding.fundCode,
-            fundName: holding.fundName,
+            fundCode: holding.fund_code,
+            fundName: holding.fund_name,
             shares,
             costPrice,
             totalCost: Math.round(totalCost * 100) / 100,
@@ -179,8 +171,8 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
         totalProfitRate: Math.round(totalProfitRate * 100) / 100,
         dailyProfit: Math.round(dailyProfit * 100) / 100,
         profitCount: holdingItems.filter(h => h.isProfit === true).length,
-        lossCount: holdingItems.filter(h => !h.isProfit).length,
-        navDate: latestNavDate,
+        lossCount: holdingItems.filter(h => h.isProfit === false).length,
+        navDate: latestNavDateStr,
         hasData: holdingItems.length > 0,
     };
 }
@@ -190,49 +182,52 @@ export async function getPortfolioSummary(): Promise<PortfolioSummary> {
  * 获取单只基金的详细持仓信息
  */
 export async function getHoldingDetail(fundCode: string): Promise<HoldingDetail | null> {
-    const holding = await prisma.userHolding.findFirst({
-        where: { fundCode },
-        include: { transactions: { orderBy: { date: 'asc' } } },
-    });
+    const holdingResult = await query('SELECT * FROM user_holdings WHERE fund_code = $1', [fundCode]);
+    if (holdingResult.rows.length === 0) return null;
+    const holding = UserHoldingSchema.parse(holdingResult.rows[0]);
 
-    if (!holding) return null;
+    // 获取交易记录
+    const transResult = await query(
+        'SELECT * FROM holding_transactions WHERE holding_id = $1 ORDER BY date ASC',
+        [holding.id]
+    );
+    const transactions = transResult.rows.map(row => HoldingTransactionSchema.parse(row));
 
     // 获取基金基础信息
-    const fundBasic = await prisma.fundBasic.findUnique({
-        where: { code: fundCode },
-    });
+    const fundBasicResult = await query('SELECT * FROM fund_basic WHERE code = $1', [fundCode]);
+    const fundBasic = fundBasicResult.rows.length > 0 ? FundBasicSchema.parse(fundBasicResult.rows[0]) : null;
 
     // 获取最新净值
-    const latestNav = await prisma.fundNav.findFirst({
-        where: { fundCode },
-        orderBy: { navDate: 'desc' },
-    });
-
-    if (!latestNav) return null;
+    const latestNavResult = await query(
+        'SELECT * FROM fund_nav WHERE fund_code = $1 ORDER BY nav_date DESC LIMIT 1',
+        [fundCode]
+    );
+    if (latestNavResult.rows.length === 0) return null;
+    const latestNav = FundNavSchema.parse(latestNavResult.rows[0]);
 
     // 获取近 30 个交易日净值走势
-    const navHistory = await prisma.fundNav.findMany({
-        where: { fundCode },
-        orderBy: { navDate: 'desc' },
-        take: 30,
-    });
+    const historyResult = await query(
+        'SELECT * FROM fund_nav WHERE fund_code = $1 ORDER BY nav_date DESC LIMIT 30',
+        [fundCode]
+    );
+    const navHistory = historyResult.rows.map(row => FundNavSchema.parse(row));
 
-    const shares = Number(holding.shares);
-    const costPrice = Number(holding.costPrice);
-    const currentNav = Number(latestNav.unitNav);
+    const shares = holding.shares;
+    const costPrice = holding.cost_price;
+    const currentNav = latestNav.unit_nav;
     const totalCost = shares * costPrice;
     const currentValue = shares * currentNav;
     const totalProfit = currentValue - totalCost;
     const profitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
-    const buyDate = holding.buyDate.toISOString().split('T')[0];
+    const buyDate = holding.buy_date.toISOString().split('T')[0];
     const holdingDays = Math.floor(
-        (Date.now() - holding.buyDate.getTime()) / (1000 * 60 * 60 * 24)
+        (Date.now() - holding.buy_date.getTime()) / (1000 * 60 * 60 * 24)
     );
 
     return {
-        fundCode: holding.fundCode,
-        fundName: holding.fundName,
+        fundCode: holding.fund_code,
+        fundName: holding.fund_name,
         category: fundBasic?.category ?? null,
         manager: fundBasic?.manager ?? null,
         company: fundBasic?.company ?? null,
@@ -248,16 +243,16 @@ export async function getHoldingDetail(fundCode: string): Promise<HoldingDetail 
         navHistory: navHistory
             .reverse()
             .map(n => ({
-                date: n.navDate.toISOString().split('T')[0],
-                nav: Number(n.unitNav),
-                dailyReturn: n.dailyReturn !== null ? Number(n.dailyReturn) : null,
+                date: n.nav_date.toISOString().split('T')[0],
+                nav: n.unit_nav,
+                dailyReturn: n.daily_return,
             })),
-        transactions: holding.transactions.map(t => ({
+        transactions: transactions.map(t => ({
             date: t.date.toISOString().split('T')[0],
             type: t.type,
-            shares: Number(t.shares),
-            price: Number(t.price),
-            amount: Number(t.amount),
+            shares: t.shares,
+            price: t.price,
+            amount: t.amount,
         })),
     };
 }

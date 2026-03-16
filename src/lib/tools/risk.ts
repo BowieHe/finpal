@@ -1,9 +1,5 @@
-/**
- * 风险指标分析 Tool
- * 计算基金的详细风险指标，提供风险评级和分析
- */
-
-import prisma from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { FundBasicSchema, FundNavSchema } from '@/lib/db-schema';
 import { calcAnnualizedVolatility, calcMaxDrawdown, calcSharpeRatio, calcAnnualReturn } from '@/lib/agents/quant-agent';
 
 // ==================== 类型定义 ====================
@@ -59,23 +55,19 @@ export async function getFundRiskMetrics(
     fundCode: string,
     period: AnalysisPeriod = '1y'
 ): Promise<RiskMetrics> {
-    const fundBasic = await prisma.fundBasic.findUnique({
-        where: { code: fundCode },
-    });
+    const fundBasicResult = await query('SELECT * FROM fund_basic WHERE code = $1', [fundCode]);
+    const fundBasic = fundBasicResult.rows.length > 0 ? FundBasicSchema.parse(fundBasicResult.rows[0]) : null;
 
     const fundName = fundBasic?.name ?? fundCode;
     const days = period === 'ytd' ? getDaysFromYearStart() : PERIOD_DAYS[period];
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // 查询时段内的净值数据
-    const navRecords = await prisma.fundNav.findMany({
-        where: {
-            fundCode,
-            navDate: { gte: startDate },
-        },
-        orderBy: { navDate: 'asc' },
-        select: { navDate: true, unitNav: true, dailyReturn: true },
-    });
+    const navResult = await query(
+        'SELECT nav_date, unit_nav, daily_return FROM fund_nav WHERE fund_code = $1 AND nav_date >= $2 ORDER BY nav_date ASC',
+        [fundCode, startDate]
+    );
+    const navRecords = navResult.rows.map(row => FundNavSchema.partial().parse(row));
 
     const insufficient = navRecords.length < 20;
 
@@ -95,16 +87,16 @@ export async function getFundRiskMetrics(
         };
     }
 
-    const navValues = navRecords.map(n => Number(n.unitNav));
+    const navValues = navRecords.map(n => n.unit_nav as number);
     const dailyReturns = navRecords
-        .map(n => (n.dailyReturn !== null ? Number(n.dailyReturn) : null))
-        .filter((r): r is number => r !== null);
+        .map(n => n.daily_return)
+        .filter((r): r is number => r !== null && r !== undefined);
 
     // 年化收益率
     const firstNav = navValues[0];
     const lastNav = navValues[navValues.length - 1];
     const actualDays = Math.floor(
-        (navRecords[navRecords.length - 1].navDate.getTime() - navRecords[0].navDate.getTime()) /
+        ((navRecords[navRecords.length - 1].nav_date as Date).getTime() - (navRecords[0].nav_date as Date).getTime()) /
         (1000 * 60 * 60 * 24)
     );
     const annualReturn = calcAnnualReturn(firstNav, lastNav, actualDays);

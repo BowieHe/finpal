@@ -102,8 +102,7 @@ cp .env.local.example .env.local
 
 ```bash
 docker compose up -d postgres
-npx prisma generate
-npx prisma migrate dev --name init
+# 数据库结构通过原生 SQL 管理
 ```
 
 ### 4. 启动开发服务器
@@ -151,7 +150,7 @@ finpal/
 │   └── types/                  # TypeScript 类型定义
 ├── scheduler/                  # Python 数据同步服务
 │   └── src/                    # 基金净值抓取 + 定时任务
-├── prisma/                     # 数据库 Schema
+├── src/                    # 应用源码
 └── docker-compose.yml          # PostgreSQL + 服务编排
 ```
 
@@ -165,9 +164,7 @@ pnpm dev                        # 启动开发服务器（含 Postgres）
 pnpm dev:web                    # 仅启动 Next.js
 
 # 数据库
-pnpm db:migrate                 # 执行 Prisma 迁移
-pnpm db:generate                # 生成 Prisma Client
-pnpm db:studio                  # 打开 Prisma Studio
+# 使用你喜欢的 SQL 工具或脚本
 
 # 测试
 pnpm test                       # 运行单元测试（vitest）
@@ -204,8 +201,7 @@ FinPal 需要配置以下关键变量才能正常运行。请将 `.env.local.exa
 docker compose up -d postgres
 
 # 2. 同步数据库结构
-npx prisma generate
-npx prisma migrate dev --name init
+# (使用 SQL 脚本或迁移工具)
 
 # 3. (可选) 启动数据同步服务
 cd scheduler && uv sync && uv run -m src.main
@@ -227,7 +223,7 @@ cd scheduler && uv sync && uv run -m src.main
 | **前端** | Next.js 16、React 19、TypeScript、Tailwind CSS 4 |
 | **AI 编排** | LangGraph (LangChain.js)、OpenAI 兼容 LLM |
 | **搜索** | 阿里云百炼 MCP（Model Context Protocol） |
-| **数据库** | PostgreSQL + Prisma ORM |
+| **数据库** | PostgreSQL + 原生 SQL (pg) + Zod |
 | **数据同步** | Python + FastAPI + akshare + APScheduler |
 | **可视化** | Mermaid.js 图表、ReactMarkdown |
 | **部署** | Docker Compose |

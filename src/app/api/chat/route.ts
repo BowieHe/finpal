@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createGraph } from '@/lib/graph/graph';
 import { clearConfigCache, validateConfig } from '@/lib/llm/client';
-import { prisma } from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { SettingsSchema } from '@/lib/db-schema';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('APIChat');
@@ -39,41 +40,31 @@ export async function POST(req: Request) {
       );
     }
 
-    // 使用前端传来的 config，如果用户临时修改了设置，我们应该确保后续调用能反映出来
+    // 使用前端传来的 config
     if (config?.apiKey) {
       logger.info('Using custom LLM config from frontend, updating persistent settings', {
-        apiUrl: config.apiUrl,
-        modelName: config.modelName,
         hasApiKey: true,
       });
       
-      // 我们选择将前端传来的临时配置也同步到数据库中，以确保真正的"持久化"
-      // 这里的逻辑是：如果前端传了 config，说明用户在页面上点击了保存或正在使用新配置
-      await prisma.settings.upsert({
-        where: { id: 1 },
-        update: {
-          apiUrl: config.apiUrl,
-          modelName: config.modelName,
-          apiKey: config.apiKey,
-          dashscopeApiKey: config.dashscopeApiKey,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: 1,
-          apiUrl: config.apiUrl,
-          modelName: config.modelName,
-          apiKey: config.apiKey,
-          dashscopeApiKey: config.dashscopeApiKey,
-        },
-      });
-      
+      const sql = `
+        INSERT INTO settings (id, api_url, model_name, api_key, dashscope_api_key, updated_at)
+        VALUES (1, $1, $2, $3, $4, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          api_url = EXCLUDED.api_url,
+          model_name = EXCLUDED.model_name,
+          api_key = EXCLUDED.api_key,
+          dashscope_api_key = EXCLUDED.dashscope_api_key,
+          updated_at = NOW()
+      `;
+      await query(sql, [config.apiUrl, config.modelName, config.apiKey, config.dashscopeApiKey]);
       clearConfigCache();
     }
 
     // 存储 dashscopeApiKey 到全局，供 MCP 使用
-    const persistentConfig = await prisma.settings.findUnique({ where: { id: 1 } });
-    if (persistentConfig?.dashscopeApiKey) {
-      (global as any).DASHSCOPE_API_KEY = persistentConfig.dashscopeApiKey;
+    const settingsRes = await query('SELECT dashscope_api_key FROM settings WHERE id = 1');
+    const persistentConfig = settingsRes.rows[0];
+    if (persistentConfig?.dashscope_api_key) {
+      (global as any).DASHSCOPE_API_KEY = persistentConfig.dashscope_api_key;
     }
 
     // Check if client accepts SSE
@@ -92,7 +83,6 @@ export async function POST(req: Request) {
           const graph = createGraph();
           const { signal } = req;
 
-          // Create a promise that rejects when the client disconnects
           const abortPromise = new Promise<never>((_, reject) => {
             signal.addEventListener('abort', () => reject(new Error('AbortError')));
           });
@@ -112,7 +102,6 @@ export async function POST(req: Request) {
           ]);
 
           if (!signal.aborted) {
-            // Send final result
             const finalData = `data: ${JSON.stringify({ type: 'complete', result })}\n\n`;
             writer.write(encoder.encode(finalData));
           }
@@ -138,13 +127,10 @@ export async function POST(req: Request) {
         },
       });
     } else {
-      // Return regular JSON response
       const graph = createGraph();
-      
       const result = await graph.invoke({
         question,
       });
-
       return NextResponse.json(result);
     }
   } catch (error) {

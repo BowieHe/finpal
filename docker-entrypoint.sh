@@ -7,8 +7,5 @@ until nc -z postgres 5432; do
 done
 echo "✅ Database is ready"
 
-echo "🔄 Running database migrations..."
-./node_modules/.bin/prisma migrate deploy
-
 echo "🚀 Starting application..."
 exec "$@"

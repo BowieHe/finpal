@@ -1,9 +1,6 @@
-/**
- * /api/holdings - 持仓列表 GET / 新增持仓 POST
- */
-
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { query, getClient } from '@/lib/db';
+import { UserHoldingSchema, FundBasicSchema, HoldingTransactionSchema } from '@/lib/db-schema';
 import { getPortfolioSummary, calculateWeightedCost } from '@/lib/tools/portfolio';
 
 // GET /api/holdings - 获取所有持仓（含实时收益计算）
@@ -22,6 +19,7 @@ export async function GET() {
 
 // POST /api/holdings - 新增持仓
 export async function POST(req: Request) {
+    const client = await getClient();
     try {
         const body = await req.json();
         const { fundCode, fundName: providedFundName, shares, price, date } = body;
@@ -43,80 +41,73 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: '成本价必须为正数' }, { status: 400 });
         }
 
-        // 获取基金名称：优先使用前端提供的，否则从 fund_basic 查
         let fundName = providedFundName;
         if (!fundName) {
-            const fundBasic = await prisma.fundBasic.findUnique({
-                where: { code: fundCode },
-            });
-            fundName = fundBasic?.name ?? fundCode;
+            const fundResult = await query('SELECT name FROM fund_basic WHERE code = $1', [fundCode]);
+            fundName = fundResult.rows[0]?.name ?? fundCode;
         }
 
         const buyDate = date ? new Date(date) : new Date();
         const amount = sharesNum * priceNum;
 
-        // 判断是否已有该基金的持仓（分批买入）
-        const existing = await prisma.userHolding.findFirst({
-            where: { fundCode },
-        });
+        const existingResult = await query('SELECT * FROM user_holdings WHERE fund_code = $1', [fundCode]);
+        const existing = existingResult.rows.length > 0 ? UserHoldingSchema.parse(existingResult.rows[0]) : null;
 
         let result;
+        await client.query('BEGIN');
+
         if (existing) {
-            // 追加买入：加权平均成本
             const newCostPrice = calculateWeightedCost(
-                Number(existing.shares),
-                Number(existing.costPrice),
+                existing.shares,
+                existing.cost_price,
                 sharesNum,
                 priceNum,
                 'buy'
             );
 
-            const updated = await prisma.$transaction([
-                prisma.userHolding.update({
-                    where: { id: existing.id },
-                    data: {
-                        shares: Number(existing.shares) + sharesNum,
-                        costPrice: newCostPrice,
-                    },
-                }),
-                prisma.holdingTransaction.create({
-                    data: {
-                        holdingId: existing.id,
-                        type: 'buy',
-                        date: buyDate,
-                        shares: sharesNum,
-                        price: priceNum,
-                        amount,
-                    },
-                }),
-            ]);
-            result = { holding: updated[0], transaction: updated[1] };
-        } else {
-            // 新建持仓
+            const updateHoldingSql = `
+                UPDATE user_holdings 
+                SET shares = shares + $1, cost_price = $2, updated_at = NOW() 
+                WHERE id = $3 
+                RETURNING *
+            `;
+            const updatedHoldingRes = await client.query(updateHoldingSql, [sharesNum, newCostPrice, existing.id]);
+            
+            const insertTransSql = `
+                INSERT INTO holding_transactions (holding_id, type, date, shares, price, amount, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                RETURNING *
+            `;
+            const newTransRes = await client.query(insertTransSql, [existing.id, 'buy', buyDate, sharesNum, priceNum, amount]);
+
+            await client.query('COMMIT');
             result = { 
-                holding: await prisma.userHolding.create({
-                    data: {
-                        fundCode,
-                        fundName,
-                        shares: sharesNum,
-                        costPrice: priceNum,
-                        buyDate,
-                        transactions: {
-                            create: {
-                                type: 'buy',
-                                date: buyDate,
-                                shares: sharesNum,
-                                price: priceNum,
-                                amount,
-                            },
-                        },
-                    },
-                    include: { transactions: true },
-                })
+                holding: UserHoldingSchema.parse(updatedHoldingRes.rows[0]), 
+                transaction: HoldingTransactionSchema.parse(newTransRes.rows[0]) 
+            };
+        } else {
+            const insertHoldingSql = `
+                INSERT INTO user_holdings (fund_code, fund_name, shares, cost_price, buy_date, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                RETURNING *
+            `;
+            const newHoldingRes = await client.query(insertHoldingSql, [fundCode, fundName, sharesNum, priceNum, buyDate]);
+            const newHolding = UserHoldingSchema.parse(newHoldingRes.rows[0]);
+
+            const insertTransSql = `
+                INSERT INTO holding_transactions (holding_id, type, date, shares, price, amount, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                RETURNING *
+            `;
+            const newTransRes = await client.query(insertTransSql, [newHolding.id, 'buy', buyDate, sharesNum, priceNum, amount]);
+
+            await client.query('COMMIT');
+            result = { 
+                holding: newHolding, 
+                transaction: HoldingTransactionSchema.parse(newTransRes.rows[0]) 
             };
         }
 
-        // 触发 Python Scheduler 进行数据同步（异步触发，报错不影响主流程）
         const schedulerUrl = process.env.SCHEDULER_URL || 'http://localhost:8000';
         fetch(`${schedulerUrl}/sync_one`, {
             method: 'POST',
@@ -126,10 +117,13 @@ export async function POST(req: Request) {
 
         return NextResponse.json(result, { status: existing ? 200 : 201 });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('POST /api/holdings error:', error);
         return NextResponse.json(
             { error: '新增持仓失败', details: String(error) },
             { status: 500 }
         );
+    } finally {
+        client.release();
     }
 }

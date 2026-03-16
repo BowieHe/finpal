@@ -1,9 +1,6 @@
-/**
- * /api/holdings/[id] - 单条持仓 PUT / DELETE / GET 详情
- */
-
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { query, getClient } from '@/lib/db';
+import { UserHoldingSchema, HoldingTransactionSchema } from '@/lib/db-schema';
 import { getHoldingDetail, calculateWeightedCost } from '@/lib/tools/portfolio';
 
 type Params = { params: Promise<{ id: string }> };
@@ -12,11 +9,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, { params }: Params) {
     const { id } = await params;
     try {
-        const holding = await prisma.userHolding.findUnique({ where: { id } });
-        if (!holding) {
+        const result = await query('SELECT * FROM user_holdings WHERE id = $1', [id]);
+        if (result.rows.length === 0) {
             return NextResponse.json({ error: '持仓不存在' }, { status: 404 });
         }
-        const detail = await getHoldingDetail(holding.fundCode);
+        const holding = UserHoldingSchema.parse(result.rows[0]);
+        const detail = await getHoldingDetail(holding.fund_code);
         return NextResponse.json(detail);
     } catch (error) {
         return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -26,6 +24,7 @@ export async function GET(_req: Request, { params }: Params) {
 // PUT /api/holdings/:id - 更新持仓（追加买入/卖出，修正份额）
 export async function PUT(req: Request, { params }: Params) {
     const { id } = await params;
+    const client = await getClient();
     try {
         const body = await req.json();
         const { type, shares, price, date } = body;
@@ -37,14 +36,15 @@ export async function PUT(req: Request, { params }: Params) {
             );
         }
 
-        const holding = await prisma.userHolding.findUnique({ where: { id } });
-        if (!holding) {
+        const holdingResult = await client.query('SELECT * FROM user_holdings WHERE id = $1', [id]);
+        if (holdingResult.rows.length === 0) {
             return NextResponse.json({ error: '持仓不存在' }, { status: 404 });
         }
+        const holding = UserHoldingSchema.parse(holdingResult.rows[0]);
 
         const sharesNum = Number(shares);
         const priceNum = Number(price);
-        const currentShares = Number(holding.shares);
+        const currentShares = holding.shares;
 
         if (type === 'sell' && sharesNum > currentShares) {
             return NextResponse.json(
@@ -55,7 +55,7 @@ export async function PUT(req: Request, { params }: Params) {
 
         const newCostPrice = calculateWeightedCost(
             currentShares,
-            Number(holding.costPrice),
+            holding.cost_price,
             sharesNum,
             priceNum,
             type as 'buy' | 'sell'
@@ -65,29 +65,34 @@ export async function PUT(req: Request, { params }: Params) {
         const tradeDate = date ? new Date(date) : new Date();
         const amount = sharesNum * priceNum;
 
-        const [updatedHolding, transaction] = await prisma.$transaction([
-            prisma.userHolding.update({
-                where: { id },
-                data: {
-                    shares: newShares,
-                    costPrice: newCostPrice,
-                },
-            }),
-            prisma.holdingTransaction.create({
-                data: {
-                    holdingId: id,
-                    type,
-                    date: tradeDate,
-                    shares: sharesNum,
-                    price: priceNum,
-                    amount,
-                },
-            }),
-        ]);
+        await client.query('BEGIN');
+        
+        const updateSql = `
+            UPDATE user_holdings 
+            SET shares = $1, cost_price = $2, updated_at = NOW() 
+            WHERE id = $3 
+            RETURNING *
+        `;
+        const updatedRes = await client.query(updateSql, [newShares, newCostPrice, id]);
+        
+        const insertTransSql = `
+            INSERT INTO holding_transactions (holding_id, type, date, shares, price, amount, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            RETURNING *
+        `;
+        const transRes = await client.query(insertTransSql, [id, type, tradeDate, sharesNum, priceNum, amount]);
 
-        return NextResponse.json({ holding: updatedHolding, transaction });
+        await client.query('COMMIT');
+
+        return NextResponse.json({ 
+            holding: UserHoldingSchema.parse(updatedRes.rows[0]), 
+            transaction: HoldingTransactionSchema.parse(transRes.rows[0]) 
+        });
     } catch (error) {
+        await client.query('ROLLBACK');
         return NextResponse.json({ error: String(error) }, { status: 500 });
+    } finally {
+        client.release();
     }
 }
 
@@ -95,7 +100,7 @@ export async function PUT(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
     const { id } = await params;
     try {
-        await prisma.userHolding.delete({ where: { id } });
+        await query('DELETE FROM user_holdings WHERE id = $1', [id]);
         return NextResponse.json({ success: true });
     } catch (error) {
         return NextResponse.json({ error: String(error) }, { status: 500 });

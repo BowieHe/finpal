@@ -1,4 +1,5 @@
-import { prisma } from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { KarmaLogSchema, UserProfileSchema } from '@/lib/db-schema';
 import { createLogger } from '@/lib/logger';
 import { KarmaService } from './karmaService';
 import OpenAI from 'openai';
@@ -14,15 +15,18 @@ export class SynthesisService {
       const latestProfile = await KarmaService.getLatestProfile();
       const lastVersion = latestProfile?.version || 0;
       
-      // 读取未处理的日志
-      const logs = await prisma.karmaLog.findMany({
-        where: force ? {} : {
-          createdAt: {
-            gt: latestProfile?.updatedAt || new Date(0)
-          }
-        },
-        orderBy: { createdAt: 'asc' }
-      });
+      let logs;
+      if (force) {
+        const result = await query('SELECT * FROM karma_logs ORDER BY created_at ASC');
+        logs = result.rows.map(row => KarmaLogSchema.parse(row));
+      } else {
+        const lastUpdate = latestProfile?.updated_at || new Date(0);
+        const result = await query(
+          'SELECT * FROM karma_logs WHERE created_at > $1 ORDER BY created_at ASC',
+          [lastUpdate]
+        );
+        logs = result.rows.map(row => KarmaLogSchema.parse(row));
+      }
 
       if (logs.length === 0 && !force) {
         logger.info('No new karma logs to synthesize');
@@ -35,16 +39,20 @@ export class SynthesisService {
       const updatedData = await this.callSynthesisLLM(latestProfile, logs);
 
       // 写入新版本
-      const newProfile = await prisma.userProfile.create({
-        data: {
-          version: lastVersion + 1,
-          persona: updatedData.persona,
-          styles: updatedData.styles,
-          biases: updatedData.biases,
-          evolutionaryLog: updatedData.evolutionaryLog,
-          summary: updatedData.summary,
-        }
-      });
+      const sql = `
+        INSERT INTO user_profile (version, persona, styles, biases, evolutionary_log, summary, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        RETURNING *
+      `;
+      const insertResult = await query(sql, [
+        lastVersion + 1,
+        updatedData.persona,
+        JSON.stringify(updatedData.styles),
+        updatedData.biases, // Zod handles string array
+        updatedData.evolutionaryLog,
+        updatedData.summary,
+      ]);
+      const newProfile = UserProfileSchema.parse(insertResult.rows[0]);
 
       logger.info('User profile updated successfully', { version: newProfile.version });
       return newProfile;
@@ -58,8 +66,6 @@ export class SynthesisService {
   }
 
   private static async callSynthesisLLM(currentProfile: any, logs: any[]) {
-    // 这里模拟 LLM 调用，实际应通过 OpenAI 客户端
-    // 由于环境限制，这里先实现逻辑框架，你可以根据实际 API 配置
     const evidence = logs.map(l => `- [${l.source}] ${l.content}: ${JSON.stringify(l.interpretation)}`).join('\n');
     
     const prompt = `
@@ -87,7 +93,6 @@ ${evidence}
 }
 `;
 
-    // 实际调用逻辑
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY || '',
       baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',

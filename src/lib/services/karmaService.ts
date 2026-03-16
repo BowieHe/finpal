@@ -1,4 +1,5 @@
-import { prisma } from '@/lib/prisma';
+import { query } from '@/lib/db';
+import { KarmaLogSchema, UserProfileSchema } from '@/lib/db-schema';
 import { createLogger } from '@/lib/logger';
 const logger = createLogger('KarmaService');
 
@@ -22,14 +23,18 @@ export class KarmaService {
    */
   static async logEvent(event: KarmaEvent) {
     try {
-      const record = await prisma.karmaLog.create({
-        data: {
-          source: event.source,
-          type: event.type,
-          content: event.content,
-          interpretation: event.interpretation,
-        },
-      });
+      const sql = `
+        INSERT INTO karma_logs (source, type, content, interpretation, created_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        RETURNING *
+      `;
+      const result = await query(sql, [
+        event.source,
+        event.type,
+        event.content,
+        JSON.stringify(event.interpretation)
+      ]);
+      const record = KarmaLogSchema.parse(result.rows[0]);
       logger.info('Karma event logged', { id: record.id, type: event.type });
       return record;
     } catch (error: any) {
@@ -46,18 +51,21 @@ export class KarmaService {
    * 获取最近的业力日志以供分析
    */
   static async getRecentLogs(limit = 20) {
-    return prisma.karmaLog.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+    const result = await query(
+      'SELECT * FROM karma_logs ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+    return result.rows.map(row => KarmaLogSchema.parse(row));
   }
 
   /**
    * 获取当前用户画像
    */
   static async getLatestProfile() {
-    return prisma.userProfile.findFirst({
-      orderBy: { version: 'desc' },
-    });
+    const result = await query(
+      'SELECT * FROM user_profile ORDER BY version DESC LIMIT 1'
+    );
+    if (result.rows.length === 0) return null;
+    return UserProfileSchema.parse(result.rows[0]);
   }
 }
