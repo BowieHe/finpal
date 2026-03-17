@@ -106,6 +106,27 @@ export default function SettingsForm({ config, onSave, onCancel }: SettingsFormP
           </p>
         )}
       </div>
+{/* Light Model Name */}
+      <div>
+        <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">
+          Light Model Name (轻量模型)
+        </label>
+        <input
+          type="text"
+          value={formData.lightModelName || ''}
+          onChange={(e) => handleChange('lightModelName', e.target.value)}
+          placeholder="qwen-turbo 或 gpt-4o-mini"
+          className={
+            'w-full rounded-xl px-4 py-3 border bg-white dark:bg-slate-950 ' +
+            'border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 ' +
+            'placeholder:text-slate-400 dark:placeholder:text-slate-600 ' +
+            'focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 focus:border-indigo-500'
+          }
+        />
+        <p className="text-xs mt-1.5 text-slate-500 dark:text-slate-400">
+          用于总结标题等小任务，留空则默认使用主模型
+        </p>
+      </div>
 
       <div>
         <label className="block text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">

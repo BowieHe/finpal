@@ -35,6 +35,24 @@ export default function Home() {
     const [theme, setTheme] = useState<Theme>("dark");
     const abortControllerRef = useRef<AbortController | null>(null);
 
+    // AI 生成摘要并更新标题
+    const generateAISummary = async (convId: string, text: string) => {
+        try {
+            const resp = await fetch("/api/summarize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: text }),
+            });
+            const data = await resp.json();
+            if (data.title) {
+                updateConversationTitle(convId, data.title);
+                setConversations(getConversations());
+            }
+        } catch (err) {
+            console.error("Summarization failed:", err);
+        }
+    };
+
     const handleStop = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -67,10 +85,17 @@ export default function Home() {
     }, []);
 
     const handleSwitchConversation = (id: string) => {
-        const conversation = conversations.find((c) => c.id === id);
-        if (conversation) {
-            setCurrentConversation(conversation);
-            setCurrentConversationId(id);
+        handleStop();
+        const conv = conversations.find((c) => c.id === id) || null;
+        setCurrentConversationId(id);
+        setCurrentConversation(conv);
+
+        // 补救逻辑：如果点击的是一个没有标题的旧会话，且有消息，尝试补全摘要
+        if (conv && conv.title === "新对话" && conv.messages.length > 0) {
+            const firstMsg = conv.messages[0];
+            if (firstMsg && firstMsg.question) {
+                generateAISummary(conv.id, firstMsg.question);
+            }
         }
     };
 
@@ -805,12 +830,9 @@ export default function Home() {
                         } as any,
                     );
 
-                    // 如果是第一条消息，更新对话标题
+                    // 如果是第一条消息，更新对话标题（异步 AI 摘要）
                     if (activeConversation.messages.length === 1) {
-                        updateConversationTitle(
-                            activeConversation.id,
-                            question,
-                        );
+                        generateAISummary(activeConversation.id, question);
                     }
 
                     setConversations(getConversations());
@@ -842,7 +864,9 @@ export default function Home() {
                 );
 
                 if (activeConversation.messages.length === 1) {
-                    updateConversationTitle(activeConversation.id, question);
+                    if (activeConversation.messages.length === 1) {
+                        generateAISummary(activeConversation.id, question);
+                    }
                 }
 
                 setConversations(getConversations());
