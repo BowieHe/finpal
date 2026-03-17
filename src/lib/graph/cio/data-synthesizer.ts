@@ -70,6 +70,7 @@ export const dataSynthesizerNode = async (state: GraphState): Promise<Partial<Gr
   });
 
   return {
-    researchSummary: newSummary
+    researchSummary: newSummary,
+    allFindings: allFindings // IMPORTANT: return to avoid losing findings in state sync
   };
 };

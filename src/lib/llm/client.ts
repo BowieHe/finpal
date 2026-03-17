@@ -54,7 +54,8 @@ export function createLLMClient(config: LLMConfig): ChatOpenAI {
     configuration: {
       baseURL: config.apiUrl,
     },
-    temperature: 0.7,
+    //temperature: 0.7,
+    temperature: 1,
     modelName: config.modelName,
     maxRetries: 3,
     timeout: 60000,
@@ -126,19 +127,19 @@ export async function streamWithCallback(
   llmOverride?: ChatOpenAI
 ): Promise<string> {
   let llm: ChatOpenAI;
-  
+
   if (llmOverride) {
     llm = llmOverride;
   } else {
     // 获取 LLM 实例（会自动验证配置）
     llm = await getLLMInstance();
   }
-  
+
   let fullContent = '';
-  
+
   const operation = async () => {
     const stream = await llm.stream(prompt);
-    
+
     for await (const chunk of stream) {
       const content = typeof chunk.content === 'string' ? chunk.content : '';
       if (content) {
@@ -146,7 +147,7 @@ export async function streamWithCallback(
         onChunk(content);
       }
     }
-    
+
     return fullContent;
   };
 

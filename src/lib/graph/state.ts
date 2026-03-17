@@ -1,6 +1,7 @@
 import { Annotation } from '@langchain/langgraph';
 import { SearchResult } from '@/types/mcp';
 import { ExecutionPlan } from '../agents/types';
+import { DebateRound } from '@/types/conversation';
 
 /**
  * 研究子任务
@@ -258,6 +259,25 @@ export const GraphAnnotation = Annotation.Root({
   debateSummary: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
+  }),
+
+  // NEW: Multi-round debate support (v3.3)
+  debateHistory: Annotation<DebateRound[]>({
+    reducer: (prev, next) => {
+      const result = [...prev];
+      next.forEach(newRound => {
+        const existingIdx = result.findIndex(r => r.round === newRound.round);
+        if (existingIdx !== -1) {
+          // Merge into existing round
+          result[existingIdx] = { ...result[existingIdx], ...newRound };
+        } else {
+          // Add as new round
+          result.push(newRound);
+        }
+      });
+      return result;
+    },
+    default: () => [],
   }),
 
   // 进度回调函数

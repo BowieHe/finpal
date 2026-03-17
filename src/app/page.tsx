@@ -197,6 +197,7 @@ export default function Home() {
                 }
             }
             
+            console.log('[page] updateDebateHistory', { roundNum, role, chunk: chunk.substring(0, 20), isThinking });
             updateMessageProgress({ 
                 debateHistory: history,
                 // 为了向后兼容某些组件，同时更新顶层字段
@@ -205,6 +206,25 @@ export default function Home() {
                 optimisticRebuttal: roundNum > 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticRebuttal,
                 pessimisticRebuttal: roundNum > 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticRebuttal,
             });
+        };
+
+        const updateDebateHistoryFull = (roundNum: number, role: 'optimistic' | 'pessimistic', content: string, thinking?: string) => {
+            const history = [...(userMessage.debateHistory || [])];
+            console.log('[page] updateDebateHistoryFull - before', { roundNum, role, historyLen: history.length });
+            let round = history.find(r => r.round === roundNum);
+            if (!round) {
+                round = { round: roundNum };
+                history.push(round);
+            }
+            if (role === 'optimistic') {
+                round.optimisticAnswer = content;
+                if (thinking) round.optimisticThinking = thinking;
+            } else {
+                round.pessimisticAnswer = content;
+                if (thinking) round.pessimisticThinking = thinking;
+            }
+            console.log('[page] updateDebateHistoryFull - after', { historyLen: history.length, round });
+            updateMessageProgress({ debateHistory: history });
         };
 
         const getAgentName = (id: string) => {
@@ -300,7 +320,19 @@ export default function Home() {
                                                         ...(tasks[event.data.agentId].progressLogs || []),
                                                         event.data.message
                                                     ];
-                                                    updateMessageProgress({ agentTasks: tasks });
+                                                    
+                                                    const updates: Partial<Message> = { agentTasks: tasks };
+                                                    
+                                                    // Also capture any research findings sent during progress
+                                                    if (event.data.finding) {
+                                                        console.log('[page] SSE: found finding in agent_progress', event.data.finding);
+                                                        updates.allFindings = [
+                                                            ...(userMessage.allFindings || []),
+                                                            event.data.finding
+                                                        ];
+                                                    }
+                                                    
+                                                    updateMessageProgress(updates);
                                                 }
                                             }
                                             break;
@@ -308,10 +340,25 @@ export default function Home() {
                                             if (event.data.agentId) {
                                                 const tasks = { ...(userMessage.agentTasks || {}) };
                                                 if (tasks[event.data.agentId]) {
+                                                    const findings = event.data.findings || [];
+                                                    console.log(`[page] SSE: agent_done for ${event.data.agentId}`, { 
+                                                        hasResults: !!event.data.results,
+                                                        findingsCount: findings.length,
+                                                        data: event.data
+                                                    });
+                                                    
                                                     tasks[event.data.agentId].status = "done";
                                                     tasks[event.data.agentId].resultSummary = event.data.summary;
                                                     tasks[event.data.agentId].rawResult = event.data.results?.[0];
-                                                    updateMessageProgress({ agentTasks: tasks });
+                                                    
+                                                    const updates: Partial<Message> = { agentTasks: tasks };
+                                                    if (findings.length > 0) {
+                                                        updates.allFindings = [
+                                                            ...(userMessage.allFindings || []),
+                                                            ...findings
+                                                        ];
+                                                    }
+                                                    updateMessageProgress(updates);
                                                 }
                                             }
                                             break;
@@ -411,7 +458,14 @@ export default function Home() {
                                                     "搜索完成，正在生成关键事实...",
                                             });
                                             break;
-                                        case "analyzing":
+                                         case "all_findings":
+                                             console.log('[page] SSE: all_findings', event.data);
+                                             updateMessageProgress({
+                                                 status: "analyzing",
+                                                 allFindings: event.data.allFindings,
+                                             });
+                                             break;
+                                         case "analyzing":
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 currentQuery:
@@ -516,6 +570,8 @@ export default function Home() {
                                             }
                                             break;
                                         case "optimistic_output":
+                                            console.log('[page] SSE: optimistic_output', event.data);
+                                            updateDebateHistoryFull(1, 'optimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 optimisticAnswer:
@@ -525,6 +581,8 @@ export default function Home() {
                                             });
                                             break;
                                         case "pessimistic_output":
+                                            console.log('[page] SSE: pessimistic_output', event.data);
+                                            updateDebateHistoryFull(1, 'pessimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 pessimisticAnswer:
@@ -534,6 +592,8 @@ export default function Home() {
                                             });
                                             break;
                                         case "optimistic_rebuttal":
+                                            console.log('[page] SSE: optimistic_rebuttal', event.data);
+                                            updateDebateHistoryFull(currentRound, 'optimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 optimisticRebuttal:
@@ -541,6 +601,8 @@ export default function Home() {
                                             });
                                             break;
                                         case "pessimistic_rebuttal":
+                                            console.log('[page] SSE: pessimistic_rebuttal', event.data);
+                                            updateDebateHistoryFull(currentRound, 'pessimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 pessimisticRebuttal:
@@ -563,9 +625,12 @@ export default function Home() {
                                                 const updatedDecisions = pendingIdx !== undefined
                                                     ? currentDecisions.map((d, i) => i === pendingIdx ? judgeDecision : d)
                                                     : [...currentDecisions, judgeDecision];
-                                                // Reset flags: next round gets fresh pending cards
-                                                deciderCardCreated = false;
-                                                roundJudgeCardCreated = false;
+                                                // Update currentRound for next rebuttal
+                                                if (event.data.shouldContinue && event.data.round) {
+                                                    currentRound = (event.data.round as number) + 1;
+                                                    console.log('[page] Incremented currentRound to', currentRound);
+                                                }
+
                                                 updateMessageProgress({
                                                     status: "analyzing",
                                                     decisions: updatedDecisions,

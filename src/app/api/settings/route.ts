@@ -35,6 +35,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { apiUrl, modelName, apiKey, dashscopeApiKey } = body;
 
+    // 1. Fetch existing settings for merging to avoid destructive updates
+    const existingResult = await query('SELECT * FROM settings WHERE id = 1');
+    const existing = existingResult.rows[0] || {};
+
+    // 2. Merge incoming data with existing data
+    const finalApiUrl = apiUrl !== undefined ? apiUrl : existing.api_url;
+    const finalModelName = modelName !== undefined ? modelName : existing.model_name;
+    const finalApiKey = apiKey !== undefined ? apiKey : existing.api_key;
+    const finalDashscopeApiKey = dashscopeApiKey !== undefined ? dashscopeApiKey : existing.dashscope_api_key;
+
     const sql = `
       INSERT INTO settings (id, api_url, model_name, api_key, dashscope_api_key, updated_at)
       VALUES (1, $1, $2, $3, $4, NOW())
@@ -47,18 +57,21 @@ export async function POST(req: Request) {
       RETURNING *
     `;
     
-    const result = await query(sql, [apiUrl, modelName, apiKey, dashscopeApiKey]);
+    const result = await query(sql, [finalApiUrl, finalModelName, finalApiKey, finalDashscopeApiKey]);
     const parsed = SettingsSchema.parse(result.rows[0]);
 
     // Clear the in-memory cache so next request picks up new settings
     clearConfigCache();
     
-    logger.info('Settings updated successfully');
+    logger.info('Settings updated successfully', { 
+      hasDashscopeKey: !!parsed.dashscope_api_key 
+    });
+
     return NextResponse.json({
       apiUrl: parsed.api_url,
       modelName: parsed.model_name,
       apiKey: parsed.api_key,
-      dashscope_api_key: parsed.dashscope_api_key,
+      dashscopeApiKey: parsed.dashscope_api_key, // Corrected to camelCase naming
     });
   } catch (error) {
     logger.error('Failed to update settings', { error: String(error) });

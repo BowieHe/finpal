@@ -36,6 +36,7 @@ interface MessageListProps {
     agentTasks?: Record<string, any>;
     finalVerdict?: any;
     reflections?: Record<number, string>;
+    debateHistory?: any[];
   }>;
   isLoading?: boolean;
 }
@@ -134,9 +135,11 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           const hasAgentTasks = message.agentTasks && Object.keys(message.agentTasks).length > 0;
           const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
           const hasAllFindings = message.allFindings && message.allFindings.length > 0;
+          const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
           const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
+          const shouldShowDebate = debateMessages.length > 0 || hasDebateHistory;
 
           return (
             <div key={message.id} className="mb-8">
@@ -186,11 +189,11 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               )}
 
               {/* Timeline Debate - 多空辩论 */}
-              {debateMessages.length > 0 && (
+              {shouldShowDebate && (
                 <TimelineDebate 
                   messages={debateMessages} 
                   decisions={message.decisions}
-                  debateHistory={(message as any).debateHistory}
+                  debateHistory={message.debateHistory}
                 />
               )}
 

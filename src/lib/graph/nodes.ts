@@ -614,16 +614,19 @@ ${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.colle
         streamedContent += chunk;
 
         // 拦截 JSON 块不发给 UI
-        if (!jsonStarted && streamedContent.includes('```json')) {
-          jsonStarted = true;
-          const cleanChunk = chunk.split('```json')[0];
-          if (cleanChunk && state.progressCallback) {
-            state.progressCallback({
-              type: 'stream_chunk',
-              data: { node: 'optimistic', chunk: cleanChunk },
-            });
+        if (!jsonStarted && streamedContent.includes('```')) {
+          const jsonStartMatch = streamedContent.match(/```(?:json)?\s*\{/);
+          if (jsonStartMatch) {
+            jsonStarted = true;
+            const beforeJson = chunk.split(/```(?:json)?\s*\{/)[0];
+            if (beforeJson && state.progressCallback) {
+              state.progressCallback({
+                type: 'stream_chunk',
+                data: { node: 'optimistic', chunk: beforeJson },
+              });
+            }
+            return;
           }
-          return;
         }
 
         if (jsonStarted) return;
@@ -648,9 +651,15 @@ ${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.colle
       throw new Error('Failed to parse optimistic response');
     }
 
+    // 寻找最后一个 JSON 块的起点 (兼容 ```json 和 ```)
+    const jsonStartMatch = [...fullResponse.matchAll(/```(?:json)?\s*\{/g)].pop();
+    const cleanTargetText = jsonStartMatch 
+      ? fullResponse.substring(0, jsonStartMatch.index).trim() 
+      : fullResponse.trim();
+
     const result: PersonaOutput = {
-      thinking: String(parsed.thinking || ''),
-      answer: String(parsed.answer || ''),
+      thinking: '', // We use the markdown itself as the full content
+      answer: cleanTargetText.length > 0 ? cleanTargetText : String(parsed.answer || ''),
       probability: parsed.probability || null,
       payoff: parsed.payoff || null,
       catalysts: Array.isArray(parsed.catalysts) ? parsed.catalysts : [],
@@ -753,16 +762,19 @@ ${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.colle
       (chunk) => {
         streamedContent += chunk;
 
-        if (!jsonStarted && streamedContent.includes('```json')) {
-          jsonStarted = true;
-          const cleanChunk = chunk.split('```json')[0];
-          if (cleanChunk && state.progressCallback) {
-            state.progressCallback({
-              type: 'stream_chunk',
-              data: { node: 'pessimistic', chunk: cleanChunk },
-            });
+        if (!jsonStarted && streamedContent.includes('```')) {
+          const jsonStartMatch = streamedContent.match(/```(?:json)?\s*\{/);
+          if (jsonStartMatch) {
+            jsonStarted = true;
+            const beforeJson = chunk.split(/```(?:json)?\s*\{/)[0];
+            if (beforeJson && state.progressCallback) {
+              state.progressCallback({
+                type: 'stream_chunk',
+                data: { node: 'pessimistic', chunk: beforeJson },
+              });
+            }
+            return;
           }
-          return;
         }
 
         if (jsonStarted) return;
@@ -786,9 +798,15 @@ ${Object.keys(state.collectedData || {}).length > 0 ? JSON.stringify(state.colle
       throw new Error('Failed to parse pessimistic response');
     }
 
+    // 寻找最后一个 JSON 块的起点 (兼容 ```json 和 ```)
+    const jsonStartMatch = [...fullResponse.matchAll(/```(?:json)?\s*\{/g)].pop();
+    const cleanTargetText = jsonStartMatch 
+      ? fullResponse.substring(0, jsonStartMatch.index).trim() 
+      : fullResponse.trim();
+
     const result: PersonaOutput = {
-      thinking: String(parsed.thinking || ''),
-      answer: String(parsed.answer || ''),
+      thinking: '', // We use the markdown itself as the full content
+      answer: cleanTargetText.length > 0 ? cleanTargetText : String(parsed.answer || ''),
       probability: parsed.probability || null,
       payoff: parsed.payoff || null,
       riskFactors: Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [],
@@ -884,7 +902,13 @@ ${state.pessimisticAnswer}
     const parsed = extractJSONFromText(fullResponse);
     if (!parsed) throw new Error('Failed to parse optimistic rebuttal response');
 
-    const rebuttal = String(parsed.rebuttal || '');
+    // 寻找最后一个 JSON 块的起点
+    const jsonStartMatch = [...fullResponse.matchAll(/```(?:json)?\s*\{/g)].pop();
+    const cleanTargetText = jsonStartMatch 
+      ? fullResponse.substring(0, jsonStartMatch.index).trim() 
+      : fullResponse.trim();
+
+    const rebuttal = cleanTargetText.length > 0 ? cleanTargetText : String(parsed.rebuttal || '');
     if (state.progressCallback) {
       state.progressCallback({
         type: 'optimistic_rebuttal',
@@ -961,7 +985,13 @@ ${state.optimisticRebuttal}
     const parsed = extractJSONFromText(fullResponse);
     if (!parsed) throw new Error('Failed to parse pessimistic rebuttal response');
 
-    const rebuttal = String(parsed.rebuttal || '');
+    // 寻找最后一个 JSON 块的起点
+    const jsonStartMatch = [...fullResponse.matchAll(/```(?:json)?\s*\{/g)].pop();
+    const cleanTargetText = jsonStartMatch 
+      ? fullResponse.substring(0, jsonStartMatch.index).trim() 
+      : fullResponse.trim();
+
+    const rebuttal = cleanTargetText.length > 0 ? cleanTargetText : String(parsed.rebuttal || '');
     if (state.progressCallback) {
       state.progressCallback({
         type: 'pessimistic_rebuttal',

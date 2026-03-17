@@ -47,6 +47,12 @@ export default function ResearchResults({
         new Set(),
     );
 
+    console.log('[ResearchResults] Render', { 
+        allFindingsCount: allFindings?.length, 
+        searchResultsCount: searchResults?.length,
+        isSearching 
+    });
+
     const toggleFinding = (id: string) => {
         const newExpanded = new Set(expandedFindings);
         if (newExpanded.has(id)) {
@@ -59,27 +65,36 @@ export default function ResearchResults({
 
     // 将 findings 按深度分组，并按查询内容去重/聚合
     const findingsByDepth: Record<number, any[]> = {};
-    if (allFindings) {
-        allFindings.forEach(f => {
-            const d = f.depth || 0;
-            if (!findingsByDepth[d]) findingsByDepth[d] = [];
-            
-            // 检查该深度下是否已经存在相同查询的 Finding
-            const existing = findingsByDepth[d].find(item => item.query === f.query);
-            if (existing) {
-                // 如果存在，合并内容（如果不同）和来源
-                if (!existing.content.includes(f.content)) {
-                    existing.content += "\n\n" + f.content;
-                }
-                if (f.sources) {
-                    existing.sources = Array.from(new Set([...(existing.sources || []), ...f.sources]));
-                }
-            } else {
-                // 深度克隆以避免修改原始数据
-                findingsByDepth[d].push({ ...f });
+    
+    // 如果没有 allFindings，则从 searchResults 中提取作为初步侦察 (Depth 0)
+    const effectiveFindings = (allFindings && allFindings.length > 0) 
+        ? allFindings 
+        : (searchResults || []).map(r => ({
+            query: r.query,
+            content: r.results?.map((res: any) => res.snippet || res.description || res.content || res.title).join("\n\n") || "正在整理结果...",
+            sources: r.results?.map((res: any) => res.url || res.link).filter(Boolean) || [],
+            depth: 0
+        }));
+
+    effectiveFindings.forEach(f => {
+        const d = f.depth || 0;
+        if (!findingsByDepth[d]) findingsByDepth[d] = [];
+        
+        // 检查该深度下是否已经存在相同查询的 Finding
+        const existing = findingsByDepth[d].find(item => item.query === f.query);
+        if (existing) {
+            // 如果存在，合并内容（如果不同）和来源
+            if (f.content && !existing.content.includes(f.content)) {
+                existing.content += "\n\n" + f.content;
             }
-        });
-    }
+            if (f.sources) {
+                existing.sources = Array.from(new Set([...(existing.sources || []), ...f.sources]));
+            }
+        } else {
+            // 深度克隆以避免修改原始数据
+            findingsByDepth[d].push({ ...f });
+        }
+    });
 
     // 获取所有存在的深度并排序
     const depths = Object.keys(findingsByDepth).map(Number).sort((a, b) => a - b);
@@ -152,6 +167,119 @@ export default function ResearchResults({
             </div>
 
             <div className="space-y-6">
+                {/* 1. 数据底座 (Foundational Agents) - Holdings, DB, Quant results */}
+                {agentTasks && Object.values(agentTasks).some(t => !t.id.startsWith('web-')) && (
+                     <div className="mb-6">
+                        <div className="flex items-center gap-2 mb-3">
+                             <Database className="w-3.5 h-3.5 text-slate-400" />
+                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">数据底座与上下文 (Agent Foundation)</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                             {Object.values(agentTasks)
+                                .filter(t => !t.id.startsWith('web-'))
+                                .map((task) => (
+                                    <div key={task.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <div className="text-indigo-600 font-bold text-[10px] flex items-center gap-1">
+                                                <Bot className="w-3 h-3" />
+                                                {task.name}
+                                            </div>
+                                            <div className="flex-1 text-slate-500 dark:text-slate-400 text-[10px] italic truncate">
+                                                {task.status === "running" ? (task.progressMessage || "正在工作中...") : (task.resultSummary || "数据检索完毕")}
+                                            </div>
+                                            <div className="w-4">
+                                                {task.status === "running" ? <Loader2 className="w-3 h-3 animate-spin text-indigo-500" /> : <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                                            </div>
+                                        </div>
+
+                                        {/* 过程日志 (缩减版) */}
+                                        {task.progressLogs && task.progressLogs.length > 0 && task.status === "running" && (
+                                            <div className="text-[9px] text-slate-400 pl-4 border-l border-slate-100 dark:border-slate-800 ml-1">
+                                                {task.progressLogs[task.progressLogs.length - 1]}
+                                            </div>
+                                        )}
+
+                                        {/* 核心结果详情 */}
+                                        {task.status === "done" && task.rawResult && (
+                                            <details className="mt-1 group" open={task.id.startsWith("db-")}>
+                                                <summary className="text-[9px] cursor-pointer text-indigo-400 hover:text-indigo-500 font-medium select-none flex items-center gap-1">
+                                                    <span className="group-open:rotate-90 transition-transform text-[8px]">▶</span>
+                                                    数据详情
+                                                </summary>
+                                                <div className="mt-1 p-2 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                    {task.rawResult.data ? (
+                                                        (() => {
+                                                            const data = task.rawResult.data;
+                                                            const rows = Array.isArray(data) ? data : 
+                                                                       (Object.values(data).find(v => Array.isArray(v)) as any[]) || null;
+                                                            
+                                                            if (rows && rows.length > 0) {
+                                                                return (
+                                                                    <div className="overflow-x-auto">
+                                                                        <table className="w-full text-left text-[9px] text-slate-600 dark:text-slate-300">
+                                                                            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 uppercase">
+                                                                                <tr>
+                                                                                    {Object.keys(rows[0]).slice(0, 4).map(key => (
+                                                                                        <th key={key} className="px-1.5 py-1 font-bold">{key}</th>
+                                                                                    ))}
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                                                                                {rows.slice(0, 10).map((row: any, rIdx: number) => (
+                                                                                    <tr key={rIdx} className="hover:bg-indigo-50 dark:hover:bg-indigo-900/20">
+                                                                                        {Object.keys(rows[0]).slice(0, 4).map(key => (
+                                                                                            <td key={key} className="px-1.5 py-1 truncate max-w-40">{String(row[key])}</td>
+                                                                                        ))}
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            
+                                                            if (typeof data === 'object' && data !== null) {
+                                                                const entries = Object.entries(data).filter(([_, v]) => typeof v !== 'object' || v === null);
+                                                                if (entries.length > 0) {
+                                                                    return (
+                                                                        <div className="grid grid-cols-1 gap-0.5">
+                                                                            {entries.slice(0, 10).map(([k, v]) => (
+                                                                                <div key={k} className="flex border-b border-slate-100 dark:border-slate-800 py-0.5">
+                                                                                    <span className="text-[9px] font-bold text-slate-400 w-20 shrink-0">{k}:</span>
+                                                                                    <span className="text-[9px] text-slate-600 dark:text-slate-400 truncate">{String(v)}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                            }
+                                                            return <pre className="text-[9px] font-mono whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>;
+                                                        })()
+                                                    ) : (
+                                                        <pre className="text-[9px] font-mono whitespace-pre-wrap text-slate-500">
+                                                            {JSON.stringify(task.rawResult, null, 2)}
+                                                        </pre>
+                                                    )}
+                                                </div>
+                                            </details>
+                                        )}
+                                    </div>
+                                ))
+                             }
+                        </div>
+                        <div className="flex justify-center my-4">
+                            <div className="h-4 border-l-2 border-dashed border-slate-300 dark:border-slate-700 relative">
+                                <ChevronRight className="w-3 h-3 text-slate-300 absolute -bottom-2 -left-1.5 rotate-90" />
+                            </div>
+                        </div>
+                     </div>
+                )}
+
+                {/* 2. 交互式多轮搜索 (Iterative Research) */}
+                <div className="flex items-center gap-2 mb-3">
+                     <Globe className="w-3.5 h-3.5 text-slate-400" />
+                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">互联网深度下钻 (Iterative Research)</h4>
+                </div>
                 {depths.map((depth, dIdx) => (
                     <div key={`depth-group-${depth}`} className="space-y-4">
                         {/* 调研卡片 (Probe/Deep Dive) */}
@@ -194,95 +322,6 @@ export default function ResearchResults({
                     </div>
                 ))}
             </div>
-
-            {/* Agent Timeline - 用于显示 CIO 规划和其他非搜索任务 */}
-            {agentTasks && Object.values(agentTasks).some(t => !t.id.startsWith('web-')) && (
-                 <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
-                    <h4 className="text-xs font-medium text-slate-400 mb-3 uppercase tracking-wider">其他协作专员</h4>
-                    <div className="space-y-4">
-                         {Object.values(agentTasks)
-                            .filter(t => !t.id.startsWith('web-'))
-                            .map((task) => (
-                                <div key={task.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="min-w-20 text-indigo-600 font-bold text-sm flex items-center gap-1.5">
-                                            <Bot className="w-4 h-4" />
-                                            {task.name}
-                                        </div>
-                                        <div className="flex-1 text-slate-600 dark:text-slate-400 text-xs italic">
-                                            {task.status === "running" ? (task.progressMessage || "执行中...") : (task.resultSummary || task.description)}
-                                        </div>
-                                        <div className="w-5">
-                                            {task.status === "running" ? <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> : <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                                        </div>
-                                    </div>
-
-                                    {/* 过程日志 */}
-                                    {task.progressLogs && task.progressLogs.length > 0 && (
-                                        <div className="mb-3 space-y-1 pl-6 border-l-2 border-indigo-50 dark:border-indigo-900/30 ml-2">
-                                            {task.progressLogs.map((log: string, i: number) => (
-                                                <div key={i} className="text-[10px] text-slate-400 flex items-center gap-2">
-                                                    <div className="w-1 h-1 rounded-full bg-slate-300" />
-                                                    {log}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* 核心结果详情 (下拉框/表格) */}
-                                    {task.status === "done" && task.rawResult && (
-                                        <details className="mt-2 group">
-                                            <summary className="text-[10px] cursor-pointer text-indigo-500 hover:text-indigo-600 font-medium select-none flex items-center gap-1">
-                                                <span className="group-open:rotate-90 transition-transform">▶</span>
-                                                查看执行细节与原始数据
-                                            </summary>
-                                            <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-700">
-                                                {task.rawResult && task.rawResult.data ? (
-                                                    (() => {
-                                                        const data = task.rawResult.data;
-                                                        const rows = Array.isArray(data) ? data : 
-                                                                   (Object.values(data).find(v => Array.isArray(v)) as any[]) || null;
-                                                        
-                                                        if (rows && rows.length > 0) {
-                                                            return (
-                                                                <div className="overflow-x-auto">
-                                                                    <table className="w-full text-left text-[10px] text-slate-600 dark:text-slate-300">
-                                                                        <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                                                                            <tr>
-                                                                                {Object.keys(rows[0]).slice(0, 5).map(key => (
-                                                                                    <th key={key} className="px-2 py-1.5 font-bold">{key}</th>
-                                                                                ))}
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                                                                            {rows.slice(0, 10).map((row: any, rIdx: number) => (
-                                                                                <tr key={rIdx} className="hover:bg-indigo-50 dark:hover:bg-indigo-900/20">
-                                                                                    {Object.keys(rows[0]).slice(0, 5).map(key => (
-                                                                                        <td key={key} className="px-2 py-1.5 truncate max-w-[120px]">{String(row[key])}</td>
-                                                                                    ))}
-                                                                                </tr>
-                                                                            ))}
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                            );
-                                                        }
-                                                        return <pre className="text-[10px] font-mono whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>;
-                                                    })()
-                                                ) : (
-                                                    <pre className="text-[10px] font-mono whitespace-pre-wrap text-slate-500">
-                                                        {JSON.stringify(task.rawResult, null, 2)}
-                                                    </pre>
-                                                )}
-                                            </div>
-                                        </details>
-                                    )}
-                                </div>
-                            ))
-                         }
-                    </div>
-                 </div>
-            )}
 
             {/* 数据库查询结果 */}
             {dbResults.length > 0 && (

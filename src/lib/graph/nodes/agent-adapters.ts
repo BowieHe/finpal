@@ -89,21 +89,7 @@ export const webAgentAdapter = async (state: GraphState & { payload: DispatchPay
     }
   });
 
-  if (state.progressCallback) {
-    state.progressCallback({
-        type: result.status === 'error' ? 'agent_error' : 'agent_done',
-        data: { 
-            agentId: `web-agent-${taskIdx}`, 
-            summary: `检索及摘要完成 (${result.durationMs}ms)`,
-            results: [result],
-            error: result.error
-        }
-    });
-  }
-
-  const resultKey = `web-agent_${taskDef.task}_${taskIdx}`;
-
-  // 实时更新 allFindings，解决“最后才显示”的问题
+  // Calculate findings before sending done event
   const newFindings: ResearchFinding[] = result.status === 'success' || result.status === 'partial' 
     ? (result.rawSnippets || []).map(snippet => ({
         query: result.query || taskDef.params.query as string || '全网搜索',
@@ -113,6 +99,20 @@ export const webAgentAdapter = async (state: GraphState & { payload: DispatchPay
       }))
     : [];
 
+  if (state.progressCallback) {
+    state.progressCallback({
+        type: result.status === 'error' ? 'agent_error' : 'agent_done',
+        data: { 
+            agentId: `web-agent-${taskIdx}`, 
+            summary: `检索及摘要完成 (${result.durationMs}ms)`,
+            results: [result],
+            findings: newFindings, // Explicitly send findings to frontend
+            error: result.error
+        }
+    });
+  }
+
+  const resultKey = `web-agent_${taskDef.task}_${taskIdx}`;
   return {
     collectedData: { [resultKey]: result },
     allFindings: newFindings
