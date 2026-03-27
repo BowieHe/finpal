@@ -353,5 +353,5 @@ export async function runSingleTestQuick(
   return runSingleTest(testCase, defaultQueryConfig, defaultFilterConfig);
 }
 
-export { testCases };
-export type { TestCase };
+export { testCases, getTestCasesByDifficulty, getTestCasesByCategory } from './data/test-cases';
+export type { TestCase } from './data/test-cases';

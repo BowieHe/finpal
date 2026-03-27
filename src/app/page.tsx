@@ -45,11 +45,29 @@ export default function Home() {
             });
             const data = await resp.json();
             if (data.title) {
-                updateConversationTitle(convId, data.title);
+                // 使用 force=true 确保标题不被截断
+                updateConversationTitle(convId, data.title, true);
                 setConversations(getConversations());
             }
         } catch (err) {
             console.error("Summarization failed:", err);
+        }
+    };
+
+    // 自动扫描并总结所有“通用”或“截断”标题的会话
+    const summarizeAllGenericTitles = async (convs: Conversation[]) => {
+        // 只筛选出标题为“新对话”或者看起来是原始提问（超过20个字符且可能被截断）的会话
+        const needsSummary = convs.filter(c => 
+            c.messages.length > 0 && 
+            (c.title === "新对话" || c.title.endsWith("...") || c.title.length > 25)
+        );
+
+        for (const conv of needsSummary) {
+            const firstMsg = conv.messages[0];
+            if (firstMsg && firstMsg.question) {
+                // 逐个总结，避免瞬间并发过高
+                await generateAISummary(conv.id, firstMsg.question);
+            }
         }
     };
 
@@ -62,8 +80,14 @@ export default function Home() {
     };
 
     useEffect(() => {
-        setConversations(getConversations());
+        const storedConvs = getConversations();
+        setConversations(storedConvs);
         setCurrentConversation(getCurrentConversation());
+
+        // 首次加载时异步触发“大扫除”总结
+        if (storedConvs.length > 0) {
+            summarizeAllGenericTitles(storedConvs);
+        }
 
         // Fetch LLM settings from DB
         fetch('/api/settings')
