@@ -3,6 +3,7 @@
 import { MessageCard } from './MessageCard';
 import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
+import DebateRoundStatsCard from './DebateRoundStatsCard';
 import { TimelineDebate, TimelineMessage } from './TimelineDebate';
 import { RoundDecision } from './RoundDecisionCard';
 import { EventLogEntry } from "@/types/conversation";
@@ -194,11 +195,18 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 
               {/* Timeline Debate - 多空辩论 */}
               {shouldShowDebate && (
-                <TimelineDebate 
-                  messages={debateMessages} 
-                  decisions={message.decisions}
-                  debateHistory={message.debateHistory}
-                />
+                <>
+                  <DebateRoundStatsCard
+                    decisions={message.decisions}
+                    debateHistory={message.debateHistory}
+                    status={message.status}
+                  />
+                  <TimelineDebate 
+                    messages={debateMessages} 
+                    decisions={message.decisions}
+                    debateHistory={message.debateHistory}
+                  />
+                </>
               )}
 
               {/* Final Decision */}

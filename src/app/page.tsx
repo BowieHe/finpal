@@ -331,7 +331,7 @@ export default function Home() {
                 // Handle SSE stream
                 const reader = response.body?.getReader();
                 const decoder = new TextDecoder();
-                let finalResult: any = null;
+                let finalVerdictSnapshot: any = null;
                 let buffer = ""; // Buffer for incomplete SSE messages
                 let currentSearchResults: any[] = [];
                 let currentDbResults: any[] = [];
@@ -411,7 +411,8 @@ export default function Home() {
                                                     }
                                                     
                                                     updateMessageProgress(updates);
-                                                    if (event.data.message) {
+                                                    // deep-agent 的内部时间线已经通过 timeline_event 展示，避免首屏重复刷屏
+                                                    if (event.data.message && event.data.agentId !== "deep-agent") {
                                                         appendEventLog({
                                                             label: `${getAgentName(event.data.agentId)} 进度`,
                                                             detail: truncateForEvent(event.data.message),
@@ -484,27 +485,13 @@ export default function Home() {
                                             });
                                             break;
                                         case "final_verdict":
-                                            finalResult = {
-                                                ...finalResult,
+                                            finalVerdictSnapshot = event.data;
+                                            // 仅更新最终裁决，避免覆盖流式辩论内容与轮次
+                                            updateMessageProgress({
                                                 finalVerdict: event.data,
                                                 cioPlanning: false,
-                                            };
-                                            if (finalResult) {
-                                                // 合并时确保不覆盖已有的流式内容（如果新内容较短或为空）
-                                                const safeUpdates: Partial<Message> = { ...finalResult };
-                                                // The following lines are now redundant if debateHistory is the source of truth
-                                                // if (optimisticStreamContent && (!safeUpdates.optimisticAnswer || safeUpdates.optimisticAnswer.length < optimisticStreamContent.length)) {
-                                                //     safeUpdates.optimisticAnswer = optimisticStreamContent;
-                                                // }
-                                                // if (pessimisticStreamContent && (!safeUpdates.pessimisticAnswer || safeUpdates.pessimisticAnswer.length < pessimisticStreamContent.length)) {
-                                                //     safeUpdates.pessimisticAnswer = pessimisticStreamContent;
-                                                // }
-
-                                                updateMessageProgress({
-                                                    ...safeUpdates,
-                                                    status: "complete",
-                                                });
-                                            }
+                                                status: userMessage.status === "complete" ? "complete" : "analyzing",
+                                            });
                                             appendEventLog({
                                                 label: "最终建议准备",
                                                 detail: truncateForEvent(event.data.summary),
@@ -593,6 +580,19 @@ export default function Home() {
                                              // Claude Code 风格的详细时间线事件
                                              console.log('[page] SSE: timeline_event', event.data);
                                              if (event.data) {
+                                                 const isLowSignalBootstrapEvent =
+                                                     (event.data.label === '状态评估' &&
+                                                         event.data.metadata?.confidence === 0 &&
+                                                         event.data.metadata?.gapCount === 0) ||
+                                                     (event.data.label === '分析目标') ||
+                                                     (event.data.label === '轮次裁决' &&
+                                                         typeof event.data.detail === 'string' &&
+                                                         event.data.detail.includes('评估第 1 轮'));
+
+                                                 if (isLowSignalBootstrapEvent) {
+                                                     break;
+                                                 }
+
                                                  appendEventLog({
                                                      type: event.data.eventType || 'thinking',
                                                      label: event.data.label || '执行中...',
@@ -762,6 +762,7 @@ export default function Home() {
                                             });
                                             break;
                                         case "round_judge":
+                                            console.log('[page] SSE: round_judge', event.data);
                                             // round_judge fires with final result \u2014 replace pending card or append
                                             if (event.data.round !== undefined) {
                                                 const currentDecisions = userMessage.decisions || [];
@@ -867,9 +868,6 @@ export default function Home() {
                                                     cioPlanning: false,
                                                 });
                                             }
-                                            if (event.result) {
-                                                finalResult = event.result;
-                                            }
                                             appendEventLog({
                                                 label: "分析结束",
                                                 detail: truncateForEvent(event.data?.summary),
@@ -907,7 +905,14 @@ export default function Home() {
                             const event = JSON.parse(buffer.slice(6));
                             console.log("[Page] Parsing final buffer event:", event);
                             if (event.type === "complete") {
-                                finalResult = event.result;
+                                if (event.data?.summary) {
+                                    updateMessageProgress({
+                                        status: "complete",
+                                        debateSummary: event.data.summary,
+                                        debateWinner: event.data.winner || userMessage.debateWinner || "draw",
+                                        cioPlanning: false,
+                                    });
+                                }
                             } else if (event.type === "error") {
                                 throw new Error(event.data?.error || event.error);
                             }
@@ -920,58 +925,27 @@ export default function Home() {
                     }
                 }
 
-                if (finalResult) {
-                    // 更新现有消息而不是添加新消息
-                    // 合并时确保不覆盖已有的流式内容（如果新内容较短或为空）
-                    const safeOptimistic = (optimisticStreamContent && (!finalResult.optimisticAnswer || finalResult.optimisticAnswer.length < optimisticStreamContent.length)) 
-                        ? optimisticStreamContent 
-                        : finalResult.optimisticAnswer;
-                    
-                    const safePessimistic = (pessimisticStreamContent && (!finalResult.pessimisticAnswer || finalResult.pessimisticAnswer.length < pessimisticStreamContent.length))
-                        ? pessimisticStreamContent
-                        : finalResult.pessimisticAnswer;
+                // SSE 收尾：只做状态收口，不再用 finalResult 二次覆盖流式内容
+                updateMessageInConversation(
+                    activeConversation.id,
+                    userMessage.id,
+                    {
+                        status: "complete",
+                        // 保留流式阶段已写入的内容；仅补充缺失字段
+                        finalVerdict: finalVerdictSnapshot || userMessage.finalVerdict,
+                        dbResults: currentDbResults.length > 0 ? currentDbResults : userMessage.dbResults,
+                        cioPlanning: false,
+                        isDirectAnswer: userMessage.isDirectAnswer,
+                    } as any,
+                );
 
-                    const safeOptimisticRebuttal = (optimisticRebuttalStreamContent && (!finalResult.optimisticRebuttal || finalResult.optimisticRebuttal.length < optimisticRebuttalStreamContent.length))
-                        ? optimisticRebuttalStreamContent
-                        : finalResult.optimisticRebuttal;
-
-                    const safePessimisticRebuttal = (pessimisticRebuttalStreamContent && (!finalResult.pessimisticRebuttal || finalResult.pessimisticRebuttal.length < pessimisticRebuttalStreamContent.length))
-                        ? pessimisticRebuttalStreamContent
-                        : finalResult.pessimisticRebuttal;
-
-                    updateMessageInConversation(
-                        activeConversation.id,
-                        userMessage.id,
-                        {
-                            status: "complete",
-                            optimisticAnswer: safeOptimistic,
-                            pessimisticAnswer: safePessimistic,
-                            optimisticRebuttal: safeOptimisticRebuttal,
-                            pessimisticRebuttal: safePessimisticRebuttal,
-                            debateWinner: finalResult.debateWinner,
-                            debateSummary: finalResult.debateSummary,
-                            // 不覆盖 searchResults/allFindings，保留之前实时更新的结果
-                            allFindings: (finalResult as any).allFindings || userMessage.allFindings,
-                            researchSummary: finalResult.researchSummary || userMessage.researchSummary,
-                            dbResults:
-                                finalResult.dbResults || currentDbResults,
-                            engineUsage: finalResult.engineUsage || userMessage.engineUsage,
-                            round: finalResult.round || userMessage.round,
-                            finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
-                            reflections: (finalResult as any).reflections || userMessage.reflections, 
-                            cioPlanning: false,
-                            isDirectAnswer: userMessage.isDirectAnswer,
-                        } as any,
-                    );
-
-                    // 如果是第一条消息，更新对话标题（异步 AI 摘要）
-                    if (activeConversation.messages.length === 1) {
-                        generateAISummary(activeConversation.id, question);
-                    }
-
-                    setConversations(getConversations());
-                    setCurrentConversation(getCurrentConversation());
+                // 如果是第一条消息，更新对话标题（异步 AI 摘要）
+                if (activeConversation.messages.length === 1) {
+                    generateAISummary(activeConversation.id, question);
                 }
+
+                setConversations(getConversations());
+                setCurrentConversation(getCurrentConversation());
             } else {
                 // Fallback to regular JSON response
                 const data = await response.json();

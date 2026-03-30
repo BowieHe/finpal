@@ -145,4 +145,15 @@ export interface FundDebateData {
     downsideScenario: { probability: number; return: number };
     expectedReturn: number;
   };
+
+  rounds?: Array<{
+    round: number;
+    optimistic: string;
+    pessimistic: string;
+    judge: {
+      winner: 'optimistic' | 'pessimistic' | 'draw';
+      shouldContinue: boolean;
+      reason: string;
+    };
+  }>;
 }

@@ -311,6 +311,7 @@ export class DeepAgent {
       confidence: state.context.confidence,
       gaps: state.context.gaps,
       lastObservation,
+      collectedData: state.context.collectedData,
       availableSkills: this.skillRegistry.getAllNames(),
       dbSchemaSummary,
       dbTaskList,
@@ -358,6 +359,9 @@ export class DeepAgent {
   private getDefaultDecision(context: ObservationContext): Decision {
     const hasData = context.actionsCount > 0;
     const confidence = context.confidence;
+    const searchData = context.collectedData['fund-deep-search'];
+    const dbData = context.collectedData['db-agent'];
+    const hasResearchData = !!searchData || !!dbData;
     
     if (!hasData) {
       return {
@@ -378,12 +382,33 @@ export class DeepAgent {
         reason: `置信度 ${(confidence * 100).toFixed(0)}% 低于阈值 ${(this.confidenceThreshold * 100).toFixed(0)}%`,
       };
     }
-    
+
+    if (hasResearchData) {
+      return {
+        thought: '已有足够研究材料，默认进入多空分析',
+        decision: 'continue',
+        nextSkill: 'fund-debate',
+        skillInput: {
+          entity: context.entity,
+          researchData: searchData || {
+            fundInfo: {
+              name: context.entity,
+            },
+            news: [],
+            risks: [],
+            sources: [],
+            searchQueries: [],
+          },
+        },
+        reason: `LLM 决策失败，使用默认策略：置信度 ${(confidence * 100).toFixed(0)}% 已达阈值，先进入多空辩论而不是直接结束`,
+      };
+    }
+
     return {
-      thought: '数据充足，可以进入分析',
+      thought: '已有部分数据，但还缺少可用于辩论的研究包',
       decision: 'finalize',
       nextSkill: null,
-      reason: `置信度 ${(confidence * 100).toFixed(0)}% 达到要求`,
+      reason: `默认结束：置信度 ${(confidence * 100).toFixed(0)}% 达到要求，但暂无完整研究包`,
     };
   }
 

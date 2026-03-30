@@ -222,6 +222,7 @@ export interface DeepAgentConfig {
  * 进度事件类型
  */
 export type ProgressEventType =
+  | 'node_start'
   | 'thinking'
   | 'acting'
   | 'observing'
@@ -232,6 +233,11 @@ export type ProgressEventType =
   | 'search_complete'
   | 'db_query'
   | 'db_result'
+  | 'optimistic_output'
+  | 'pessimistic_output'
+  | 'optimistic_rebuttal'
+  | 'pessimistic_rebuttal'
+  | 'round_judge'
   | 'analyzing'      // 新增：分析中
   | 'skill_start'    // 新增：skill 开始
   | 'skill_complete' // 新增：skill 完成
@@ -282,6 +288,7 @@ export interface ObservationContext {
   confidence: number;
   gaps: string[];
   lastObservation?: SkillOutput;
+  collectedData: Record<string, any>;
   availableSkills: string[];
   dbSchemaSummary: string;
   dbTaskList: string[];

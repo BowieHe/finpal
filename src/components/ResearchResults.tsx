@@ -93,6 +93,7 @@ export default function ResearchResults({
 }: ResearchResultsProps) {
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [expandedFindings, setExpandedFindings] = useState<Set<string>>(new Set());
+  const [showFoundation, setShowFoundation] = useState(false);
 
   console.log("[ResearchResults] Render", {
     allFindingsCount: allFindings?.length,
@@ -347,6 +348,11 @@ export default function ResearchResults({
     .map(Number)
     .sort((a, b) => a - b);
 
+  const hasFoundationTasks =
+    !!agentTasks && Object.values(agentTasks).some((t) => !t.id.startsWith("web-"));
+  const hasFindings = depths.length > 0;
+  const isResearchRunning = Boolean(isSearching || pendingQueries.length > 0);
+
   // 渲染单个 Finding
   const renderFinding = (finding: any, idx: number, depth: number) => {
     const id = `finding-${depth}-${idx}`;
@@ -419,18 +425,28 @@ export default function ResearchResults({
       {renderTimeline()}
 
       <div className="space-y-6">
-        {/* 数据底座 */}
-        {agentTasks &&
-          Object.values(agentTasks).some((t) => !t.id.startsWith("web-")) && (
-            <div className="mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Database className="w-3.5 h-3.5 text-slate-400" />
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  数据底座与上下文 (Agent Foundation)
-                </h4>
-              </div>
+        {/* 数据底座（可折叠，避免和时间线重复占位） */}
+        {hasFoundationTasks && (
+          <div className="mb-2">
+            <div className="sticky top-2 z-10 flex justify-end mb-2">
+              <button
+                onClick={() => setShowFoundation((v) => !v)}
+                className="text-[11px] px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:border-indigo-400 transition-colors"
+              >
+                {showFoundation ? "隐藏数据底座" : "显示数据底座"}
+              </button>
+            </div>
+
+            {showFoundation && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Database className="w-3.5 h-3.5 text-slate-400" />
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    数据底座与上下文 (Agent Foundation)
+                  </h4>
+                </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Object.values(agentTasks)
+                {Object.values(agentTasks || {})
                   .filter((t) => !t.id.startsWith("web-"))
                   .map((task) => (
                     <div
@@ -570,17 +586,30 @@ export default function ResearchResults({
                 </div>
               </div>
             </div>
-          )}
+            )}
+          </div>
+        )}
 
-        {/* 交互式多轮搜索 */}
-        <div className="flex items-center gap-2 mb-3">
-          <Globe className="w-3.5 h-3.5 text-slate-400" />
-          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            互联网深度下钻 (Iterative Research)
-          </h4>
-        </div>
+        {/* 交互式多轮搜索（状态驱动展示） */}
+        {(hasFindings || isResearchRunning) && (
+          <>
+            <div className="flex items-center gap-2 mb-3">
+              <Globe className="w-3.5 h-3.5 text-slate-400" />
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                互联网深度下钻 (Iterative Research)
+              </h4>
+            </div>
 
-        {depths.map((depth, dIdx) => (
+            {!hasFindings && isResearchRunning && (
+              <div className="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  <span>正在构建研究视图，搜索结果会在到达后分层展示</span>
+                </div>
+              </div>
+            )}
+
+            {depths.map((depth, dIdx) => (
           <div key={`depth-group-${depth}`} className="space-y-4">
             <div className="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
@@ -621,7 +650,9 @@ export default function ResearchResults({
               </div>
             )}
           </div>
-        ))}
+            ))}
+          </>
+        )}
       </div>
 
       {/* 数据库查询结果 */}
@@ -644,7 +675,7 @@ export default function ResearchResults({
         </div>
       )}
 
-      {/* 正在进行的搜索 */}
+      {/* 正在进行的搜索（保留为底部快捷状态） */}
       {pendingQueries.length > 0 && (
         <div className="mt-6 space-y-2">
           {pendingQueries.map((query, idx) => (

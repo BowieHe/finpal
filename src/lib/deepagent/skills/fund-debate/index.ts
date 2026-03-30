@@ -1,279 +1,695 @@
 /**
  * Fund Debate Skill
- * 
- * 基于已有的研究数据进行多空辩论分析
+ *
+ * 多轮多空辩论（带每轮裁决）：
+ * - Round 1: 多头初始观点 + 空头初始观点
+ * - Round N: 双方 rebuttal
+ * - 每轮后由 decider 判断是否继续
  */
 
 import { getLLMInstance } from '@/lib/llm/client';
 import { createLogger } from '@/lib/logger';
-import { ISkill, SkillMetadata, FundDebateInput, FundDebateData, FundDeepSearchData } from '../types';
+import {
+  ISkill,
+  SkillMetadata,
+  FundDebateInput,
+  FundDebateData,
+  FundDeepSearchData
+} from '../types';
 import { SkillInput, SkillOutput, ProgressEvent } from '../../core/types';
 
 const logger = createLogger('FundDebateSkill');
 
-/**
- * Skill 元数据
- */
 const METADATA: SkillMetadata = {
   name: 'fund-debate',
-  description: '基于基金研究数据进行多空辩论分析，生成看多/看空观点和综合建议。当已有足够数据时使用此技能。',
-  version: '1.0.0',
+  description: '基于研究数据进行多轮多空辩论，并在每轮后由 decider 判断是否继续。',
+  version: '2.0.0',
   triggers: ['分析', '辩论', '多空', '观点', '建议'],
   requiredTools: ['llm'],
   outputSchema: 'fund_debate_package',
 };
 
-/**
- * 构建 Debate Prompt
- */
-function buildDebatePrompt(entity: string, researchData: FundDeepSearchData): string {
-  const fundInfo = researchData.fundInfo || {};
-  const news = researchData.news || [];
-  const risks = researchData.risks || [];
-  
-  return `你是专业的投资分析师。请基于以下研究数据，进行多空辩论分析。
+const MAX_ROUNDS = 3;
+const MIN_ROUNDS = 2;
 
-## 分析对象
-名称: ${entity}
-${fundInfo.code ? `代码: ${fundInfo.code}` : ''}
-${fundInfo.type ? `类型: ${fundInfo.type}` : '类型: 待确认'}
+type JudgeDecision = {
+  winner: 'optimistic' | 'pessimistic' | 'draw';
+  shouldContinue: boolean;
+  reason: string;
+};
 
-## 研究数据
+type FinalSynthesis = {
+  recommendation: 'strong_buy' | 'buy' | 'hold' | 'reduce' | 'sell' | 'info_only';
+  conviction: number;
+  keyFactors: string[];
+  timeHorizon: string;
+  summary: string;
+  evCalculation?: {
+    upsideScenario: { probability: number; return: number };
+    baseScenario: { probability: number; return: number };
+    downsideScenario: { probability: number; return: number };
+    expectedReturn: number;
+  };
+};
 
-### 基本信息
-${JSON.stringify(fundInfo, null, 2)}
-
-### 相关新闻 (${news.length} 条)
-${news.map((n, i) => `${i + 1}. [${n.sentiment === 'positive' ? '利好' : n.sentiment === 'negative' ? '利空' : '中性'}] ${n.title}`).join('\n')}
-
-### 风险因素 (${risks.length} 条)
-${risks.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-
-## 分析要求
-
-请从看多和看空两个角度进行深入分析：
-
-1. **看多观点 (Bull Case)**
-   - 投资逻辑
-   - 潜在催化剂
-   - 目标价位 (如有)
-   - 置信度 (0-100)
-
-2. **看空观点 (Bear Case)**
-   - 风险逻辑
-   - 关键风险因素
-   - 下行风险
-   - 置信度 (0-100)
-
-3. **综合建议**
-   - 投资建议 (strong_buy/buy/hold/reduce/sell/info_only)
-   - 确信度 (0-100)
-   - 关键决策因素
-   - 时间框架
-   - 一句话总结
-
-4. **期望值计算 (EV)**
-   - 乐观情景: 概率和收益率
-   - 基准情景: 概率和收益率
-   - 悲观情景: 概率和收益率
-   - 综合期望收益率
-
-请输出 JSON 格式：
-
-{\n  "bullCase": {\n    "thesis": "看多逻辑...",\n    "catalysts": ["催化剂1", "催化剂2"],\n    "targetPrice": 100,\n    "confidence": 75\n  },\n  "bearCase": {\n    "thesis": "看空逻辑...",\n    "risks": ["风险1", "风险2"],\n    "downsidePrice": 80,\n    "confidence": 60\n  },\n  "synthesis": {\n    "recommendation": "hold",\n    "conviction": 65,\n    "keyFactors": ["因素1", "因素2"],\n    "timeHorizon": "6-12个月",\n    "summary": "一句话总结..."\n  },\n  "evCalculation": {\n    "upsideScenario": { "probability": 0.3, "return": 0.2 },\n    "baseScenario": { "probability": 0.5, "return": 0.05 },\n    "downsideScenario": { "probability": 0.2, "return": -0.1 },\n    "expectedReturn": 0.055\n  }\n}`;
-}
-
-/**
- * 解析 LLM 输出
- */
-function parseDebateOutput(content: string): FundDebateData | null {
+function extractJson<T>(content: string): T | null {
   try {
-    // 尝试直接解析
-    return JSON.parse(content);
+    return JSON.parse(content) as T;
   } catch {
-    // 尝试提取 JSON 代码块
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)```/) || 
-                      content.match(/```\s*([\s\S]*?)```/) ||
-                      content.match(/\{[\s\S]*\}/);
-    
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1] || jsonMatch[0]);
-      } catch {
-        // 忽略
-      }
+    const jsonMatch =
+      content.match(/```json\s*([\s\S]*?)```/) ||
+      content.match(/```\s*([\s\S]*?)```/) ||
+      content.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) return null;
+    const candidate = jsonMatch[1] || jsonMatch[0];
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      return null;
     }
   }
-  
-  return null;
 }
 
-/**
- * 生成默认输出 (解析失败时使用)
- */
-function generateDefaultOutput(entity: string): FundDebateData {
+function buildResearchContext(entity: string, researchData: FundDeepSearchData): string {
+  const fundInfo = researchData.fundInfo || {};
+  const news = (researchData.news || []).slice(0, 8);
+  const risks = (researchData.risks || []).slice(0, 8);
+  const sources = (researchData.sources || []).slice(0, 10);
+
+  return `# 分析对象
+- 名称: ${entity}
+- 代码: ${fundInfo.code || '未知'}
+- 类型: ${fundInfo.type || '待确认'}
+
+# 研究数据
+## 基本信息
+${JSON.stringify(fundInfo, null, 2)}
+
+## 新闻 (${news.length} 条)
+${news.map((n, i) => `${i + 1}. [${n.sentiment}] ${n.title}${n.summary ? ` - ${n.summary}` : ''}`).join('\n') || '无'}
+
+## 风险线索 (${risks.length} 条)
+${risks.map((r, i) => `${i + 1}. ${r}`).join('\n') || '无'}
+
+## 来源 (${sources.length} 条)
+${sources.map((s, i) => `${i + 1}. ${s}`).join('\n') || '无'}
+`;
+}
+
+function buildBullInitialPrompt(entity: string, researchData: FundDeepSearchData): string {
+  return `你现在扮演**多头分析师**。请给出对 ${entity} 的看多论证。
+
+${buildResearchContext(entity, researchData)}
+
+输出要求：
+1. 使用 **Markdown**，至少 4 段，包含：
+- 结论（1 段）
+- 证据链（至少 3 条）
+- 催化剂（至少 3 条）
+- 风险应对（至少 2 条）
+2. 不要空话，必须引用数据或事实线索。
+3. 最后输出 JSON（必须）：
+{
+  "content": "Markdown正文",
+  "catalysts": ["...", "..."],
+  "confidence": 0-100
+}`;
+}
+
+function buildBearInitialPrompt(entity: string, researchData: FundDeepSearchData, bullText: string): string {
+  return `你现在扮演**空头分析师**。请反驳多头观点并给出看空论证。
+
+${buildResearchContext(entity, researchData)}
+
+## 多头观点（供反驳）
+${bullText}
+
+输出要求：
+1. 使用 **Markdown**，至少 4 段，包含：
+- 反驳主结论（1 段）
+- 风险链路（至少 3 条）
+- 触发条件（至少 3 条）
+- 失效条件（至少 2 条）
+2. 必须指出多头论证中的薄弱点。
+3. 最后输出 JSON（必须）：
+{
+  "content": "Markdown正文",
+  "risks": ["...", "..."],
+  "confidence": 0-100
+}`;
+}
+
+function buildRebuttalPrompt(
+  side: 'optimistic' | 'pessimistic',
+  entity: string,
+  round: number,
+  ownLast: string,
+  opponentLast: string,
+  researchData: FundDeepSearchData
+): string {
+  const role = side === 'optimistic' ? '多头分析师' : '空头分析师';
+  const target = side === 'optimistic' ? '看多立场' : '看空立场';
+
+  return `你是${role}，现在进入第 ${round} 轮辩论，请继续维护${target}。
+
+${buildResearchContext(entity, researchData)}
+
+## 你的上一轮观点
+${ownLast}
+
+## 对手上一轮观点
+${opponentLast}
+
+输出要求：
+1. 使用 **Markdown**，不少于 3 段。
+2. 必须逐点回应对手至少 2 个核心论点。
+3. 给出新的补充论据至少 2 条。
+4. 最后输出 JSON（必须）：
+{
+  "content": "Markdown正文",
+  "confidence": 0-100
+}`;
+}
+
+function buildJudgePrompt(
+  entity: string,
+  round: number,
+  optimisticText: string,
+  pessimisticText: string
+): string {
+  return `你是中立裁判（decider），请判断第 ${round} 轮辩论后是否需要继续下一轮。
+
+分析对象: ${entity}
+
+## 多头本轮观点
+${optimisticText}
+
+## 空头本轮观点
+${pessimisticText}
+
+请输出 JSON：
+{
+  "winner": "optimistic" | "pessimistic" | "draw",
+  "shouldContinue": true | false,
+  "reason": "简短说明（50-120字）"
+}
+
+决策规则：
+- 如果双方仍有实质分歧、且新增信息明显，shouldContinue=true
+- 如果观点已重复或边际信息很少，shouldContinue=false`;
+}
+
+function buildFinalSynthesisPrompt(
+  entity: string,
+  rounds: Array<{ round: number; optimistic: string; pessimistic: string; judge: JudgeDecision; }>
+): string {
+  return `你是投资决策总结官，请基于以下多轮辩论给出最终建议。
+
+分析对象: ${entity}
+
+辩论过程：
+${rounds.map(r => `## Round ${r.round}
+### 多头
+${r.optimistic}
+### 空头
+${r.pessimistic}
+### 裁决
+- winner: ${r.judge.winner}
+- shouldContinue: ${r.judge.shouldContinue}
+- reason: ${r.judge.reason}`).join('\n\n')}
+
+输出 JSON：
+{
+  "recommendation": "strong_buy|buy|hold|reduce|sell|info_only",
+  "conviction": 0-100,
+  "keyFactors": ["至少3条"],
+  "timeHorizon": "如 3-6个月/6-12个月",
+  "summary": "Markdown 格式总结，至少 3 段",
+  "evCalculation": {
+    "upsideScenario": { "probability": 0-1, "return": -1~1 },
+    "baseScenario": { "probability": 0-1, "return": -1~1 },
+    "downsideScenario": { "probability": 0-1, "return": -1~1 },
+    "expectedReturn": -1~1
+  }
+}`;
+}
+
+function normalizeJudgeDecision(raw: Partial<JudgeDecision> | null): JudgeDecision {
+  const winner = raw?.winner === 'optimistic' || raw?.winner === 'pessimistic' || raw?.winner === 'draw'
+    ? raw.winner
+    : 'draw';
+
   return {
-    bullCase: {
-      thesis: `基于现有信息，${entity} 具有一定的投资价值，但需要更多数据支撑具体分析。`,
-      catalysts: ['待进一步研究'],
-      confidence: 50,
-    },
-    bearCase: {
-      thesis: `${entity} 存在不确定性，建议谨慎对待。`,
-      risks: ['信息不完整', '需要更多数据'],
-      confidence: 50,
-    },
-    synthesis: {
-      recommendation: 'info_only',
-      conviction: 50,
-      keyFactors: ['数据不完整'],
-      timeHorizon: '不确定',
-      summary: `由于数据限制，无法给出明确的投资建议，建议补充更多信息后再做分析。`,
-    },
+    winner,
+    shouldContinue: Boolean(raw?.shouldContinue),
+    reason: raw?.reason?.trim() || '观点仍有分歧，建议继续一轮以确认关键分歧点。',
   };
 }
 
-/**
- * 计算整体置信度
- */
+function safeMarkdown(text?: string): string {
+  if (!text) return '暂无观点。';
+  return text.trim();
+}
+
+function generateDefaultOutput(entity: string): FundDebateData {
+  return {
+    bullCase: {
+      thesis: `## 多头观点\n\n基于现有信息，${entity} 具备一定的配置价值，但仍需补齐数据细节后再提升仓位。`,
+      catalysts: ['宏观流动性改善', '风险偏好修复', '基本面边际改善'],
+      confidence: 55,
+    },
+    bearCase: {
+      thesis: `## 空头观点\n\n当前证据不足以支持激进配置，仍需警惕估值与波动风险。`,
+      risks: ['信息不完整', '短期波动风险', '策略执行偏差'],
+      confidence: 55,
+    },
+    synthesis: {
+      recommendation: 'info_only',
+      conviction: 55,
+      keyFactors: ['证据链不足', '需要更多高置信数据'],
+      timeHorizon: '待确认',
+      summary: `## 综合建议\n\n当前更适合“信息补齐优先”，而不是直接做大幅仓位调整。`,
+    },
+    rounds: [],
+  };
+}
+
 function calculateOverallConfidence(data: FundDebateData): number {
   const bullConf = data.bullCase.confidence || 50;
   const bearConf = data.bearCase.confidence || 50;
   const synthesisConf = data.synthesis.conviction || 50;
-  
-  // 取三个置信度的加权平均
   return (bullConf * 0.3 + bearConf * 0.3 + synthesisConf * 0.4) / 100;
 }
 
-/**
- * Fund Debate Skill 实现
- */
 export class FundDebateSkill implements ISkill {
   readonly metadata = METADATA;
 
   async execute(input: SkillInput, onProgress?: (event: ProgressEvent) => void): Promise<SkillOutput> {
     const startTime = Date.now();
     const typedInput = input as FundDebateInput;
+    const entity = typedInput.entity;
 
     logger.info('Executing fund-debate', {
-      entity: typedInput.entity,
+      entity,
       hasResearchData: !!typedInput.researchData,
+      maxRounds: MAX_ROUNDS,
     });
 
-    // 发送开始事件
     onProgress?.({
       type: 'acting',
       step: 1,
-      message: '开始多空辩论分析...',
+      message: '开始多轮多空辩论...',
       eventDetail: {
         eventType: 'analyze',
         label: '多空分析',
-        detail: `分析对象: ${typedInput.entity}`,
-        metadata: { entity: typedInput.entity }
+        detail: `分析对象: ${entity}`,
+        metadata: { entity, maxRounds: MAX_ROUNDS }
       }
     });
 
-    try {
-      // 获取 LLM
-      const llm = await getLLMInstance();
-      
-      // 构建 Prompt
-      const prompt = buildDebatePrompt(
-        typedInput.entity,
-        typedInput.researchData
-      );
+    let rounds: Array<{ round: number; optimistic: string; pessimistic: string; judge: JudgeDecision; }> = [];
+    let latestOptimistic = '';
+    let latestPessimistic = '';
+    let bullCatalysts: string[] = [];
+    let bearRisks: string[] = [];
+    let bullConfidence = 55;
+    let bearConfidence = 55;
 
-      // 调用 LLM
+    try {
+      const llm = await getLLMInstance();
+
       onProgress?.({
         type: 'thinking',
         step: 2,
-        message: 'LLM 分析多空观点...',
+        message: '生成首轮多头观点...',
         eventDetail: {
           eventType: 'thinking',
-          label: 'AI 分析',
-          detail: '基于研究数据生成多空观点',
-          metadata: { researchDataSize: JSON.stringify(typedInput.researchData).length }
+          label: '首轮观点',
+          detail: '多头正在构建论证',
+          metadata: { round: 1, side: 'optimistic' }
         }
       });
 
-      const response = await llm.invoke(prompt);
-      const content = typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+      const bullResp = await llm.invoke(buildBullInitialPrompt(entity, typedInput.researchData));
+      const bullRaw = typeof bullResp.content === 'string' ? bullResp.content : JSON.stringify(bullResp.content);
+      const bullParsed = extractJson<{ content: string; catalysts?: string[]; confidence?: number }>(bullRaw);
+      const bullRound1 = safeMarkdown(bullParsed?.content);
+      bullCatalysts = bullParsed?.catalysts?.slice(0, 6) || [];
+      bullConfidence = Math.min(100, Math.max(30, Number(bullParsed?.confidence ?? 65)));
 
-      // 解析输出
-      let debateData = parseDebateOutput(content);
+      logger.info('Bull round 1 generated', {
+        length: bullRound1.length,
+        confidence: bullConfidence,
+        preview: bullRound1.slice(0, 180),
+      });
 
-      if (!debateData) {
-        logger.warn('Failed to parse debate output, using default');
-        debateData = generateDefaultOutput(typedInput.entity);
+      onProgress?.({
+        type: 'optimistic_output',
+        step: 2,
+        message: '多头首轮发言完成',
+        data: {
+          answer: bullRound1,
+          thinking: bullCatalysts.join('\n'),
+        },
+        eventDetail: {
+          eventType: 'analyze',
+          label: '多头首轮',
+          detail: `输出 ${bullRound1.length} 字`,
+          metadata: { round: 1, side: 'optimistic', confidence: bullConfidence }
+        }
+      });
+
+      onProgress?.({
+        type: 'thinking',
+        step: 3,
+        message: '生成首轮空头观点...',
+        eventDetail: {
+          eventType: 'thinking',
+          label: '首轮观点',
+          detail: '空头正在构建反驳',
+          metadata: { round: 1, side: 'pessimistic' }
+        }
+      });
+
+      const bearResp = await llm.invoke(buildBearInitialPrompt(entity, typedInput.researchData, bullRound1));
+      const bearRaw = typeof bearResp.content === 'string' ? bearResp.content : JSON.stringify(bearResp.content);
+      const bearParsed = extractJson<{ content: string; risks?: string[]; confidence?: number }>(bearRaw);
+      const bearRound1 = safeMarkdown(bearParsed?.content);
+      bearRisks = bearParsed?.risks?.slice(0, 6) || [];
+      bearConfidence = Math.min(100, Math.max(30, Number(bearParsed?.confidence ?? 65)));
+
+      logger.info('Bear round 1 generated', {
+        length: bearRound1.length,
+        confidence: bearConfidence,
+        preview: bearRound1.slice(0, 180),
+      });
+
+      onProgress?.({
+        type: 'pessimistic_output',
+        step: 3,
+        message: '空头首轮发言完成',
+        data: {
+          answer: bearRound1,
+          thinking: bearRisks.join('\n'),
+        },
+        eventDetail: {
+          eventType: 'analyze',
+          label: '空头首轮',
+          detail: `输出 ${bearRound1.length} 字`,
+          metadata: { round: 1, side: 'pessimistic', confidence: bearConfidence }
+        }
+      });
+
+      latestOptimistic = bullRound1;
+      latestPessimistic = bearRound1;
+      let finalJudge: JudgeDecision = { winner: 'draw', shouldContinue: false, reason: '首轮完成，待裁决。' };
+
+      for (let round = 1; round <= MAX_ROUNDS; round++) {
+        onProgress?.({
+          type: 'node_start',
+          step: 4 + round,
+          message: `第 ${round} 轮裁决中...`,
+          data: {
+            node: 'round_judge',
+            round,
+            message: `第 ${round} 轮裁决中...`,
+          },
+          eventDetail: {
+            eventType: 'thinking',
+            label: '轮次裁决',
+            detail: `评估第 ${round} 轮是否继续`,
+            metadata: { round }
+          }
+        });
+
+        const judgeResp = await llm.invoke(buildJudgePrompt(entity, round, latestOptimistic, latestPessimistic));
+        const judgeRaw = typeof judgeResp.content === 'string' ? judgeResp.content : JSON.stringify(judgeResp.content);
+        const judgeParsed = extractJson<JudgeDecision>(judgeRaw);
+        const judge = normalizeJudgeDecision(judgeParsed);
+        finalJudge = judge;
+
+        logger.info('Round judged', { round, ...judge });
+
+        onProgress?.({
+          type: 'round_judge',
+          step: 4 + round,
+          message: `第 ${round} 轮裁决: ${judge.winner}`,
+          data: {
+            round,
+            winner: judge.winner,
+            shouldContinue: round < MIN_ROUNDS || (judge.shouldContinue && round < MAX_ROUNDS),
+            reason: judge.reason,
+          },
+          eventDetail: {
+            eventType: 'analyze',
+            label: '裁决结果',
+            detail: `winner=${judge.winner}, continue=${round < MIN_ROUNDS || (judge.shouldContinue && round < MAX_ROUNDS)}`,
+            metadata: {
+              round,
+              winner: judge.winner,
+              shouldContinue: round < MIN_ROUNDS || (judge.shouldContinue && round < MAX_ROUNDS)
+            }
+          }
+        });
+
+        const shouldContinue = round < MIN_ROUNDS || (judge.shouldContinue && round < MAX_ROUNDS);
+
+        rounds.push({
+          round,
+          optimistic: latestOptimistic,
+          pessimistic: latestPessimistic,
+          judge: {
+            ...judge,
+            shouldContinue,
+          },
+        });
+
+        if (!shouldContinue || round >= MAX_ROUNDS) {
+          break;
+        }
+
+        const nextRound = round + 1;
+        onProgress?.({
+          type: 'node_start',
+          step: 8 + nextRound,
+          message: `进入第 ${nextRound} 轮辩论`,
+          data: {
+            node: 'round_judge',
+            round: nextRound,
+            message: `进入第 ${nextRound} 轮辩论`,
+          },
+          eventDetail: {
+            eventType: 'thinking',
+            label: '进入下一轮',
+            detail: `第 ${nextRound} 轮 rebuttal`,
+            metadata: { round: nextRound }
+          }
+        });
+
+        const bullRebuttalResp = await llm.invoke(
+          buildRebuttalPrompt('optimistic', entity, nextRound, latestOptimistic, latestPessimistic, typedInput.researchData)
+        );
+        const bullRebuttalRaw = typeof bullRebuttalResp.content === 'string'
+          ? bullRebuttalResp.content
+          : JSON.stringify(bullRebuttalResp.content);
+        const bullRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bullRebuttalRaw);
+        latestOptimistic = safeMarkdown(bullRebuttalParsed?.content);
+
+        logger.info('Bull rebuttal generated', {
+          round: nextRound,
+          length: latestOptimistic.length,
+          preview: latestOptimistic.slice(0, 180),
+        });
+
+        onProgress?.({
+          type: 'optimistic_rebuttal',
+          step: 8 + nextRound,
+          message: `多头第 ${nextRound} 轮发言`,
+          data: {
+            round: nextRound,
+            rebuttal: latestOptimistic,
+          },
+          eventDetail: {
+            eventType: 'analyze',
+            label: `多头第 ${nextRound} 轮`,
+            detail: `输出 ${latestOptimistic.length} 字`,
+            metadata: { round: nextRound, side: 'optimistic' }
+          }
+        });
+
+        const bearRebuttalResp = await llm.invoke(
+          buildRebuttalPrompt('pessimistic', entity, nextRound, latestPessimistic, latestOptimistic, typedInput.researchData)
+        );
+        const bearRebuttalRaw = typeof bearRebuttalResp.content === 'string'
+          ? bearRebuttalResp.content
+          : JSON.stringify(bearRebuttalResp.content);
+        const bearRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bearRebuttalRaw);
+        latestPessimistic = safeMarkdown(bearRebuttalParsed?.content);
+
+        logger.info('Bear rebuttal generated', {
+          round: nextRound,
+          length: latestPessimistic.length,
+          preview: latestPessimistic.slice(0, 180),
+        });
+
+        onProgress?.({
+          type: 'pessimistic_rebuttal',
+          step: 9 + nextRound,
+          message: `空头第 ${nextRound} 轮发言`,
+          data: {
+            round: nextRound,
+            rebuttal: latestPessimistic,
+          },
+          eventDetail: {
+            eventType: 'analyze',
+            label: `空头第 ${nextRound} 轮`,
+            detail: `输出 ${latestPessimistic.length} 字`,
+            metadata: { round: nextRound, side: 'pessimistic' }
+          }
+        });
       }
 
-      // 计算置信度
+      const synthesisResp = await llm.invoke(buildFinalSynthesisPrompt(entity, rounds));
+      const synthesisRaw = typeof synthesisResp.content === 'string'
+        ? synthesisResp.content
+        : JSON.stringify(synthesisResp.content);
+      const synthesisParsed = extractJson<FinalSynthesis>(synthesisRaw);
+
+      const synthesis: FundDebateData['synthesis'] = {
+        recommendation: synthesisParsed?.recommendation || 'hold',
+        conviction: Math.min(100, Math.max(30, Number(synthesisParsed?.conviction ?? 65))),
+        keyFactors: synthesisParsed?.keyFactors?.slice(0, 8) || ['多空观点均有依据，需结合风险承受能力动态调整。'],
+        timeHorizon: synthesisParsed?.timeHorizon || '6-12个月',
+        summary: safeMarkdown(synthesisParsed?.summary),
+      };
+
+      const debateData: FundDebateData = {
+        bullCase: {
+          thesis: latestOptimistic,
+          catalysts: bullCatalysts.length > 0 ? bullCatalysts : ['政策与流动性', '基本面边际改善', '估值修复'],
+          confidence: Math.min(100, Math.max(30, bullConfidence)),
+        },
+        bearCase: {
+          thesis: latestPessimistic,
+          risks: bearRisks.length > 0 ? bearRisks : ['宏观扰动', '业绩不确定性', '波动放大'],
+          confidence: Math.min(100, Math.max(30, bearConfidence)),
+        },
+        synthesis,
+        evCalculation: synthesisParsed?.evCalculation,
+        rounds,
+      };
+
       const confidence = calculateOverallConfidence(debateData);
       debateData.synthesis.conviction = Math.round(confidence * 100);
 
       const durationMs = Date.now() - startTime;
 
-      // 发送完成事件
+      logger.info('Fund debate completed', {
+        entity,
+        rounds: rounds.length,
+        finalJudge,
+        recommendation: debateData.synthesis.recommendation,
+        conviction: debateData.synthesis.conviction,
+        bullLength: debateData.bullCase.thesis.length,
+        bearLength: debateData.bearCase.thesis.length,
+        durationMs,
+      });
+
       onProgress?.({
         type: 'complete',
-        step: 3,
-        message: `多空分析完成: ${debateData.synthesis.recommendation}`,
+        step: 20,
+        message: `多轮辩论完成: ${debateData.synthesis.recommendation}`,
         eventDetail: {
           eventType: 'complete',
-          label: '分析完成',
-          detail: `建议: ${debateData.synthesis.recommendation} · 确信度: ${debateData.synthesis.conviction}%`,
+          label: '辩论完成',
+          detail: `共 ${rounds.length} 轮 · 建议 ${debateData.synthesis.recommendation}`,
           metadata: {
+            rounds: rounds.length,
             recommendation: debateData.synthesis.recommendation,
             conviction: debateData.synthesis.conviction,
-            durationMs
+            durationMs,
           }
         }
       });
 
-      logger.info('Fund debate completed', {
-        entity: typedInput.entity,
-        recommendation: debateData.synthesis.recommendation,
-        conviction: debateData.synthesis.conviction,
-        duration: durationMs,
-      });
-
-      // 检测缺口 (debate 阶段通常信息已充足)
       const gaps: string[] = [];
-      if (debateData.bullCase.confidence < 60) {
-        gaps.push('看多观点置信度不足');
-      }
-      if (debateData.bearCase.confidence < 60) {
-        gaps.push('看空观点置信度不足');
-      }
+      if (debateData.bullCase.confidence < 60) gaps.push('看多观点置信度不足');
+      if (debateData.bearCase.confidence < 60) gaps.push('看空观点置信度不足');
 
       return {
         success: true,
         data: debateData,
         confidence,
-        completeness: 1.0, // Debate 阶段假设数据完整
+        completeness: 1.0,
         gaps,
-        suggestions: ['分析完成'],
+        suggestions: ['已完成多轮辩论，可直接进入最终建议。'],
         metadata: {
           durationMs,
           toolsUsed: ['llm'],
         },
       };
-
     } catch (error) {
-      logger.error('Fund debate failed', { 
-        entity: typedInput.entity,
+      logger.error('Fund debate failed', {
+        entity,
         error: String(error),
       });
 
+      const fallback = generateDefaultOutput(entity);
+
+      // 保留已生成的长文本，避免失败后被短模板覆盖
+      if (latestOptimistic) {
+        fallback.bullCase.thesis = latestOptimistic;
+        fallback.bullCase.catalysts = bullCatalysts.length > 0 ? bullCatalysts : fallback.bullCase.catalysts;
+        fallback.bullCase.confidence = Math.max(fallback.bullCase.confidence, bullConfidence);
+      }
+      if (latestPessimistic) {
+        fallback.bearCase.thesis = latestPessimistic;
+        fallback.bearCase.risks = bearRisks.length > 0 ? bearRisks : fallback.bearCase.risks;
+        fallback.bearCase.confidence = Math.max(fallback.bearCase.confidence, bearConfidence);
+      }
+      if (rounds.length > 0) {
+        fallback.rounds = rounds;
+      }
+
+      const errorMessage = String(error);
+      const isTimeout =
+        errorMessage.includes('TimeoutError') ||
+        errorMessage.includes('timed out') ||
+        errorMessage.includes('Request timed out');
+
+      // 即使超时，也发一条降级裁决，避免前端“等待首轮裁决”卡死
+      onProgress?.({
+        type: 'round_judge',
+        step: 99,
+        message: '辩论降级裁决',
+        data: {
+          round: Math.max(1, rounds.length),
+          winner: 'draw',
+          shouldContinue: false,
+          reason: isTimeout
+            ? '裁决阶段请求超时，已降级结束当前辩论。'
+            : '辩论过程中发生异常，已降级结束当前辩论。',
+        },
+        eventDetail: {
+          eventType: 'analyze',
+          label: '降级裁决',
+          detail: isTimeout ? 'Decider 超时，结束辩论' : '执行异常，结束辩论',
+          metadata: {
+            fallback: true,
+            isTimeout,
+            rounds: rounds.length,
+          }
+        }
+      });
+
       return {
-        success: false,
-        error: String(error),
-        confidence: 0,
-        completeness: 0,
-        gaps: ['辩论分析执行失败'],
-        suggestions: ['请检查 LLM 配置或稍后重试'],
+        success: true,
+        data: fallback,
+        confidence: 0.55,
+        completeness: 0.7,
+        gaps: ['辩论过程部分失败，使用降级结果'],
+        suggestions: ['可重试辩论以获取更完整论证。'],
         metadata: {
           durationMs: Date.now() - startTime,
           toolsUsed: ['llm'],
@@ -283,8 +699,5 @@ export class FundDebateSkill implements ISkill {
   }
 }
 
-/**
- * Skill 实例
- */
 export const fundDebateSkill = new FundDebateSkill();
 export default fundDebateSkill;

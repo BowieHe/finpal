@@ -100,11 +100,17 @@ export const deepAgentNode = async (
 
         // 继续透传原始事件类型
         const directEvents = [
+          'node_start',
           'searching',
           'search_result',
           'search_complete',
           'db_query',
           'db_result',
+          'optimistic_output',
+          'pessimistic_output',
+          'optimistic_rebuttal',
+          'pessimistic_rebuttal',
+          'round_judge',
         ];
         if (directEvents.includes(event.type)) {
           const detail = event.eventDetail;
@@ -213,8 +219,14 @@ export const deepAgentNode = async (
     const debateData = result.data;
     const hasDebateData = debateData && (debateData.bullCase || debateData.bearCase || debateData.synthesis);
 
-    // 如果没有辩论数据，检查是否有直接回答（从最后一个 thought 的 reason 中提取）
-    if (!hasDebateData && result.thoughts.length > 0) {
+    // 只有真正“未调用任何工具”的场景，才将其视为 direct answer
+    const isTrueDirectAnswer =
+      !hasDebateData &&
+      result.thoughts.length > 0 &&
+      result.actions.length === 0 &&
+      result.observations.length === 0;
+
+    if (isTrueDirectAnswer) {
       const lastThought = result.thoughts[result.thoughts.length - 1];
       const directAnswer = lastThought.content || '收到您的问题，但我需要基金名称才能进行分析。';
 
@@ -285,8 +297,10 @@ export const deepAgentNode = async (
     const synthesis = debateData?.synthesis;
     const evCalculation = debateData?.evCalculation;
 
-    // 发送 optimistic_output 事件 (流式效果)
-    if (state.progressCallback && bullCase?.thesis) {
+    const hasRoundStreaming = Array.isArray(debateData?.rounds) && debateData.rounds.length > 0;
+
+    // 发送 optimistic_output 事件 (fallback，避免旧路径无输出)
+    if (state.progressCallback && bullCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
         type: 'optimistic_output',
         data: {
@@ -296,8 +310,8 @@ export const deepAgentNode = async (
       });
     }
 
-    // 发送 pessimistic_output 事件 (流式效果)
-    if (state.progressCallback && bearCase?.thesis) {
+    // 发送 pessimistic_output 事件 (fallback，避免旧路径无输出)
+    if (state.progressCallback && bearCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
         type: 'pessimistic_output',
         data: {
@@ -389,12 +403,18 @@ export const deepAgentNode = async (
         confidenceLevel: bearCase.confidence,
       } : null,
 
-      // 辩论历史
-      debateHistory: [{
-        round: 1,
-        optimisticAnswer: bullCase?.thesis || '',
-        pessimisticAnswer: bearCase?.thesis || '',
-      }],
+      // 辩论历史（优先使用多轮结果，避免覆盖流式轮次）
+      debateHistory: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
+        ? debateData.rounds.map((r: any) => ({
+            round: r.round,
+            optimisticAnswer: r.optimistic || '',
+            pessimisticAnswer: r.pessimistic || '',
+          }))
+        : [{
+            round: 1,
+            optimisticAnswer: bullCase?.thesis || '',
+            pessimisticAnswer: bearCase?.thesis || '',
+          }],
 
       // 其他状态
       debateWinner: synthesis?.recommendation === 'buy' || synthesis?.recommendation === 'strong_buy' ? 'optimistic' :
