@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ExternalLink,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { EventLogEntry, TimelineEventType } from "@/types/conversation";
 
@@ -136,6 +137,177 @@ export default function ResearchResults({
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
+  const renderKvList = (items: Array<{ label: string; value: string | number }>) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">{item.label}</div>
+          <div className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderResearchBoard = (board: any) => (
+    <div className="space-y-3">
+      {board.proposal && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Research Proposal
+          </div>
+          <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+            <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
+              {board.proposal.mainQuestion}
+            </div>
+            {Array.isArray(board.proposal.subQuestions) && (
+              <div className="mt-2 space-y-1">
+                {board.proposal.subQuestions.map((question: string, idx: number) => (
+                  <div key={`${question}-${idx}`} className="text-xs text-slate-600 dark:text-slate-300">
+                    {idx + 1}. {question}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(board.informationGaps) && board.informationGaps.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Information Gaps
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {board.informationGaps.map((gap: string, idx: number) => (
+              <span
+                key={`${gap}-${idx}`}
+                className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 px-2.5 py-1 text-[11px]"
+              >
+                {gap}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(board.knownFacts) && board.knownFacts.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Known Facts
+          </div>
+          <div className="space-y-2">
+            {board.knownFacts.slice(0, 6).map((fact: any, idx: number) => (
+              <div
+                key={`${fact.claim}-${idx}`}
+                className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3"
+              >
+                <div className="text-xs font-medium text-slate-800 dark:text-slate-100">{fact.claim}</div>
+                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 break-all">{fact.source}</div>
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  可信度 {Math.round((fact.confidence || 0) * 100)}%
+                  {fact.gapCovered ? ` · 覆盖 ${fact.gapCovered}` : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(board.failedPaths) && board.failedPaths.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Failed Paths
+          </div>
+          <div className="space-y-2">
+            {board.failedPaths.map((path: any, idx: number) => (
+              <div
+                key={`${path.query}-${idx}`}
+                className="rounded-md border border-rose-200 dark:border-rose-800 bg-rose-50/70 dark:bg-rose-950/20 p-3"
+              >
+                <div className="text-xs font-medium text-rose-700 dark:text-rose-300">{path.query}</div>
+                <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">{path.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {board.stopReason && (
+        <div className="rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 p-3">
+          <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide">
+            Stop Reason
+          </div>
+          <div className="mt-1 text-xs text-emerald-700 dark:text-emerald-200">{board.stopReason}</div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderCriticReview = (review: any) => (
+    <div className="space-y-3">
+      {renderKvList([
+        { label: "Query", value: review.query || "-" },
+        {
+          label: "Information Delta",
+          value: `${Math.round(((review.informationDelta || 0) as number) * 100)}%`,
+        },
+        { label: "Accepted", value: review.acceptedResults?.length || 0 },
+        { label: "Rejected", value: review.rejectedResults?.length || 0 },
+      ])}
+
+      {Array.isArray(review.acceptedResults) && review.acceptedResults.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Accepted Results
+          </div>
+          <div className="space-y-2">
+            {review.acceptedResults.map((item: any, idx: number) => (
+              <div
+                key={`${item.title}-${idx}`}
+                className="rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 p-3"
+              >
+                <div className="text-xs font-medium text-emerald-800 dark:text-emerald-200">{item.title}</div>
+                {item.url && (
+                  <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300 break-all">{item.url}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(review.rejectedResults) && review.rejectedResults.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Rejected Results
+          </div>
+          <div className="space-y-2">
+            {review.rejectedResults.map((item: any, idx: number) => (
+              <div
+                key={`${item.title}-${idx}`}
+                className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-amber-800 dark:text-amber-200">{item.title}</div>
+                    <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">{item.reason}</div>
+                    {item.url && (
+                      <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 break-all">{item.url}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   // Claude Code 风格的时间线渲染
   const renderTimeline = () => {
     if (eventHistory.length === 0) return null;
@@ -251,6 +423,18 @@ export default function ResearchResults({
   // 渲染展开的内容
   const renderExpandedContent = (content: any, type: TimelineEventType) => {
     if (!content) return null;
+
+    if (typeof content === "object" && (content.proposal || content.knownFacts || content.failedPaths || content.stopReason)) {
+      return renderResearchBoard(content);
+    }
+
+    if (
+      typeof content === "object" &&
+      "informationDelta" in content &&
+      ("acceptedResults" in content || "rejectedResults" in content)
+    ) {
+      return renderCriticReview(content);
+    }
 
     // 搜索结果显示
     if (type === "search" && Array.isArray(content)) {

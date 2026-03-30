@@ -20,6 +20,17 @@ type SearchResultGroup = {
   engine: string;
   duration: number;
 };
+type CriticReview = {
+  accepted: boolean;
+  reason: string;
+  informationDelta: number;
+  acceptedResults: any[];
+  rejectedResults: Array<{
+    title: string;
+    reason: string;
+    url?: string;
+  }>;
+};
 
 /**
  * Skill 元数据
@@ -334,6 +345,87 @@ function decideStopReason(
   return '保留部分信息缺口，交由后续技能继续补齐';
 }
 
+function evaluateSearchResults(
+  query: string,
+  resultItems: any[],
+  board: ResearchBoard
+): CriticReview {
+  const seenTitles = new Set(
+    board.knownFacts.map(fact => normalizeQuery(fact.claim))
+  );
+  const seenUrls = new Set(
+    board.knownFacts.map(fact => fact.source).filter(Boolean)
+  );
+
+  const acceptedResults: any[] = [];
+  const rejectedResults: CriticReview['rejectedResults'] = [];
+
+  for (const item of resultItems) {
+    const title = item.title || '搜索结果';
+    const url = item.url || item.link || '';
+    const snippet = item.description || item.snippet || '';
+    const normalizedTitle = normalizeQuery(title);
+
+    if (!snippet || snippet.length < 20) {
+      rejectedResults.push({ title, url, reason: 'snippet_too_short' });
+      continue;
+    }
+    if (seenTitles.has(normalizedTitle)) {
+      rejectedResults.push({ title, url, reason: 'duplicate_title' });
+      continue;
+    }
+    if (url && seenUrls.has(url)) {
+      rejectedResults.push({ title, url, reason: 'duplicate_url' });
+      continue;
+    }
+    if (/广告|推广|开户链接|开户链接|开户链接|下载App|开户链接/i.test(`${title} ${snippet}`)) {
+      rejectedResults.push({ title, url, reason: 'promotional_content' });
+      continue;
+    }
+
+    seenTitles.add(normalizedTitle);
+    if (url) seenUrls.add(url);
+    acceptedResults.push(item);
+  }
+
+  const informationDelta = resultItems.length === 0
+    ? 0
+    : acceptedResults.length / resultItems.length;
+
+  return {
+    accepted: acceptedResults.length > 0,
+    reason: acceptedResults.length > 0
+      ? `保留 ${acceptedResults.length} 条高价值结果，过滤 ${rejectedResults.length} 条低价值或重复结果`
+      : `查询“${query}”未提供有效信息增量`,
+    informationDelta,
+    acceptedResults,
+    rejectedResults,
+  };
+}
+
+function shouldStopEarly(
+  board: ResearchBoard,
+  allResults: SearchResultGroup[],
+  currentIndex: number,
+  totalQueries: number
+): string | null {
+  const acceptedGroups = allResults.filter(group => group.results.length > 0);
+  const hasCoveredNews = acceptedGroups.some(group => /新闻|动态|消息/.test(group.query));
+  const hasCoveredRisk = acceptedGroups.some(group => /风险|回撤|波动|警示/.test(group.query));
+  const hasCoveredFundamentals = acceptedGroups.some(group => /财报|业绩|价格|走势|净值/.test(group.query));
+  const remainingQueries = totalQueries - currentIndex - 1;
+
+  if (hasCoveredNews && hasCoveredRisk && hasCoveredFundamentals && acceptedGroups.length >= 3) {
+    return '核心维度已有覆盖，提前结束剩余搜索轮次';
+  }
+
+  if (board.failedPaths.length >= 4 && remainingQueries <= 2) {
+    return '失败路径过多且剩余查询有限，提前停止避免继续烧搜索';
+  }
+
+  return null;
+}
+
 /**
  * 执行多维度搜索，带进度回调
  */
@@ -464,21 +556,28 @@ async function performMultiSearch(
 
       // 收集结果
       const resultItems = results.results || [];
-      if (resultItems.length === 0 || results.error) {
+      const review = evaluateSearchResults(query, resultItems, researchBoard);
+      const filteredItems = review.acceptedResults;
+
+      if (!review.accepted || results.error) {
         researchBoard.failedPaths.push({
           query,
-          reason: resultItems.length === 0 ? 'no_results' : 'search_error',
+          reason: resultItems.length === 0
+            ? 'no_results'
+            : results.error
+              ? 'search_error'
+              : review.reason,
         });
       }
       allResults.push({
         query,
-        results: resultItems,
+        results: filteredItems,
         engine: results.engine,
         duration: searchDuration
       });
 
       // 收集来源
-      resultItems.forEach((item: any) => {
+      filteredItems.forEach((item: any) => {
         if (item.url && !sources.includes(item.url)) {
           sources.push(item.url);
         }
@@ -489,12 +588,22 @@ async function performMultiSearch(
         type: 'search_result',
         step: i + 1,
         message: `搜索完成: ${query} (${resultItems.length} 条结果)`,
+        data: {
+          query,
+          results: filteredItems.map((r: any) => ({
+            title: r.title,
+            snippet: r.description || r.snippet,
+            url: r.url || r.link,
+            source: r.source,
+          })),
+          review,
+        },
         eventDetail: {
           eventType: 'search',
           label: '搜索结果',
-          detail: `${query} · ${resultItems.length} 条结果`,
+          detail: `${query} · 原始 ${resultItems.length} 条 / 保留 ${filteredItems.length} 条`,
           expandable: true,
-          content: resultItems.map((r: any) => ({
+          content: filteredItems.map((r: any) => ({
             title: r.title,
             snippet: r.description || r.snippet,
             url: r.url || r.link,
@@ -508,6 +617,60 @@ async function performMultiSearch(
           }
         }
       });
+
+      onProgress?.({
+        type: 'analyzing',
+        step: i + 1,
+        message: `评估搜索价值: ${query}`,
+        data: {
+          query,
+          review,
+        },
+        eventDetail: {
+          eventType: 'analyze',
+          label: 'Critic Review',
+          detail: review.reason,
+          expandable: true,
+          content: {
+            query,
+            informationDelta: review.informationDelta,
+            acceptedResults: review.acceptedResults.map(item => ({
+              title: item.title,
+              url: item.url || item.link,
+            })),
+            rejectedResults: review.rejectedResults,
+          },
+          metadata: {
+            query,
+            informationDelta: review.informationDelta,
+            keptCount: review.acceptedResults.length,
+            rejectedCount: review.rejectedResults.length,
+          }
+        }
+      });
+
+      const earlyStopReason = shouldStopEarly(researchBoard, allResults, i, searchQueries.length);
+      if (earlyStopReason) {
+        researchBoard.stopReason = earlyStopReason;
+        onProgress?.({
+          type: 'thinking',
+          step: i + 1,
+          message: '触发动态停止条件',
+          data: {
+            stopReason: earlyStopReason,
+          },
+          eventDetail: {
+            eventType: 'thinking',
+            label: 'Dynamic Stop',
+            detail: earlyStopReason,
+            metadata: {
+              searchedQueries: researchBoard.searchedQueries.length,
+              failedPathCount: researchBoard.failedPaths.length,
+            }
+          }
+        });
+        break;
+      }
 
     } catch (error) {
       logger.warn('Search failed for query', { query, error: String(error) });
@@ -659,6 +822,15 @@ async function performMultiSearch(
     type: 'search_complete',
     step: searchQueries.length + 3,
     message: `搜索完成: ${news.length} 条新闻, ${risks.length} 个风险信号`,
+    data: {
+      searchResults: allResults,
+      researchBoard,
+      summary: {
+        newsCount: news.length,
+        riskCount: risks.length,
+        sourceCount: sources.length,
+      },
+    },
     eventDetail: {
       eventType: 'complete',
       label: '搜索完成',
