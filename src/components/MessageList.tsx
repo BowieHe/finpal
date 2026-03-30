@@ -5,6 +5,7 @@ import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
 import { TimelineDebate, TimelineMessage } from './TimelineDebate';
 import { RoundDecision } from './RoundDecisionCard';
+import { EventLogEntry } from "@/types/conversation";
 
 interface MessageListProps {
   messages: Array<{
@@ -37,6 +38,11 @@ interface MessageListProps {
     finalVerdict?: any;
     reflections?: Record<number, string>;
     debateHistory?: any[];
+    // Database fetches
+    dbResults?: any[];
+    // Live event timeline
+    eventHistory?: EventLogEntry[];
+    isDirectAnswer?: boolean;
   }>;
   isLoading?: boolean;
 }
@@ -139,7 +145,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
-          const shouldShowDebate = debateMessages.length > 0 || hasDebateHistory;
+          const shouldShowDebate =
+            !message.isDirectAnswer && (debateMessages.length > 0 || hasDebateHistory);
 
           return (
             <div key={message.id} className="mb-8">
@@ -184,6 +191,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                     agentTasks={message.agentTasks}
                     finalVerdict={message.finalVerdict}
                     reflections={message.reflections}
+                    eventHistory={message.eventHistory}
                   />
                 </div>
               )}

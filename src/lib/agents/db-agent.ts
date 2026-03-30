@@ -11,6 +11,7 @@ import { getPortfolioSummary, getHoldingDetail } from '../tools/portfolio';
 import { compareFunds } from '../tools/comparison';
 import { getFundRiskMetrics } from '../tools/risk';
 import { createLogger } from '../logger';
+import { dbAgentSchema } from './db-agent-schema';
 
 const logger = createLogger('DBAgent');
 
@@ -86,6 +87,7 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
       status: 'success',
       data,
       durationMs,
+      schema: dbAgentSchema,
     };
   } catch (error) {
     const durationMs = Date.now() - startTime;
@@ -99,6 +101,7 @@ export async function dbAgent(input: DBAgentInput): Promise<DBAgentOutput> {
       data: null,
       error: errorMessage,
       durationMs,
+      schema: dbAgentSchema,
     };
   }
 }

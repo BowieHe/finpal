@@ -1,0 +1,129 @@
+import { GraphState } from '../state';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('FinalVerdictNode');
+
+/**
+ * 将 DeepAgent 推荐转换为标准格式
+ */
+function normalizeRecommendation(
+  rec: string | undefined
+): 'strong_buy' | 'buy' | 'hold' | 'reduce' | 'avoid' | 'info_only' {
+  if (!rec) return 'info_only';
+  const lower = rec.toLowerCase();
+  if (lower.includes('strong_buy') || lower.includes('strong buy')) return 'strong_buy';
+  if (lower.includes('buy')) return 'buy';
+  if (lower.includes('hold')) return 'hold';
+  if (lower.includes('reduce') || lower.includes('sell')) return 'reduce';
+  if (lower.includes('avoid')) return 'avoid';
+  return 'info_only';
+}
+
+/**
+ * Final Verdict Node - 完整版
+ *
+ * DeepAgent 已经完成了所有分析和辩论，这个节点负责：
+ * 1. 格式化最终输出
+ * 2. 发送进度回调（包含完整的 final_verdict 数据）
+ * 3. 确保数据结构完整
+ */
+export const finalVerdictNode = async (
+  state: GraphState
+): Promise<Partial<GraphState>> => {
+  const startTime = Date.now();
+  logger.info('Final verdict node', { question: state.question });
+
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'node_start',
+      data: { node: 'finalVerdict', message: '生成最终报告...' },
+    });
+  }
+
+  // 从 DeepAgent 结果中提取数据
+  const optimisticData = state.optimisticData;
+  const pessimisticData = state.pessimisticData;
+  const researchSummary = state.researchSummary;
+
+  // 构建 bullPoints（看涨观点）
+  const bullPoints: string[] = [];
+  if (optimisticData?.catalysts) {
+    bullPoints.push(...optimisticData.catalysts.map(c =>
+      typeof c === 'string' ? c : c.description
+    ));
+  }
+  if (state.optimisticAnswer && !bullPoints.includes(state.optimisticAnswer)) {
+    bullPoints.unshift(state.optimisticAnswer);
+  }
+
+  // 构建 bearPoints（看跌观点）
+  const bearPoints: string[] = [];
+  if (pessimisticData?.riskFactors) {
+    bearPoints.push(...pessimisticData.riskFactors.map(r =>
+      typeof r === 'string' ? r : r.description
+    ));
+  }
+  if (state.pessimisticAnswer && !bearPoints.includes(state.pessimisticAnswer)) {
+    bearPoints.unshift(state.pessimisticAnswer);
+  }
+
+  // 构建 riskWarnings（风险提示）
+  const riskWarnings: string[] = [];
+  if (pessimisticData?.riskFactors) {
+    riskWarnings.push(...pessimisticData.riskFactors.map(r =>
+      typeof r === 'string' ? r : r.description
+    ));
+  }
+  if (optimisticData?.keyRisks) {
+    riskWarnings.push(...optimisticData.keyRisks);
+  }
+
+  // 构建 sources（来源）
+  const sources: string[] = [];
+  if (researchSummary?.data_points) {
+    sources.push(...researchSummary.data_points.map(dp => dp.source));
+  }
+  // 去重
+  const uniqueSources = [...new Set(sources)];
+
+  // 确定推荐和置信度
+  const recommendation = normalizeRecommendation(
+    state.debateWinner === 'optimistic' ? 'buy' :
+    state.debateWinner === 'pessimistic' ? 'reduce' : 'hold'
+  );
+
+  const confidence = optimisticData?.confidenceLevel ||
+                    pessimisticData?.confidenceLevel ||
+                    50;
+
+  // 发送完整的 final_verdict 事件
+  if (state.progressCallback) {
+    state.progressCallback({
+      type: 'final_verdict',
+      data: {
+        summary: state.debateSummary || researchSummary?.summary || '分析完成',
+        recommendation,
+        confidence,
+        bullPoints: bullPoints.length > 0 ? bullPoints : ['暂无明确看涨观点'],
+        bearPoints: bearPoints.length > 0 ? bearPoints : ['暂无明确看跌观点'],
+        riskWarnings: riskWarnings.length > 0 ? riskWarnings : ['请注意投资风险'],
+        sources: uniqueSources.length > 0 ? uniqueSources : ['AI分析'],
+      },
+    });
+
+    // 发送 complete 事件
+    state.progressCallback({
+      type: 'complete',
+      data: {
+        message: '分析完成',
+        winner: state.debateWinner,
+        summary: state.debateSummary,
+      },
+    });
+  }
+
+  logger.info('Final verdict completed', { duration: Date.now() - startTime });
+
+  // 返回空对象，因为数据已经在 state 中
+  return {};
+};

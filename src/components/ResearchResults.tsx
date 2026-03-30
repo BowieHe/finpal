@@ -15,6 +15,7 @@ import {
     MessageSquare,
     Zap
 } from "lucide-react";
+import { EventLogEntry } from "@/types/conversation";
 
 interface ResearchResultsProps {
     searchResults: any[];
@@ -28,6 +29,7 @@ interface ResearchResultsProps {
     agentTasks?: Record<string, any>;
     finalVerdict?: any;
     reflections?: Record<number, string>; // 新增：深度思考逻辑
+    eventHistory?: EventLogEntry[];
 }
 
 export default function ResearchResults({
@@ -42,6 +44,7 @@ export default function ResearchResults({
     agentTasks,
     finalVerdict,
     reflections = {},
+    eventHistory = [],
 }: ResearchResultsProps) {
     const [expandedFindings, setExpandedFindings] = useState<Set<string>>(
         new Set(),
@@ -62,6 +65,15 @@ export default function ResearchResults({
         }
         setExpandedFindings(newExpanded);
     };
+
+    const timelineEvents = [...eventHistory].slice(-6).reverse();
+    const statusColorMap: Record<string, string> = {
+        running: "bg-amber-400",
+        success: "bg-emerald-400",
+        error: "bg-rose-500",
+    };
+    const formatEventTime = (timestamp: number) =>
+        new Date(timestamp).toLocaleTimeString([], { hour12: false });
 
     // 将 findings 按深度分组，并按查询内容去重/聚合
     const findingsByDepth: Record<number, any[]> = {};
@@ -165,6 +177,35 @@ export default function ResearchResults({
                     Iterative Engine
                 </span>
             </div>
+
+            {timelineEvents.length > 0 && (
+                <div className="mb-4">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
+                        当前执行进度
+                    </div>
+                    <div className="space-y-2">
+                        {timelineEvents.map((entry) => (
+                            <div key={entry.id} className="flex items-start gap-2">
+                                <span
+                                    className={`mt-1 inline-flex h-3 w-3 rounded-full ${statusColorMap[entry.status || "running"] || "bg-slate-400"}`}
+                                />
+                                <div className="flex-1 text-[11px] text-slate-700 dark:text-slate-200">
+                                    <div className="font-semibold">{entry.label}</div>
+                                    {entry.detail && (
+                                        <div className="text-slate-500 dark:text-slate-400">
+                                            {entry.detail}
+                                        </div>
+                                    )}
+                                    <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+                                        <span>{entry.source || "系统"}</span>
+                                        <span>{formatEventTime(entry.timestamp)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div className="space-y-6">
                 {/* 1. 数据底座 (Foundational Agents) - Holdings, DB, Quant results */}

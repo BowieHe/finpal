@@ -1,6 +1,6 @@
 # FinPal — AI-Powered Portfolio Intelligence
 
-> An agentic investment assistant built with **Next.js**, **LangGraph**, and **PostgreSQL**. FinPal orchestrates a team of specialized AI agents to analyze your portfolio, search the web, and debate investment strategies — all in real-time.
+> An agentic investment assistant built with **Next.js**, **LangGraph**, and **DeepAgents**. FinPal uses autonomous DeepAgents to analyze your portfolio, search the web, and debate investment strategies — all in real-time.
 
 ![FinPal](finpal-homepage.png)
 
@@ -10,11 +10,11 @@
 
 ## ✨ Key Features
 
-- **🏢 Agent Teams Architecture** — A "micro investment firm" dynamically orchestrated by a CIO (Chief Investment Officer).
-- **⚔️ Adversarial Debate** — Bull vs Bear analysts debate with multi-round argumentation and neutral judge arbitration.
-- **📊 Real-time Streaming UI** — SSE-powered timeline showing agent collaboration and debate progress in real-time.
-- **🧠 Dynamic Persona (Karma Collection)** — Tracks behaviors and intent via KarmaLogs to build an evolving investment profile using recursive synthesis.
-- **🔍 Dual Data Sources** — Portfolio data (PostgreSQL + Native SQL) + live web intelligence (Alibaba Cloud Bailian).
+- **🧠 DeepAgent Architecture** — A single autonomous agent that plans, executes skills, and self-corrects through multi-step reasoning.
+- **⚔️ Adversarial Debate** — Built-in Bull vs Bear analysis with synthesized final verdict and expected value calculation.
+- **📊 Real-time Streaming UI** — SSE-powered timeline showing agent reasoning progress and debate results in real-time.
+- **🔍 Dual Search Strategy** — MCP web search with automatic fallback to DuckDuckGo for reliable information retrieval.
+- **💼 Portfolio Management** — Track fund holdings with cost basis, real-time NAV updates, and risk metrics.
 
 ---
 
@@ -25,46 +25,50 @@ User Query
    │
    ▼
 ┌────────────────────────────────────────────────────────┐
-│               CIO (Intent Planner)                     │
-│     Query analysis → Dynamic task decomposition        │
-└────────────────────┬───────────────────────────────────┘
-                     │ Send API (Fan-out)
-          ┌──────────┼──────────────┐
-          ▼          ▼              ▼
-    [DB-Agent]  [Web-Agent ×N]  [Quant-Agent]
-    Portfolio    Web search      Risk metrics
-    queries     per fund        (Sharpe, MDD)
-          └──────────┼──────────────┘
-                     ▼ Fan-in
-              [Gate Keeper]
-              Data quality check + routing
+│                    DeepAgent Node                      │
+│  ┌────────────────────────────────────────────────┐    │
+│  │              Autonomous Reasoning Loop          │    │
+│  │                                                 │    │
+│  │   ┌─────────┐    ┌─────────┐    ┌─────────┐    │    │
+│  │   │  Plan   │───→│ Execute │───→│ Observe │    │    │
+│  │   └────┬────┘    └────┬────┘    └────┬────┘    │    │
+│  │        └────────────────┴────────────────┘      │    │
+│  │                     │                           │    │
+│  │                     ▼ (confidence < threshold)  │    │
+│  │                ┌─────────┐                      │    │
+│  │                │ Reflect │──────────────────────┘    │
+│  │                └─────────┘  (iterate until done)      │
+│  └────────────────────────────────────────────────┘    │
+│                                                         │
+│  Skills Used:                                           │
+│  • fund-deep-search — Multi-query web research          │
+│  • fund-debate      — Bull/Bear analysis + EV calc      │
+└────────────────────┬────────────────────────────────────┘
                      │
-         ┌───────────┴───────────┐
-    Simple query           Complex analysis
-         │                       │
-    Direct Summary        ┌──────▼──────┐
-         │                │ Debate Loop  │
-         │                │  Bull  ⚔️  Bear
-         │                │    ↓         │
-         │                │ Round Judge  │ ← continues or stops
-         │                │    ↓ (loop)  │
-         │                └──────┬──────┘
-         │                       ▼
-         │               Final Verdict
-         └───────────────────────┘
+                     ▼
+┌────────────────────────────────────────────────────────┐
+│                  Final Verdict Node                    │
+│         Format structured investment report            │
+│    (recommendation, confidence, bull/bear points)      │
+└────────────────────┬────────────────────────────────────┘
+                     │
                      ▼
               Structured Response
+                     │
+    ┌────────────────┼────────────────┐
+    ▼                ▼                ▼
+ Optimistic      Pessimistic      Synthesis
+   View            View           & Verdict
 ```
 
 ### Agent Roles
 
-| Agent | Role | Tools |
-|-------|------|-------|
-| **DB-Agent** 🏦 | Portfolio data queries | `getPortfolioSummary`, `getHoldingDetail`, `compareFunds`, `getFundRiskMetrics` |
-| **Web-Agent** 🌐 | Live web intelligence | Bailian MCP web search (fund info, market news, manager profiles) |
-| **Quant-Agent** 📐 | Risk calculations | Pure TypeScript math — Sharpe ratio, Max Drawdown, Volatility (no LLM) |
-| **Round Judge** ⚖️ | Per-round debate arbiter | Decides winner + whether to continue (max 3 rounds) |
-| **Final Verdict** 📋 | Structured investment report | Generates `FinalVerdict` with recommendation, confidence, bull/bear points |
+| Component | Role | Description |
+|-----------|------|-------------|
+| **DeepAgent** 🧠 | Autonomous analyst | Plans research strategy, executes search skills, performs bull/bear debate, and synthesizes final verdict |
+| **Search Skill** 🔍 | Information retrieval | Multi-query web search using MCP + DuckDuckGo fallback |
+| **Debate Skill** ⚔️ | Adversarial analysis | Generates bull case, bear case, and expected value calculation |
+| **Final Verdict** 📋 | Report formatter | Structures output with recommendation, confidence, risk warnings |
 
 ---
 
@@ -74,8 +78,7 @@ User Query
 
 - **Node.js** ≥ 18, **pnpm** ≥ 8
 - **PostgreSQL** 14+ (via Docker or local)
-- **Python** 3.11+ with [uv](https://docs.astral.sh/uv/) (for scheduler only)
-- **OpenAI-compatible API key** (e.g., Alibaba Cloud Bailian / OpenAI / DeepSeek)
+- **OpenAI-compatible API key** (e.g., DeepSeek / OpenAI / Alibaba Cloud)
 
 ### 1. Install Dependencies
 
@@ -96,15 +99,15 @@ Key variables:
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `OPENAI_API_KEY` | LLM API key |
-| `OPENAI_BASE_URL` | API base URL (for non-OpenAI providers) |
-| `OPENAI_MODEL` | Model name (default: `qwen-plus`) |
-| `MCP_BAILIAN_API_KEY` | Alibaba Cloud Bailian search API key |
+| `OPENAI_BASE_URL` | API base URL (default: `https://api.deepseek.com`) |
+| `OPENAI_MODEL` | Model name (default: `deepseek-chat`) |
+| `MCP_BAILIAN_API_KEY` | Alibaba Cloud Bailian search API key (optional) |
 
 ### 3. Start Database
 
 ```bash
 docker compose up -d postgres
-# Schema is managed via native SQL / migrations (manual or tool-based)
+# Schema is managed via native SQL / migrations
 ```
 
 ### 4. Run Development Server
@@ -126,33 +129,37 @@ finpal/
 │   │   ├── page.tsx            # Main chat page + SSE handler
 │   │   └── api/chat/route.ts   # Chat API endpoint (SSE streaming)
 │   ├── components/             # React UI components
-│   │   ├── TimelineDebate.tsx   # Bull vs Bear debate timeline
-│   │   ├── DeciderResult.tsx    # Final verdict card
-│   │   ├── ResearchResults.tsx  # Agent collaboration panel
-│   │   ├── RoundDecisionCard.tsx# Per-round judge decision
-│   │   ├── MessageCard.tsx      # Chat message bubble
+│   │   ├── MessageList.tsx      # Chat message list with debate cards
+│   │   ├── PersonaCard.tsx      # Bull/Bear view cards
+│   │   ├── DeciderResult.tsx    # Final verdict display
+│   │   ├── ResearchResults.tsx  # Search results panel
+│   │   ├── Sidebar.tsx          # Conversation history sidebar
 │   │   └── ChatInput.tsx        # Input with Shift+Enter support
 │   ├── lib/
-│   │   ├── agents/             # Sub-agent implementations
-│   │   │   ├── db-agent.ts      # Database portfolio agent
-│   │   │   ├── web-agent.ts     # Web search agent
-│   │   │   └── quant-agent.ts   # Quantitative risk agent
-│   │   ├── graph/              # LangGraph orchestration
-│   │   │   ├── graph.ts         # Graph wiring (debate loop)
+│   │   ├── deepagent/          # 🆕 DeepAgent implementation
+│   │   │   ├── index.ts         # Agent factory + core types
+│   │   │   ├── agent.ts         # Agent loop (plan → execute → observe)
+│   │   │   ├── skills/          # Skill implementations
+│   │   │   │   ├── fund-deep-search.ts   # Multi-query research
+│   │   │   │   └── fund-debate.ts        # Bull/Bear analysis
+│   │   │   └── types.ts         # Skill interfaces
+│   │   ├── graph/              # LangGraph orchestration (simplified)
+│   │   │   ├── graph.ts         # 2-node graph: deepAgent → finalVerdict
 │   │   │   ├── state.ts         # Graph state annotations
-│   │   │   ├── nodes.ts         # Debate + judge + verdict nodes
-│   │   │   ├── nodes/agent-adapters.ts  # Agent → graph adapters
-│   │   │   └── cio/            # CIO layer
-│   │   │       ├── intent-planner.ts  # Query decomposition
-│   │   │       ├── gate-keeper.ts     # Quality check + routing
-│   │   │       └── direct-summary.ts  # Simple query shortcut
-│   │   ├── tools/              # Database tool functions
-│   │   ├── mcp/                # MCP search integration
-│   │   └── llm/                # LLM client + streaming
+│   │   │   └── nodes/           # Node implementations
+│   │   │       ├── deep-agent-node.ts    # DeepAgent wrapper
+│   │   │       └── final-verdict-node.ts # Report formatter
+│   │   ├── search/             # Search utilities
+│   │   │   ├── duckduckgo.ts    # DuckDuckGo search fallback
+│   │   │   └── query-classifier.ts # Query type detection
+│   │   ├── mcp/                # MCP client management
+│   │   │   ├── manager.ts       # MCP client lifecycle
+│   │   │   └── unified-search.ts # Unified search interface
+│   │   └── llm/                # LLM client
+│   │       └── client.ts        # OpenAI-compatible client
 │   └── types/                  # TypeScript type definitions
-├── scheduler/                  # Python data sync service
+├── scheduler/                  # Python data sync service (optional)
 │   └── src/                    # Fund NAV fetcher + cron jobs
-├── src/                    # Application source code
 └── docker-compose.yml          # PostgreSQL + services
 ```
 
@@ -163,19 +170,13 @@ finpal/
 ```bash
 # Development
 pnpm dev                        # Start Next.js dev server (+ Postgres)
-pnpm dev:web                    # Start Next.js only
-
-# Database
-# Use your preferred SQL tool or scripts
 
 # Testing
 pnpm test                       # Run unit tests (vitest)
 pnpm typecheck                  # TypeScript type check
 
-# Docker
-pnpm up                         # Start all services
-pnpm down                       # Stop all services
-pnpm logs                       # View service logs
+# Build
+pnpm build                      # Production build
 ```
 
 ---
@@ -184,37 +185,35 @@ pnpm logs                       # View service logs
 
 ### 1. Environment Variables (`.env.local`)
 
-FinPal requires several API keys to function correctly. Copy `.env.local.example` to `.env.local` and fill in:
+FinPal requires the following configuration:
 
-- **LLM Settings**: Controls the brain of the assistant.
-  - `OPENAI_API_KEY`: Your model provider API key.
-  - `OPENAI_BASE_URL`: The endpoint (e.g., `https://dashscope.aliyuncs.com/compatible-mode/v1` for Bailian or `https://api.deepseek.com`).
-  - `OPENAI_MODEL`: The model name (e.g., `qwen-plus`, `deepseek-chat`).
-- **Search Settings**:
-  - `DASHSCOPE_API_KEY`: **Required** for the `Web-Agent` to perform searches via Alibaba Cloud Bailian.
-- **Database**:
-  - `DATABASE_URL`: `postgresql://finpal:finpal@localhost:5432/finpal` (standard for the included Docker setup).
+- **LLM Settings** (Required):
+  - `OPENAI_API_KEY`: Your model provider API key
+  - `OPENAI_BASE_URL`: The endpoint (default: `https://api.deepseek.com`)
+  - `OPENAI_MODEL`: The model name (default: `deepseek-chat`)
 
-### 2. Manual Setup Sequence
+- **Search Settings** (Optional):
+  - `MCP_BAILIAN_API_KEY`: Alibaba Cloud Bailian API key for enhanced search
+  - Without this, system falls back to DuckDuckGo
 
-If `pnpm dev` fails or you are setting up for the first time:
-```bash
-# 1. Start Database
-docker compose up -d postgres
+- **Database** (Required):
+  - `DATABASE_URL`: `postgresql://finpal:finpal@localhost:5432/finpal`
 
-# 2. Sync Schema
-# (Use SQL scripts or tool-based migration)
+### 2. How DeepAgent Works
 
-# 3. (Optional) Run Scheduler for data sync
-cd scheduler && uv sync && uv run -m src.main
-```
+1. **Planning**: Analyzes user query and creates a research plan
+2. **Execution**: Runs skills in sequence:
+   - `fund-deep-search`: Gathers information via web search
+   - `fund-debate`: Generates bull case, bear case, and EV calculation
+3. **Observation**: Evaluates results and decides whether to continue or finish
+4. **Reflection**: If confidence is low, revises plan and re-executes
+5. **Completion**: Returns structured analysis to Final Verdict node
 
 ### 3. Critical Notes
 
-- **Proxy**: If you are in a restricted network, set `HTTP_PROXY` and `HTTPS_PROXY` in your `.env.local`.
-- **Search Engine**: The system defaults to `bailian-websearch` via MCP. Ensure your `DASHSCOPE_API_KEY` has search permissions enabled in the Bailian console.
-- **Port Conflicts**: Next.js runs on `3000`, Postgres on `5432`, and the Python Scheduler on `8001`. Ensure these ports are available.
-- **Thinking Process**: The `deepseek-reasoner` (R1) model is highly recommended for the debate nodes for better reasoning quality.
+- **Search Engine**: System tries MCP Bailian first, falls back to DuckDuckGo automatically
+- **Proxy**: Set `HTTP_PROXY` and `HTTPS_PROXY` if behind a restricted network
+- **Thinking Process**: DeepSeek models (`deepseek-chat`, `deepseek-reasoner`) are recommended for best reasoning quality
 
 ---
 
@@ -223,11 +222,11 @@ cd scheduler && uv sync && uv run -m src.main
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
-| **AI Orchestration** | LangGraph (LangChain.js), OpenAI-compatible LLMs |
-| **Search** | Alibaba Cloud Bailian MCP (Model Context Protocol) |
-| **Database** | PostgreSQL + Native SQL (pg) + Zod |
-| **Data Sync** | Python + FastAPI + akshare + APScheduler |
-| **Visualization** | Mermaid.js charts, ReactMarkdown |
+| **AI Orchestration** | LangGraph + DeepAgents (autonomous reasoning) |
+| **Search** | MCP (Model Context Protocol) + DuckDuckGo fallback |
+| **Database** | PostgreSQL + Native SQL |
+| **Data Sync** | Python + FastAPI + akshare (optional scheduler) |
+| **Visualization** | React components with Tailwind |
 | **Deployment** | Docker Compose |
 
 ---

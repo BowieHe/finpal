@@ -5,6 +5,8 @@
  * 每个 Agent 都有明确的 Input/Output 契约，可独立调用和测试。
  */
 
+import { DbAgentSchema } from "./db-agent-schema";
+
 // ==================== DB-Agent ====================
 
 export type DBAgentTask =
@@ -31,6 +33,7 @@ export interface DBAgentOutput {
   data: unknown;           // 实际数据，由调用方按 task 类型断言
   error?: string;          // status === 'error' 时填充
   durationMs: number;
+  schema?: DbAgentSchema;
 }
 
 // ==================== Web-Agent ====================

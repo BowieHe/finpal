@@ -8,7 +8,7 @@ import SettingsModal from "@/components/SettingsModal";
 import PersonaModal from "@/components/PersonaModal";
 import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Conversation, Message } from "@/types/conversation";
+import { Conversation, Message, EventLogEntry } from "@/types/conversation";
 import { LLMConfig, Theme } from "@/types/config";
 import {
     getConversations,
@@ -183,6 +183,7 @@ export default function Home() {
             decisions: [],
             cioPlanning: false,
             agentTasks: {},
+            isDirectAnswer: false,
         };
         addMessageToConversation(activeConversation.id, userMessage);
         setConversations(getConversations());
@@ -194,14 +195,13 @@ export default function Home() {
             // Update the local object reference for immediate access in the next SSE callback
             Object.assign(userMessage, updates);
             
-            // Still persist to conversation list but maybe throttled? 
+            // Persist state
             updateMessageInConversation(
                 activeConversation.id,
                 userMessage.id,
                 { ...updates, timestamp: Date.now() },
             );
             
-            // Update state with minimal object churn
             setCurrentConversation(prev => {
                 if (!prev) return null;
                 return {
@@ -209,6 +209,23 @@ export default function Home() {
                     messages: prev.messages.map(m => m.id === userMessage.id ? { ...m, ...updates } : m)
                 };
             });
+        };
+
+        const EVENT_HISTORY_LIMIT = 10;
+        const truncateForEvent = (text?: string, length = 80) =>
+            text ? (text.length > length ? text.slice(0, length) + "…" : text) : undefined;
+
+        const appendEventLog = (entry: Omit<EventLogEntry, "id" | "timestamp">) => {
+            const history = [...(userMessage.eventHistory || [])];
+            history.push({
+                id: generateId(),
+                timestamp: Date.now(),
+                ...entry,
+            });
+            if (history.length > EVENT_HISTORY_LIMIT) {
+                history.shift();
+            }
+            updateMessageProgress({ eventHistory: history });
         };
 
         // 用于累积流式内容的变量
@@ -342,6 +359,12 @@ export default function Home() {
                                                 status: "searching",
                                                 cioPlanning: true,
                                             });
+                                            appendEventLog({
+                                                label: "CIO 规划",
+                                                detail: truncateForEvent(event.data?.message),
+                                                status: "running",
+                                                source: "CIO",
+                                            });
                                             break;
                                         case "agent_start":
                                             if (event.data.agentId) {
@@ -356,6 +379,12 @@ export default function Home() {
                                                     status: "searching",
                                                     agentTasks: tasks,
                                                     cioPlanning: false,
+                                                });
+                                                appendEventLog({
+                                                    label: `${getAgentName(event.data.agentId)} 启动`,
+                                                    detail: truncateForEvent(event.data.taskDescription),
+                                                    status: "running",
+                                                    source: event.data.agentId,
                                                 });
                                             }
                                             break;
@@ -382,6 +411,14 @@ export default function Home() {
                                                     }
                                                     
                                                     updateMessageProgress(updates);
+                                                    if (event.data.message) {
+                                                        appendEventLog({
+                                                            label: `${getAgentName(event.data.agentId)} 进度`,
+                                                            detail: truncateForEvent(event.data.message),
+                                                            status: "running",
+                                                            source: event.data.agentId,
+                                                        });
+                                                    }
                                                 }
                                             }
                                             break;
@@ -408,6 +445,12 @@ export default function Home() {
                                                         ];
                                                     }
                                                     updateMessageProgress(updates);
+                                                    appendEventLog({
+                                                        label: `${getAgentName(event.data.agentId)} 完成`,
+                                                        detail: truncateForEvent(event.data.summary),
+                                                        status: "success",
+                                                        source: event.data.agentId,
+                                                    });
                                                 }
                                             }
                                             break;
@@ -419,6 +462,19 @@ export default function Home() {
                                                     tasks[event.data.agentId].error = event.data.error;
                                                     updateMessageProgress({ agentTasks: tasks });
                                                 }
+                                            }
+                                            break;
+                                        case "direct_answer":
+                                            // 直接回答（如能力边界询问）
+                                            console.log('[page] SSE: direct_answer', event.data);
+                                            if (event.data.answer) {
+                                                updateMessageProgress({
+                                                    status: "complete",
+                                                    optimisticAnswer: event.data.answer,
+                                                    debateSummary: event.data.answer,
+                                                    debateWinner: "draw",
+                                                    isDirectAnswer: true,
+                                                });
                                             }
                                             break;
                                         case "gate_keeper_check":
@@ -449,6 +505,12 @@ export default function Home() {
                                                     status: "complete",
                                                 });
                                             }
+                                            appendEventLog({
+                                                label: "最终建议准备",
+                                                detail: truncateForEvent(event.data.summary),
+                                                status: "success",
+                                                source: "final-verdict",
+                                            });
                                             break;
                                         case "planning":
                                             updateMessageProgress({
@@ -472,6 +534,12 @@ export default function Home() {
                                                     event.data.message ||
                                                     "正在查询数据库...",
                                             });
+                                            appendEventLog({
+                                                label: "数据库查询",
+                                                detail: truncateForEvent(event.data.message),
+                                                status: "running",
+                                                source: "db-agent",
+                                            });
                                             break;
                                         case "db_result":
                                             if (event.data.results) {
@@ -482,6 +550,12 @@ export default function Home() {
                                             }
                                             updateMessageProgress({
                                                 dbResults: currentDbResults,
+                                            });
+                                            appendEventLog({
+                                                label: "数据库返回",
+                                                detail: `${truncateForEvent(event.data.query || "内部数据")} · ${Array.isArray(event.data.results) ? event.data.results.length : 0} 条`,
+                                                status: event.data.error ? "error" : "success",
+                                                source: "db-agent",
                                             });
                                             break;
                                         case "search_result":
@@ -497,6 +571,12 @@ export default function Home() {
                                             updateMessageProgress({
                                                 searchResults:
                                                     currentSearchResults,
+                                            });
+                                            appendEventLog({
+                                                label: "网页搜索完成",
+                                                detail: `${truncateForEvent(event.data.query)} · ${event.data.results?.length ?? 0} 条`,
+                                                status: "success",
+                                                source: "web-search",
                                             });
                                             break;
                                         case "search_complete":
@@ -628,6 +708,12 @@ export default function Home() {
                                                 optimisticThinking:
                                                     event.data.thinking,
                                             });
+                                            appendEventLog({
+                                                label: "乐观派观点生成",
+                                                detail: truncateForEvent(event.data.answer),
+                                                status: "running",
+                                                source: "debate",
+                                            });
                                             break;
                                         case "pessimistic_output":
                                             console.log('[page] SSE: pessimistic_output', event.data);
@@ -638,6 +724,12 @@ export default function Home() {
                                                     event.data.answer,
                                                 pessimisticThinking:
                                                     event.data.thinking,
+                                            });
+                                            appendEventLog({
+                                                label: "悲观派观点生成",
+                                                detail: truncateForEvent(event.data.answer),
+                                                status: "running",
+                                                source: "debate",
                                             });
                                             break;
                                         case "optimistic_rebuttal":
@@ -767,6 +859,12 @@ export default function Home() {
                                             if (event.result) {
                                                 finalResult = event.result;
                                             }
+                                            appendEventLog({
+                                                label: "分析结束",
+                                                detail: truncateForEvent(event.data?.summary),
+                                                status: "success",
+                                                source: "complete",
+                                            });
                                             break;
                                         case "error":
                                             console.error("[Page] SSE 'error' event received:", event);
@@ -851,6 +949,7 @@ export default function Home() {
                             finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
                             reflections: (finalResult as any).reflections || userMessage.reflections, 
                             cioPlanning: false,
+                            isDirectAnswer: userMessage.isDirectAnswer,
                         } as any,
                     );
 
@@ -884,6 +983,7 @@ export default function Home() {
                         researchSummary: data.researchSummary,
                         engineUsage: data.engineUsage,
                         round: data.round,
+                        isDirectAnswer: userMessage.isDirectAnswer,
                     } as any,
                 );
 

@@ -23,6 +23,15 @@ export interface DebateRound {
   pessimisticThinking?: string;
 }
 
+export interface EventLogEntry {
+  id: string;
+  label: string;
+  detail?: string;
+  status?: 'running' | 'success' | 'error';
+  timestamp: number;
+  source?: string;
+}
+
 export interface Message {
   id: string;
   question: string;
@@ -57,6 +66,10 @@ export interface Message {
   debateHistory?: DebateRound[];
   // NEW: Comprehensive search findings
   allFindings?: any[];
+  // NEW: Event timeline for live activity updates
+  eventHistory?: EventLogEntry[];
+  // NEW: Flag for ability-bound direct answers
+  isDirectAnswer?: boolean;
 }
 
 export interface AgentTask {

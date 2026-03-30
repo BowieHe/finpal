@@ -1,6 +1,6 @@
 # FinPal — AI 智能投资助手
 
-> 基于 **Next.js** + **LangGraph** + **PostgreSQL** 的智能基金投资分析应用。FinPal 编排一组专业化 AI Agent 团队，实时分析持仓、搜索市场情报、进行多轮多空辩论，最终输出结构化投资建议。
+> 基于 **Next.js** + **LangGraph** + **DeepAgents** 的智能基金投资分析应用。FinPal 使用自主代理（DeepAgent）实时分析持仓、搜索市场情报、进行多空辩论，最终输出结构化投资建议。
 
 ![FinPal](finpal-homepage.png)
 
@@ -10,9 +10,11 @@
 
 ## ✨ 核心特性
 
-- **智能分析决策 (Scouts & Wisdom Node)**：双分析师（乐观 vs 悲观）辩论模型，通过 CIO 调度层实现高效的数据采集与数学期望 (EV) 裁决。
-- **动态投资画像 (Karma Collection)**：基于业力记录 (KarmaLog) 的叠加态分析，利用递归合成技术生成不断进化的个人投资性格。
-- **截图分析 (Vision Analysis)**：支持上传基金持仓截图，自动提取资产数据并分析交易时机与风格细节。
+- **深度代理架构 (DeepAgent)** — 单一自主代理，能够规划研究策略、执行技能、自我纠错，通过多步推理完成任务
+- **多空对抗辩论** — 内置多头/空头分析，生成综合结论和期望值(EV)计算
+- **实时流式界面** — 基于 SSE 的时间线，实时展示代理推理过程和辩论结果
+- **双搜索策略** — MCP 网页搜索 + DuckDuckGo 自动回退，确保信息获取可靠
+- **持仓管理** — 跟踪基金持仓成本、实时净值更新和风险指标
 
 ---
 
@@ -23,46 +25,50 @@
    │
    ▼
 ┌────────────────────────────────────────────────────────┐
-│                CIO 首席投资官 Agent                      │
-│      意图识别 → 动态任务拆解 → 按需派发                   │
-└────────────────────┬───────────────────────────────────┘
-                     │ Send API (Fan-out 并行)
-          ┌──────────┼──────────────┐
-          ▼          ▼              ▼
-    [持仓专员]   [侦察专员 ×N]   [量化专员]
-    DB-Agent    Web-Agent       Quant-Agent
-    数据库查询   每只基金独立搜索  风险指标计算
-          └──────────┼──────────────┘
-                     ▼ Fan-in 数据汇总
-              [Gate Keeper]
-              数据质量检验 + 路由决策
+│                    DeepAgent 节点                       │
+│  ┌────────────────────────────────────────────────┐    │
+│  │                自主推理循环                     │    │
+│  │                                                 │    │
+│  │   ┌─────────┐    ┌─────────┐    ┌─────────┐    │    │
+│  │   │  规划   │───→│  执行   │───→│  观察   │    │    │
+│  │   └────┬────┘    └────┬────┘    └────┬────┘    │    │
+│  │        └────────────────┴────────────────┘      │    │
+│  │                     │                           │    │
+│  │                     ▼ (置信度 < 阈值)            │    │
+│  │                ┌─────────┐                      │    │
+│  │                │ 反思修正 │──────────────────────┘    │
+│  │                └─────────┘  (迭代直至完成)              │
+│  └────────────────────────────────────────────────┘    │
+│                                                         │
+│  使用的技能:                                             │
+│  • fund-deep-search — 多查询网页研究                     │
+│  • fund-debate      — 多头/空头分析 + EV计算             │
+└────────────────────┬────────────────────────────────────┘
                      │
-         ┌───────────┴───────────┐
-      简单查询              复杂分析
-         │                       │
-    直接摘要输出           ┌──────▼──────┐
-         │                │  辩论循环     │
-         │                │ 🐂多头 ⚔️ 🐻空头
-         │                │    ↓         │
-         │                │ 轮次裁判      │ ← 继续/终止
-         │                │    ↓ (循环)   │
-         │                └──────┬──────┘
-         │                       ▼
-         │               最终裁决报告
-         └───────────────────────┘
                      ▼
-              结构化投资建议
+┌────────────────────────────────────────────────────────┐
+│                  最终裁决节点                           │
+│              格式化结构化投资报告                        │
+│    (推荐操作、置信度、多空观点、风险提示)                  │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+              结构化响应
+                     │
+    ┌────────────────┼────────────────┐
+    ▼                ▼                ▼
+   多头观点         空头观点         综合结论
+   Optimistic    Pessimistic     Synthesis
 ```
 
 ### Agent 角色
 
-| Agent | 职责 | 工具集 |
-|-------|------|--------|
-| **持仓专员** 🏦 | 数据库持仓查询 | `getPortfolioSummary`、`getHoldingDetail`、`compareFunds`、`getFundRiskMetrics` |
-| **侦察专员** 🌐 | 网络情报搜索 | 百炼 MCP 搜索（基金信息、市场新闻、基金经理动态） |
-| **量化专员** 📐 | 风险指标计算 | 纯 TypeScript 数学计算 — 夏普比率、最大回撤、波动率（无 LLM） |
-| **轮次裁判** ⚖️ | 每轮辩论裁决 | 判断本轮胜负 + 是否继续辩论（最多 3 轮） |
-| **最终裁决** 📋 | 生成结构化报告 | 输出 `FinalVerdict`：推荐操作、置信度、多空要点 |
+| 组件 | 角色 | 说明 |
+|------|------|------|
+| **DeepAgent** 🧠 | 自主分析师 | 规划研究策略、执行搜索技能、执行多空辩论、综合最终结论 |
+| **搜索技能** 🔍 | 信息检索 | 多查询网页搜索，使用 MCP + DuckDuckGo 回退 |
+| **辩论技能** ⚔️ | 对抗分析 | 生成多头案例、空头案例和期望值计算 |
+| **最终裁决** 📋 | 报告格式化 | 结构化输出：推荐操作、置信度、风险提示 |
 
 ---
 
@@ -72,8 +78,7 @@
 
 - **Node.js** ≥ 18，**pnpm** ≥ 8
 - **PostgreSQL** 14+（Docker 或本地安装）
-- **Python** 3.11+ + [uv](https://docs.astral.sh/uv/)（仅 scheduler 需要）
-- **OpenAI 兼容 API Key**（阿里云百炼 / OpenAI / DeepSeek 等）
+- **OpenAI 兼容 API Key**（DeepSeek / OpenAI / 阿里云等）
 
 ### 1. 安装依赖
 
@@ -94,9 +99,9 @@ cp .env.local.example .env.local
 |------|------|
 | `DATABASE_URL` | PostgreSQL 连接字符串 |
 | `OPENAI_API_KEY` | LLM API Key |
-| `OPENAI_BASE_URL` | API 地址（非 OpenAI 服务商时需配置） |
-| `OPENAI_MODEL` | 模型名称（默认 `qwen-plus`） |
-| `MCP_BAILIAN_API_KEY` | 阿里云百炼搜索 API Key |
+| `OPENAI_BASE_URL` | API 地址（默认: `https://api.deepseek.com`） |
+| `OPENAI_MODEL` | 模型名称（默认: `deepseek-chat`） |
+| `MCP_BAILIAN_API_KEY` | 阿里云百炼搜索 API Key（可选） |
 
 ### 3. 启动数据库
 
@@ -124,33 +129,37 @@ finpal/
 │   │   ├── page.tsx            # 主聊天页 + SSE 事件处理
 │   │   └── api/chat/route.ts   # Chat API（SSE 流式推送）
 │   ├── components/             # React UI 组件
-│   │   ├── TimelineDebate.tsx   # 多空辩论时间线
-│   │   ├── DeciderResult.tsx    # 最终裁决卡片
-│   │   ├── ResearchResults.tsx  # Agent 协作面板
-│   │   ├── RoundDecisionCard.tsx# 每轮裁决卡片
-│   │   ├── MessageCard.tsx      # 聊天消息气泡
+│   │   ├── MessageList.tsx      # 消息列表（含辩论卡片）
+│   │   ├── PersonaCard.tsx      # 多头/空头观点卡片
+│   │   ├── DeciderResult.tsx    # 最终裁决展示
+│   │   ├── ResearchResults.tsx  # 搜索结果面板
+│   │   ├── Sidebar.tsx          # 对话历史侧边栏
 │   │   └── ChatInput.tsx        # 输入框（Shift+Enter 换行）
 │   ├── lib/
-│   │   ├── agents/             # Sub-Agent 实现
-│   │   │   ├── db-agent.ts      # 持仓专员
-│   │   │   ├── web-agent.ts     # 侦察专员
-│   │   │   └── quant-agent.ts   # 量化专员
-│   │   ├── graph/              # LangGraph 编排
-│   │   │   ├── graph.ts         # 图定义（辩论循环）
-│   │   │   ├── state.ts         # 状态注解
-│   │   │   ├── nodes.ts         # 辩论 + 裁判 + 最终裁决节点
-│   │   │   ├── nodes/agent-adapters.ts  # Agent 适配器
-│   │   │   └── cio/            # CIO 调度层
-│   │   │       ├── intent-planner.ts  # 意图拆解
-│   │   │       ├── gate-keeper.ts     # 质量检验 + 路由
-│   │   │       └── direct-summary.ts  # 简单查询直出
-│   │   ├── tools/              # 数据库工具
-│   │   ├── mcp/                # MCP 搜索集成
-│   │   └── llm/                # LLM 客户端 + 流式输出
+│   │   ├── deepagent/          # 🆕 DeepAgent 实现
+│   │   │   ├── index.ts         # Agent 工厂 + 核心类型
+│   │   │   ├── agent.ts         # Agent 循环（规划→执行→观察）
+│   │   │   ├── skills/          # 技能实现
+│   │   │   │   ├── fund-deep-search.ts   # 多查询研究
+│   │   │   │   └── fund-debate.ts        # 多头/空头分析
+│   │   │   └── types.ts         # 技能接口定义
+│   │   ├── graph/              # LangGraph 编排（简化版）
+│   │   │   ├── graph.ts         # 2节点图: deepAgent → finalVerdict
+│   │   │   ├── state.ts         # 图状态注解
+│   │   │   └── nodes/           # 节点实现
+│   │   │       ├── deep-agent-node.ts    # DeepAgent 包装器
+│   │   │       └── final-verdict-node.ts # 报告格式化
+│   │   ├── search/             # 搜索工具
+│   │   │   ├── duckduckgo.ts    # DuckDuckGo 搜索回退
+│   │   │   └── query-classifier.ts # 查询类型检测
+│   │   ├── mcp/                # MCP 客户端管理
+│   │   │   ├── manager.ts       # MCP 客户端生命周期
+│   │   │   └── unified-search.ts # 统一搜索接口
+│   │   └── llm/                # LLM 客户端
+│   │       └── client.ts        # OpenAI 兼容客户端
 │   └── types/                  # TypeScript 类型定义
-├── scheduler/                  # Python 数据同步服务
+├── scheduler/                  # Python 数据同步服务（可选）
 │   └── src/                    # 基金净值抓取 + 定时任务
-├── src/                    # 应用源码
 └── docker-compose.yml          # PostgreSQL + 服务编排
 ```
 
@@ -161,19 +170,13 @@ finpal/
 ```bash
 # 开发
 pnpm dev                        # 启动开发服务器（含 Postgres）
-pnpm dev:web                    # 仅启动 Next.js
-
-# 数据库
-# 使用你喜欢的 SQL 工具或脚本
 
 # 测试
 pnpm test                       # 运行单元测试（vitest）
 pnpm typecheck                  # TypeScript 类型检查
 
-# Docker
-pnpm up                         # 启动所有服务
-pnpm down                       # 停止所有服务
-pnpm logs                       # 查看服务日志
+# 构建
+pnpm build                      # 生产构建
 ```
 
 ---
@@ -182,37 +185,35 @@ pnpm logs                       # 查看服务日志
 
 ### 1. 环境变量 (`.env.local`)
 
-FinPal 需要配置以下关键变量才能正常运行。请将 `.env.local.example` 复制为 `.env.local` 并填写：
+FinPal 需要以下配置：
 
-- **LLM 设置**: 控制助手的大脑。
-  - `OPENAI_API_KEY`: 你的大模型 API 密钥。
-  - `OPENAI_BASE_URL`: API 端点（例如：阿里云百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1` 或 DeepSeek `https://api.deepseek.com`）。
-  - `OPENAI_MODEL`: 模型名称（例如：`qwen-plus`、`deepseek-reasoner`）。
-- **搜索设置**:
-  - `DASHSCOPE_API_KEY`: **必须配置**，用于 `侦察专员` 通过阿里云百炼执行搜索。
-- **数据库**:
-  - `DATABASE_URL`: `postgresql://finpal:finpal@localhost:5432/finpal`（与默认 Docker 配置一致）。
+- **LLM 设置**（必需）:
+  - `OPENAI_API_KEY`: 大模型 API 密钥
+  - `OPENAI_BASE_URL`: API 端点（默认: `https://api.deepseek.com`）
+  - `OPENAI_MODEL`: 模型名称（默认: `deepseek-chat`）
 
-### 2. 手动启动步骤
+- **搜索设置**（可选）:
+  - `MCP_BAILIAN_API_KEY`: 阿里云百炼 API Key，用于增强搜索
+  - 未配置时自动回退到 DuckDuckGo
 
-如果 `pnpm dev` 自动启动失败，请按顺序执行：
-```bash
-# 1. 启动数据库
-docker compose up -d postgres
+- **数据库**（必需）:
+  - `DATABASE_URL`: `postgresql://finpal:finpal@localhost:5432/finpal`
 
-# 2. 同步数据库结构
-# (使用 SQL 脚本或迁移工具)
+### 2. DeepAgent 工作原理
 
-# 3. (可选) 启动数据同步服务
-cd scheduler && uv sync && uv run -m src.main
-```
+1. **规划**: 分析用户问题，制定研究计划
+2. **执行**: 按顺序运行技能:
+   - `fund-deep-search`: 通过网页搜索收集信息
+   - `fund-debate`: 生成多头案例、空头案例和 EV 计算
+3. **观察**: 评估结果，决定继续或结束
+4. **反思**: 如果置信度低，修订计划重新执行
+5. **完成**: 返回结构化分析结果给最终裁决节点
 
 ### 3. 重要提示
 
-- **网络代理**: 如果在国内环境访问 OpenAI/DeepSeek 慢，请在 `.env.local` 中配置 `HTTP_PROXY` 和 `HTTPS_PROXY`。
-- **搜索引擎**: 系统默认使用通过 MCP 接入的 `bailian-websearch`。请确保你的 `DASHSCOPE_API_KEY` 在百炼控制台已开通搜索增强能力。
-- **端口冲突**: Next.js 占用 `3000`，Postgres 占用 `5432`，Python Scheduler 占用 `8001`。请确保这些端口未被占用。
-- **推理能力**: 强烈建议在辩论节点使用 `deepseek-reasoner` (R1) 或 `qwen-max` 等具备强推理能力的模型以获得更好的分析效果。
+- **搜索引擎**: 系统优先尝试 MCP 百炼，自动回退到 DuckDuckGo
+- **网络代理**: 如处于受限网络，可设置 `HTTP_PROXY` 和 `HTTPS_PROXY`
+- **推理能力**: 推荐使用 DeepSeek 模型（`deepseek-chat`、`deepseek-reasoner`）获得最佳推理效果
 
 ---
 
@@ -221,11 +222,11 @@ cd scheduler && uv sync && uv run -m src.main
 | 层级 | 技术 |
 |------|------|
 | **前端** | Next.js 16、React 19、TypeScript、Tailwind CSS 4 |
-| **AI 编排** | LangGraph (LangChain.js)、OpenAI 兼容 LLM |
-| **搜索** | 阿里云百炼 MCP（Model Context Protocol） |
-| **数据库** | PostgreSQL + 原生 SQL (pg) + Zod |
-| **数据同步** | Python + FastAPI + akshare + APScheduler |
-| **可视化** | Mermaid.js 图表、ReactMarkdown |
+| **AI 编排** | LangGraph + DeepAgents（自主推理） |
+| **搜索** | MCP（Model Context Protocol）+ DuckDuckGo 回退 |
+| **数据库** | PostgreSQL + 原生 SQL |
+| **数据同步** | Python + FastAPI + akshare（可选调度器） |
+| **可视化** | React 组件 + Tailwind |
 | **部署** | Docker Compose |
 
 ---
