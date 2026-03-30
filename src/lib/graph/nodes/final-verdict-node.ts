@@ -44,6 +44,7 @@ export const finalVerdictNode = async (
   const optimisticData = state.optimisticData;
   const pessimisticData = state.pessimisticData;
   const researchSummary = state.researchSummary;
+  const researchBoard = researchSummary?.research_board;
 
   // 构建 bullPoints（看涨观点）
   const bullPoints: string[] = [];
@@ -83,8 +84,27 @@ export const finalVerdictNode = async (
   if (researchSummary?.data_points) {
     sources.push(...researchSummary.data_points.map(dp => dp.source));
   }
+  if (researchBoard?.knownFacts) {
+    sources.push(...researchBoard.knownFacts.map(item => item.source));
+  }
   // 去重
   const uniqueSources = [...new Set(sources)];
+
+  const coveredGaps = (researchBoard?.coveredGaps || []).map(item => item.gap);
+  const remainingGaps = researchBoard?.informationGaps || [];
+  const researchBasis = [
+    ...(researchBoard?.knownFacts || []).slice(0, 5).map(item => item.claim),
+    ...(researchSummary?.key_facts || []).slice(0, 3),
+  ].filter(Boolean);
+
+  const finalSummary = state.debateSummary
+    || researchSummary?.summary
+    || [
+      coveredGaps.length > 0 ? `已覆盖关键研究缺口：${coveredGaps.join('、')}` : '',
+      remainingGaps.length > 0 ? `仍待补充：${remainingGaps.join('、')}` : '',
+      researchBoard?.stopReason ? `停止原因：${researchBoard.stopReason}` : '',
+    ].filter(Boolean).join('\n\n')
+    || '分析完成';
 
   // 确定推荐和置信度
   const recommendation = normalizeRecommendation(
@@ -101,13 +121,17 @@ export const finalVerdictNode = async (
     state.progressCallback({
       type: 'final_verdict',
       data: {
-        summary: state.debateSummary || researchSummary?.summary || '分析完成',
+        summary: finalSummary,
         recommendation,
         confidence,
         bullPoints: bullPoints.length > 0 ? bullPoints : ['暂无明确看涨观点'],
         bearPoints: bearPoints.length > 0 ? bearPoints : ['暂无明确看跌观点'],
         riskWarnings: riskWarnings.length > 0 ? riskWarnings : ['请注意投资风险'],
         sources: uniqueSources.length > 0 ? uniqueSources : ['AI分析'],
+        researchBasis,
+        coveredGaps,
+        remainingGaps,
+        searchStopReason: researchBoard?.stopReason,
       },
     });
 
@@ -117,7 +141,7 @@ export const finalVerdictNode = async (
       data: {
         message: '分析完成',
         winner: state.debateWinner,
-        summary: state.debateSummary,
+        summary: finalSummary,
       },
     });
   }

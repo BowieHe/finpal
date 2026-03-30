@@ -115,6 +115,49 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
         {parsedVerdict.summary}
       </div>
 
+      {parsedVerdict.searchStopReason && (
+        <div className="rounded-lg border border-cyan-200 dark:border-cyan-800/60 bg-cyan-50 dark:bg-cyan-900/20 p-3">
+          <div className="text-xs font-semibold text-cyan-800 dark:text-cyan-300 mb-1">研究停止依据</div>
+          <div className="text-xs text-cyan-700 dark:text-cyan-200">{parsedVerdict.searchStopReason}</div>
+        </div>
+      )}
+
+      {parsedVerdict.researchBasis && parsedVerdict.researchBasis.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300">研究依据</h4>
+          <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 pl-4 list-disc">
+            {parsedVerdict.researchBasis.map((point, idx) => (
+              <li key={`basis-${idx}`}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(parsedVerdict.coveredGaps?.length || parsedVerdict.remainingGaps?.length) ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {parsedVerdict.coveredGaps && parsedVerdict.coveredGaps.length > 0 && (
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/20 p-3">
+              <h4 className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 mb-2">已覆盖缺口</h4>
+              <ul className="text-xs text-emerald-700 dark:text-emerald-200 space-y-1 pl-4 list-disc">
+                {parsedVerdict.coveredGaps.map((gap, idx) => (
+                  <li key={`covered-${idx}`}>{gap}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {parsedVerdict.remainingGaps && parsedVerdict.remainingGaps.length > 0 && (
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 p-3">
+              <h4 className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">剩余缺口</h4>
+              <ul className="text-xs text-amber-700 dark:text-amber-200 space-y-1 pl-4 list-disc">
+                {parsedVerdict.remainingGaps.map((gap, idx) => (
+                  <li key={`remaining-${idx}`}>{gap}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {parsedVerdict.bullPoints?.length > 0 && (
           <div className="space-y-2">

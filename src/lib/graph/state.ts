@@ -14,6 +14,26 @@ export interface ResearchSummary {
   summary: string;
   key_facts: string[];
   data_points: DataPoint[];
+  research_board?: {
+    knownFacts: Array<{
+      claim: string;
+      source: string;
+      confidence: number;
+      gapCovered?: string;
+    }>;
+    coveredGaps: Array<{
+      gap: string;
+      query: string;
+      evidence: string[];
+      confidence: number;
+    }>;
+    informationGaps: string[];
+    failedPaths: Array<{
+      query: string;
+      reason: string;
+    }>;
+    stopReason?: string;
+  };
 }
 
 /**

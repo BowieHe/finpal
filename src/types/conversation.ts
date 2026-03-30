@@ -118,6 +118,10 @@ export interface FinalVerdict {
   confidence: number;
   bullPoints: string[];
   bearPoints: string[];
+  researchBasis?: string[];
+  coveredGaps?: string[];
+  remainingGaps?: string[];
+  searchStopReason?: string;
   comparisonTable?: {
     fundCode: string;
     sharpe: number;

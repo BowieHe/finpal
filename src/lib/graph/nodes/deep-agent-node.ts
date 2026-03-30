@@ -186,6 +186,10 @@ export const deepAgentNode = async (
     const searchObservations = result.observations.filter(
       obs => obs.skillName === 'fund-deep-search' && obs.output.success
     );
+    const latestSearchData = searchObservations.length > 0
+      ? searchObservations[searchObservations.length - 1].output.data
+      : null;
+    const researchBoard = latestSearchData?.researchBoard;
 
     for (const obs of searchObservations) {
       const searchData = obs.output.data;
@@ -350,13 +354,24 @@ export const deepAgentNode = async (
     const updates: Partial<GraphState> = {
       // 研究总结
       researchSummary: {
-        summary: synthesis?.summary || `DeepAgent 完成 ${result.totalSteps} 步分析`,
-        key_facts: result.thoughts.map(t => t.content),
+        summary: synthesis?.summary || researchBoard?.stopReason || `DeepAgent 完成 ${result.totalSteps} 步分析`,
+        key_facts: [
+          ...result.thoughts.map(t => t.content),
+          ...(researchBoard?.coveredGaps || []).map((item: any) => `已覆盖缺口: ${item.gap}`),
+          ...(researchBoard?.knownFacts || []).slice(0, 5).map((item: any) => item.claim),
+        ].filter(Boolean),
         data_points: result.observations.map(obs => ({
           source: obs.skillName,
           value: obs.output.success ? '成功' : '失败',
           context: `置信度: ${(obs.output.confidence * 100).toFixed(0)}%`,
         })),
+        research_board: researchBoard ? {
+          knownFacts: researchBoard.knownFacts || [],
+          coveredGaps: researchBoard.coveredGaps || [],
+          informationGaps: researchBoard.informationGaps || [],
+          failedPaths: researchBoard.failedPaths || [],
+          stopReason: researchBoard.stopReason,
+        } : undefined,
       },
 
       // 搜索 findings
