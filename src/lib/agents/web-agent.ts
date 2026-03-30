@@ -7,6 +7,7 @@
 
 import { WebAgentInput, WebAgentOutput } from './types';
 import { smartSearch } from '../mcp/unified-search';
+import { mcpManager } from '../mcp/manager';
 import { createLogger } from '../logger';
 
 const logger = createLogger('WebAgent');
@@ -16,12 +17,13 @@ const QUERY_TEMPLATES: Record<string, (params: WebAgentInput['params']) => strin
   fund_info: ({ query, fundCode }) =>
     fundCode
       ? `${fundCode} ${query || '基金最新信息 净值 规模'}`
-      : query,
-  market_news: ({ query }) => query,
+      : query || '',
+  market_news: ({ query }) => query || '',
   manager_info: ({ query, fundCode }) =>
     fundCode
       ? `${fundCode} 基金经理 ${query || '管理变动 业绩'}`
-      : query,
+      : query || '',
+  fetch_page: ({ url }) => url || '',
 };
 
 /**
@@ -43,6 +45,46 @@ export async function webAgent(input: WebAgentInput): Promise<WebAgentOutput> {
     }
 
     const query = queryBuilder(params);
+    
+    if (task === 'fetch_page') {
+      const url = params.url;
+      if (!url) throw new Error('fetch_page task requires a url parameter');
+      
+      logger.info('Web-Agent executing fetch_page', { url });
+      input.onProgress?.(`准备深读网页内容: "${url}"`);
+
+      const client = await mcpManager.getClient('playwright');
+      const response = await client.callTool({
+        name: 'playwright_navigate',
+        arguments: { url }
+      });
+      
+      input.onProgress?.(`网页加载完成，正在提取正文...`);
+      const contentResponse = await client.callTool({
+        name: 'playwright_get_content',
+        arguments: {}
+      });
+
+      const fullText = (contentResponse.content as any)[0]?.text || '';
+      const durationMs = Date.now() - startTime;
+      
+      return {
+        agentId: 'web-agent',
+        task,
+        fundCode: params.fundCode,
+        status: 'success',
+        sources: [url],
+        summary: fullText.substring(0, 500) + '...',
+        query: url, // 网页深读直接用 URL 作为标识
+        rawSnippets: [{
+          title: '网页全文提取',
+          url,
+          content: fullText.substring(0, 3000) // 限制长度
+        }],
+        durationMs,
+      };
+    }
+
     logger.info('Web-Agent executing search', { task, query });
     input.onProgress?.(`准备通过通义 MCP 搜索网络: "${query}"`);
 
@@ -59,6 +101,7 @@ export async function webAgent(input: WebAgentInput): Promise<WebAgentOutput> {
         status: 'partial',
         sources: [],
         summary: `搜索 "${query}" 未返回结果`,
+        query, // 即使失败也返回 query
         rawSnippets: [],
         error: searchResult.reasoning,
         durationMs,
@@ -102,6 +145,7 @@ export async function webAgent(input: WebAgentInput): Promise<WebAgentOutput> {
       status: 'success',
       sources,
       summary,
+      query, // 返回实际使用的 query
       rawSnippets,
       durationMs,
     };

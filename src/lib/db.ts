@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-const databaseUrl = process.env.DATABASE_URL || 'postgresql://finpal:finpal@localhost:5432/finpal';
+const databaseUrl = process.env.DATABASE_URL || 'postgresql://finpal:finpal@localhost:15432/finpal';
 
 const pool = new Pool({
   connectionString: databaseUrl,

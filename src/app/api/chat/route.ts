@@ -47,16 +47,17 @@ export async function POST(req: Request) {
       });
       
       const sql = `
-        INSERT INTO settings (id, api_url, model_name, api_key, dashscope_api_key, updated_at)
-        VALUES (1, $1, $2, $3, $4, NOW())
+        INSERT INTO settings (id, api_url, model_name, light_model_name, api_key, dashscope_api_key, updated_at)
+        VALUES (1, $1, $2, $3, $4, $5, NOW())
         ON CONFLICT (id) DO UPDATE SET
           api_url = EXCLUDED.api_url,
           model_name = EXCLUDED.model_name,
+          light_model_name = EXCLUDED.light_model_name,
           api_key = EXCLUDED.api_key,
           dashscope_api_key = EXCLUDED.dashscope_api_key,
           updated_at = NOW()
       `;
-      await query(sql, [config.apiUrl, config.modelName, config.apiKey, config.dashscopeApiKey]);
+      await query(sql, [config.apiUrl, config.modelName, config.lightModelName, config.apiKey, config.dashscopeApiKey]);
       clearConfigCache();
     }
 

@@ -122,16 +122,19 @@ export function addMessageToConversation(conversationId: string, message: Messag
   }
 }
 
-export function updateConversationTitle(conversationId: string, question: string): void {
+export function updateConversationTitle(conversationId: string, titleText: string, force: boolean = false): void {
   const conversations = getConversations();
   const index = conversations.findIndex(c => c.id === conversationId);
 
   if (index !== -1) {
-    const maxLength = 30;
-    let title = question.trim();
+    let title = titleText.trim();
     
-    if (title.length > maxLength) {
-      title = title.substring(0, maxLength) + '...';
+    // 如果不是强制写入（比如是原始问题），则进行截断
+    if (!force) {
+        const maxLength = 30;
+        if (title.length > maxLength) {
+          title = title.substring(0, maxLength) + '...';
+        }
     }
 
     conversations[index] = {

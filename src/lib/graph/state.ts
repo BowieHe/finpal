@@ -1,29 +1,5 @@
 import { Annotation } from '@langchain/langgraph';
-import { SearchResult } from '@/types/mcp';
-import { ExecutionPlan } from '../agents/types';
-
-/**
- * 研究子任务
- */
-export interface ResearchSubTask {
-  id: string;
-  query: string;
-  parentId?: string;
-  depth: number;
-  status: 'pending' | 'researching' | 'completed' | 'failed';
-  result?: string;
-  sources?: string[];
-}
-
-/**
- * 研究发现
- */
-export interface ResearchFinding {
-  query: string;
-  content: string;
-  depth: number;
-  sources: string[];
-}
+import { DebateRound } from '@/types/conversation';
 
 /**
  * 研究总结数据结构
@@ -97,35 +73,47 @@ export interface PessimisticData {
  * 进度回调函数类型
  */
 export type ProgressCallback = (event: {
-  type: 'searching' | 'search_result' | 'search_complete' | 'analyzing' | 'db_query' | 'db_result' | 'research_summary' | 'research_summary_stream' | 'node_start' | 'optimistic_output' | 'pessimistic_output' | 'optimistic_rebuttal' | 'pessimistic_rebuttal' | 'stream_chunk' | 'complete' 
-        | 'cio_planning' | 'agent_start' | 'agent_progress' | 'agent_done' | 'agent_error' | 'gate_keeper_check' | 'final_verdict' | 'round_judge';
+  type:
+    | 'analyzing'
+    | 'node_start'
+    | 'optimistic_output'
+    | 'pessimistic_output'
+    | 'stream_chunk'
+    | 'complete'
+    | 'agent_start'
+    | 'agent_progress'
+    | 'agent_done'
+    | 'agent_error'
+    | 'final_verdict'
+    | 'direct_answer'
+    | 'searching'
+    | 'search_result'
+    | 'search_complete'
+    | 'db_query'
+    | 'db_result'
+    | 'timeline_event'    // 新增：详细时间线事件
+    | 'all_findings';     // 新增：所有搜索 findings
   data?: {
-    currentQuery?: string;
-    currentIndex?: number;
-    totalQueries?: number;
-    progress?: number;
-    chunk?: string;
     node?: string;
-    keyFacts?: string[];
-    partial?: boolean;
-    winner?: DebateWinner;
-    shouldContinue?: boolean;
-    reason?: string;
-    round?: number;
-    summary?: string;
-    results?: any[];
+    message?: string;
+    chunk?: string;
     agentId?: string;
     taskDescription?: string;
     error?: string;
-    canSkip?: boolean;
-    verdict?: any;
+    summary?: string;
+    answer?: string;
+    winner?: DebateWinner;
+    optimisticAnswer?: string;
+    pessimisticAnswer?: string;
+    optimisticData?: OptimisticData | null;
+    pessimisticData?: PessimisticData | null;
+    allFindings?: any[];  // 新增
     [key: string]: unknown;
   };
 }) => void;
 
 /**
- * LangGraph 状态定义
- * 包含整个辩论流程的所有状态字段
+ * LangGraph 状态定义 - DeepAgent 简化版
  */
 export const GraphAnnotation = Annotation.Root({
   // 用户输入
@@ -134,120 +122,30 @@ export const GraphAnnotation = Annotation.Root({
     default: () => '',
   }),
 
-  // Phase 2: CIO State
-  plan: Annotation<ExecutionPlan | null>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => null,
-  }),
-  collectedData: Annotation<Record<string, any>>({
-    reducer: (prev, next) => ({ ...prev, ...next }),
-    default: () => ({}),
-  }),
-  warnings: Annotation<string[]>({
-    reducer: (prev, next) => prev.concat(next),
-    default: () => [],
-  }),
-  errors: Annotation<string[]>({
-    reducer: (prev, next) => prev.concat(next),
-    default: () => [],
-  }),
-
-  // Deep Research 配置
-  currentDepth: Annotation<number>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 0,
-  }),
-  maxDepth: Annotation<number>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 2,
-  }),
-  breadth: Annotation<number>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 3,
-  }),
-
-  // Deep Research 任务和发现
-  subTasks: Annotation<ResearchSubTask[]>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => [],
-  }),
-  allFindings: Annotation<ResearchFinding[]>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => [],
-  }),
-  researchPlan: Annotation<string[]>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => [],
-  }),
-
-  // 搜索结果
-  searchResults: Annotation<SearchResult[]>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => [],
-  }),
-
-  // 研究总结
+  // 研究总结（DeepAgent 输出）
   researchSummary: Annotation<ResearchSummary | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),
 
-  // 搜索引擎使用统计
-  engineUsage: Annotation<Record<string, number>>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => ({}),
-  }),
-
   // 乐观派
-  optimisticThinking: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
   optimisticAnswer: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
   }),
-  optimisticRebuttal: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
-  // EV 计算数据：乐观派结构化输出
   optimisticData: Annotation<OptimisticData | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),
 
   // 悲观派
-  pessimisticThinking: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
   pessimisticAnswer: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => '',
   }),
-  pessimisticRebuttal: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
-  // EV 计算数据：悲观派结构化输出
   pessimisticData: Annotation<PessimisticData | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
-  }),
-
-  // 辩论控制
-  shouldContinue: Annotation<boolean>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => false,
-  }),
-  round: Annotation<number>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 0,
-  }),
-  maxRounds: Annotation<number>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => 3,
   }),
 
   // 辩论结果
@@ -260,10 +158,49 @@ export const GraphAnnotation = Annotation.Root({
     default: () => '',
   }),
 
+  // 辩论历史
+  debateHistory: Annotation<DebateRound[]>({
+    reducer: (prev, next) => {
+      const result = [...prev];
+      next.forEach((newRound) => {
+        const existingIdx = result.findIndex((r) => r.round === newRound.round);
+        if (existingIdx !== -1) {
+          result[existingIdx] = { ...result[existingIdx], ...newRound };
+        } else {
+          result.push(newRound);
+        }
+      });
+      return result;
+    },
+    default: () => [],
+  }),
+
+  // 错误信息
+  errors: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+
   // 进度回调函数
   progressCallback: Annotation<ProgressCallback | undefined>({
     reducer: (prev, next) => next ?? prev,
     default: () => undefined,
+  }),
+
+  // 搜索 findings（用于显示搜索结果）
+  allFindings: Annotation<any[]>({
+    reducer: (prev, next) => {
+      // 合并并去重
+      const combined = [...prev, ...next];
+      const seen = new Set<string>();
+      return combined.filter(f => {
+        const key = f.query || f.id || JSON.stringify(f);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+    default: () => [],
   }),
 });
 

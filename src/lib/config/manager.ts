@@ -8,6 +8,7 @@ const logger = createLogger('ConfigManager');
 export interface AppConfig {
   apiUrl: string;
   modelName: string;
+  lightModelName?: string;
   apiKey: string;
   dashscopeApiKey?: string;
 }
@@ -21,6 +22,7 @@ const CACHE_TTL = 300000; // 5 minutes
 const defaultConfig: AppConfig = {
   apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   modelName: 'qwen-vl-max',
+  lightModelName: undefined,
   apiKey: '',
   dashscopeApiKey: undefined,
 };
@@ -47,6 +49,7 @@ export async function getConfig(): Promise<AppConfig> {
       cachedConfig = {
         apiUrl: settings.api_url || defaultConfig.apiUrl,
         modelName: settings.model_name || defaultConfig.modelName,
+        lightModelName: settings.light_model_name || defaultConfig.lightModelName,
         apiKey: settings.api_key,
         dashscopeApiKey: settings.dashscope_api_key || defaultConfig.dashscopeApiKey,
       };

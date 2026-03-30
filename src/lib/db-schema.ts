@@ -5,6 +5,7 @@ export const SettingsSchema = z.object({
   id: z.number().default(1),
   api_url: z.string().nullable(),
   model_name: z.string().nullable(),
+  light_model_name: z.string().nullable().optional(),
   api_key: z.string().nullable(),
   dashscope_api_key: z.string().nullable(),
   updated_at: z.date().or(z.string()).transform(val => new Date(val)),

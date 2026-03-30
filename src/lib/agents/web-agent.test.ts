@@ -14,6 +14,12 @@ vi.mock('../mcp/unified-search', () => ({
   smartSearch: vi.fn(),
 }));
 
+vi.mock('../mcp/manager', () => ({
+  mcpManager: {
+    getClient: vi.fn(),
+  },
+}));
+
 describe('Web-Agent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -41,7 +47,7 @@ describe('Web-Agent', () => {
     expect(result.sources.length).not.toBe(0);
     expect(result.fundCode).toBe('000001');
     expect(result.summary).toContain('Result 1');
-    expect(result.rawSnippets[0]).toContain('desc1');
+    expect(result.rawSnippets[0].content).toContain('desc1');
   });
 
   it('should return partial when results are empty', async () => {
@@ -74,6 +80,27 @@ describe('Web-Agent', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/Network error/);
+  });
+
+  it('should handle fetch_page task via playwright MCP', async () => {
+    const mockClient = {
+      callTool: vi.fn()
+        .mockResolvedValueOnce({ content: [{ type: 'text', text: 'Navigated' }] }) // navigate
+        .mockResolvedValueOnce({ content: [{ type: 'text', text: 'Full page content' }] }) // get_content
+    };
+    
+    const { mcpManager } = await import('../mcp/manager');
+    vi.mocked(mcpManager.getClient).mockResolvedValueOnce(mockClient as any);
+
+    const result = await webAgent({
+      task: 'fetch_page',
+      params: { url: 'https://example.com' }
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.sources).toContain('https://example.com');
+    expect(result.summary).toContain('Full page content');
+    expect(result.rawSnippets[0].content).toBe('Full page content');
   });
 
   it('should fail on unknown task', async () => {

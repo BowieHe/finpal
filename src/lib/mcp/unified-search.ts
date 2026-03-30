@@ -11,133 +11,98 @@ export const smartSearch = async (
   query: string,
   options?: {
     useLLM?: boolean;
+    maxRetries?: number;
+    count?: number;
   }
 ): Promise<SearchResult> => {
   const startTime = Date.now();
+  const maxRetries = options?.maxRetries ?? 1; // 默认重试 1 次
+  const count = options?.count ?? 10; // 默认每次返回 10 条
+  let attempts = 0;
 
-  logger.info('Starting MCP search', { query });
+  logger.info('Starting MCP search', { query, count });
 
-  try {
-    // 获取 MCP 客户端
-    const client = await mcpManager.getClient('bailian-websearch');
+  while (attempts <= maxRetries) {
+    try {
+      attempts++;
+      // 获取 MCP 客户端
+      const client = await mcpManager.getClient('bailian-websearch');
 
-    // 调用 MCP 工具进行搜索
-    const result = await logger.timed(
-      'MCP Web Search',
-      async () => {
-        const response = await client.callTool({
-          name: 'bailian_web_search',
-          arguments: { query },
-        });
+      // 调用 MCP 工具进行搜索
+      const results = await logger.timed(
+        'MCP Web Search',
+        async () => {
+          const response = await client.callTool({
+            name: 'bailian_web_search',
+            arguments: { query, count },
+          });
 
-        // 解析 MCP 返回的结果
-        const content = response.content as Array<{ type: string; text: string }>;
+          // 解析 MCP 返回的结果
+          const content = response.content as Array<{ type: string; text: string }>;
+          const textContent = content.find(c => c.type === 'text')?.text || '[]';
 
-        logger.info('MCP response content', {
-          query,
-          contentItems: content?.length || 0,
-          contentTypes: content?.map(c => c.type),
-        });
-
-        const textContent = content.find(c => c.type === 'text')?.text || '[]';
-
-        // 临时打印完整的 textContent 用于调试
-        logger.info('MCP text content FULL', {
-          query,
-          textContentLength: textContent?.length || 0,
-          // fullTextContent: textContent,
-        });
-
-        try {
-          const parsed = JSON.parse(textContent);
-
-          // 处理两种格式:
-          // 1. 数组格式: [{title, description, url}]
-          // 2. 对象格式: {pages: [{snippet, title, url}]}
-          let results;
-          if (Array.isArray(parsed)) {
-            results = parsed;
-          } else if (parsed.pages && Array.isArray(parsed.pages)) {
-            // 阿里云百炼格式
-            results = parsed.pages.map((p: any) => ({
-              title: p.title || 'No title',
-              description: p.snippet || p.content || '',
-              url: p.url || '',
-            }));
-          } else {
-            results = [];
+          try {
+            const parsed = JSON.parse(textContent);
+            let results;
+            if (Array.isArray(parsed)) {
+              results = parsed;
+            } else if (parsed.pages && Array.isArray(parsed.pages)) {
+              results = parsed.pages.map((p: any) => ({
+                title: p.title || 'No title',
+                description: p.snippet || p.content || '',
+                url: p.url || '',
+              }));
+            } else {
+              results = [];
+            }
+            return results;
+          } catch (parseError) {
+            return [{ title: 'Search Result', url: '', description: textContent }];
           }
+        },
+        { query, attempt: attempts }
+      );
 
-          logger.info('MCP parsed result', {
-            query,
-            resultType: typeof parsed,
-            isArray: Array.isArray(parsed),
-            hasPages: !!parsed.pages,
-            resultsCount: results.length,
-            firstItem: results.length > 0
-              ? JSON.stringify(results[0]).substring(0, 200)
-              : null,
-          });
-          return results;
-        } catch (parseError) {
-          logger.error('MCP JSON parse error', {
-            query,
-            error: String(parseError),
-            textContent: textContent?.substring(0, 200),
-          });
-          // 如果不是 JSON，按文本处理
-          return [{
-            title: 'Search Result',
-            url: '',
-            description: textContent,
-          }];
-        }
-      },
-      { query }
-    );
-
-    // result 已经是转换后的格式
-    const items: SearchResultItem[] = Array.isArray(result)
-      ? result.map((item: any, index: number) => ({
+      const items: SearchResultItem[] = results.map((item: any, index: number) => ({
         title: item.title || 'No title',
         url: item.url || '',
         description: item.description || '',
         position: index + 1,
-      }))
-      : [];
+      }));
 
-    const duration = Date.now() - startTime;
-    logger.info('MCP search completed', {
-      query,
-      resultCount: items.length,
-      duration,
-      sampleResults: items.slice(0, 2).map(i => ({
-        title: i.title?.substring(0, 50),
-        url: i.url?.substring(0, 50),
-      })),
-    });
+      return {
+        query,
+        engine: 'bailian-websearch',
+        results: items,
+        timestamp: Date.now(),
+        reasoning: `MCP search completed (attempt ${attempts}), found ${items.length} results`,
+        duration: Date.now() - startTime,
+      };
 
-    return {
-      query,
-      engine: 'bailian-websearch',
-      results: items,
-      timestamp: Date.now(),
-      reasoning: `MCP search completed, found ${items.length} results`,
-      duration,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('MCP search failed', { error: errorMessage, query });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isTransient = errorMessage.includes('fetch failed') || errorMessage.includes('timeout');
+      
+      if (isTransient && attempts <= maxRetries) {
+        logger.warn(`MCP search attempt ${attempts} failed, retrying...`, { error: errorMessage, query });
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempts)); // 指数退避
+        continue;
+      }
 
-    return {
-      ...PLACEHOLDER_RESULT,
-      query,
-      engine: 'error',
-      reasoning: `搜索失败: ${errorMessage}`,
-      error: true,
-      duration: Date.now() - startTime,
-    };
+      logger.error('MCP search failed final', { error: errorMessage, query, attempts });
+
+      return {
+        ...PLACEHOLDER_RESULT,
+        query,
+        engine: 'error',
+        reasoning: `搜索失败: ${errorMessage} (尝试了 ${attempts} 次)`,
+        error: true,
+        duration: Date.now() - startTime,
+      };
+    }
   }
+
+  return { ...PLACEHOLDER_RESULT, query }; // Should not reach here
 };
 
 /**

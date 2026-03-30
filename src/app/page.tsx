@@ -8,7 +8,7 @@ import SettingsModal from "@/components/SettingsModal";
 import PersonaModal from "@/components/PersonaModal";
 import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Conversation, Message } from "@/types/conversation";
+import { Conversation, Message, EventLogEntry } from "@/types/conversation";
 import { LLMConfig, Theme } from "@/types/config";
 import {
     getConversations,
@@ -35,6 +35,42 @@ export default function Home() {
     const [theme, setTheme] = useState<Theme>("dark");
     const abortControllerRef = useRef<AbortController | null>(null);
 
+    // AI 生成摘要并更新标题
+    const generateAISummary = async (convId: string, text: string) => {
+        try {
+            const resp = await fetch("/api/summarize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: text }),
+            });
+            const data = await resp.json();
+            if (data.title) {
+                // 使用 force=true 确保标题不被截断
+                updateConversationTitle(convId, data.title, true);
+                setConversations(getConversations());
+            }
+        } catch (err) {
+            console.error("Summarization failed:", err);
+        }
+    };
+
+    // 自动扫描并总结所有“通用”或“截断”标题的会话
+    const summarizeAllGenericTitles = async (convs: Conversation[]) => {
+        // 只筛选出标题为“新对话”或者看起来是原始提问（超过20个字符且可能被截断）的会话
+        const needsSummary = convs.filter(c => 
+            c.messages.length > 0 && 
+            (c.title === "新对话" || c.title.endsWith("...") || c.title.length > 25)
+        );
+
+        for (const conv of needsSummary) {
+            const firstMsg = conv.messages[0];
+            if (firstMsg && firstMsg.question) {
+                // 逐个总结，避免瞬间并发过高
+                await generateAISummary(conv.id, firstMsg.question);
+            }
+        }
+    };
+
     const handleStop = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -44,8 +80,14 @@ export default function Home() {
     };
 
     useEffect(() => {
-        setConversations(getConversations());
+        const storedConvs = getConversations();
+        setConversations(storedConvs);
         setCurrentConversation(getCurrentConversation());
+
+        // 首次加载时异步触发“大扫除”总结
+        if (storedConvs.length > 0) {
+            summarizeAllGenericTitles(storedConvs);
+        }
 
         // Fetch LLM settings from DB
         fetch('/api/settings')
@@ -67,10 +109,17 @@ export default function Home() {
     }, []);
 
     const handleSwitchConversation = (id: string) => {
-        const conversation = conversations.find((c) => c.id === id);
-        if (conversation) {
-            setCurrentConversation(conversation);
-            setCurrentConversationId(id);
+        handleStop();
+        const conv = conversations.find((c) => c.id === id) || null;
+        setCurrentConversationId(id);
+        setCurrentConversation(conv);
+
+        // 补救逻辑：如果点击的是一个没有标题的旧会话，且有消息，尝试补全摘要
+        if (conv && conv.title === "新对话" && conv.messages.length > 0) {
+            const firstMsg = conv.messages[0];
+            if (firstMsg && firstMsg.question) {
+                generateAISummary(conv.id, firstMsg.question);
+            }
         }
     };
 
@@ -134,37 +183,115 @@ export default function Home() {
             decisions: [],
             cioPlanning: false,
             agentTasks: {},
+            isDirectAnswer: false,
         };
         addMessageToConversation(activeConversation.id, userMessage);
         setConversations(getConversations());
         setCurrentConversation(getCurrentConversation());
 
         // Helper function to update message with search progress
+        // OPTIMIZATION: Use ref-based or batch updates to avoid layout shift and slow localStorage reads
         const updateMessageProgress = (updates: Partial<Message>) => {
-            Object.assign(userMessage, {
-                ...updates,
-                timestamp: Date.now(), // 每次更新都刷新时间戳为最后更新时间
-            });
+            // Update the local object reference for immediate access in the next SSE callback
+            Object.assign(userMessage, updates);
+            
+            // Persist state
             updateMessageInConversation(
                 activeConversation.id,
                 userMessage.id,
-                {
-                    ...updates,
-                    timestamp: Date.now(),
-                },
+                { ...updates, timestamp: Date.now() },
             );
-            setConversations(getConversations());
-            setCurrentConversation(getCurrentConversation());
+            
+            setCurrentConversation(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    messages: prev.messages.map(m => m.id === userMessage.id ? { ...m, ...updates } : m)
+                };
+            });
+        };
+
+        const EVENT_HISTORY_LIMIT = 80;
+        const truncateForEvent = (text?: string, length = 80) =>
+            text ? (text.length > length ? text.slice(0, length) + "…" : text) : undefined;
+
+        const appendEventLog = (entry: Omit<EventLogEntry, "id" | "timestamp">) => {
+            const history = [...(userMessage.eventHistory || [])];
+            history.push({
+                id: generateId(),
+                timestamp: Date.now(),
+                ...entry,
+            });
+            if (history.length > EVENT_HISTORY_LIMIT) {
+                history.shift();
+            }
+            updateMessageProgress({ eventHistory: history });
         };
 
         // 用于累积流式内容的变量
+        let currentRound = 1;
         let optimisticStreamContent = "";
         let pessimisticStreamContent = "";
         let optimisticRebuttalStreamContent = "";
         let pessimisticRebuttalStreamContent = "";
         let deciderStreamContent = "";
-        let deciderCardCreated = false; // track if finalVerdict pending card has been pushed
-        let roundJudgeCardCreated = false; // track if current round's pending judge card has been pushed
+        let deciderCardCreated = false;
+        let roundJudgeCardCreated = false;
+        
+        const updateDebateHistory = (roundNum: number, role: 'optimistic' | 'pessimistic', chunk: string, isThinking = false) => {
+            const history = [...(userMessage.debateHistory || [])];
+            let round = history.find(r => r.round === roundNum);
+            
+            if (!round) {
+                round = { round: roundNum };
+                history.push(round);
+            }
+            
+            if (role === 'optimistic') {
+                if (isThinking) round.optimisticThinking = (round.optimisticThinking || "") + chunk;
+                else {
+                    round.optimisticAnswer = (round.optimisticAnswer || "") + chunk;
+                    if (roundNum === 1) optimisticStreamContent += chunk;
+                    else optimisticRebuttalStreamContent += chunk;
+                }
+            } else {
+                if (isThinking) round.pessimisticThinking = (round.pessimisticThinking || "") + chunk;
+                else {
+                    round.pessimisticAnswer = (round.pessimisticAnswer || "") + chunk;
+                    if (roundNum === 1) pessimisticStreamContent += chunk;
+                    else pessimisticRebuttalStreamContent += chunk;
+                }
+            }
+            
+            console.log('[page] updateDebateHistory', { roundNum, role, chunk: chunk.substring(0, 20), isThinking });
+            updateMessageProgress({ 
+                debateHistory: history,
+                // 为了向后兼容某些组件，同时更新顶层字段
+                optimisticAnswer: roundNum === 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticAnswer,
+                pessimisticAnswer: roundNum === 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticAnswer,
+                optimisticRebuttal: roundNum > 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticRebuttal,
+                pessimisticRebuttal: roundNum > 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticRebuttal,
+            });
+        };
+
+        const updateDebateHistoryFull = (roundNum: number, role: 'optimistic' | 'pessimistic', content: string, thinking?: string) => {
+            const history = [...(userMessage.debateHistory || [])];
+            console.log('[page] updateDebateHistoryFull - before', { roundNum, role, historyLen: history.length });
+            let round = history.find(r => r.round === roundNum);
+            if (!round) {
+                round = { round: roundNum };
+                history.push(round);
+            }
+            if (role === 'optimistic') {
+                round.optimisticAnswer = content;
+                if (thinking) round.optimisticThinking = thinking;
+            } else {
+                round.pessimisticAnswer = content;
+                if (thinking) round.pessimisticThinking = thinking;
+            }
+            console.log('[page] updateDebateHistoryFull - after', { historyLen: history.length, round });
+            updateMessageProgress({ debateHistory: history });
+        };
 
         const getAgentName = (id: string) => {
             if (id.startsWith("db-")) return "🏦 持仓专员";
@@ -204,7 +331,7 @@ export default function Home() {
                 // Handle SSE stream
                 const reader = response.body?.getReader();
                 const decoder = new TextDecoder();
-                let finalResult: any = null;
+                let finalVerdictSnapshot: any = null;
                 let buffer = ""; // Buffer for incomplete SSE messages
                 let currentSearchResults: any[] = [];
                 let currentDbResults: any[] = [];
@@ -232,6 +359,12 @@ export default function Home() {
                                                 status: "searching",
                                                 cioPlanning: true,
                                             });
+                                            appendEventLog({
+                                                label: "CIO 规划",
+                                                detail: truncateForEvent(event.data?.message),
+                                                status: "running",
+                                                source: "CIO",
+                                            });
                                             break;
                                         case "agent_start":
                                             if (event.data.agentId) {
@@ -247,6 +380,12 @@ export default function Home() {
                                                     agentTasks: tasks,
                                                     cioPlanning: false,
                                                 });
+                                                appendEventLog({
+                                                    label: `${getAgentName(event.data.agentId)} 启动`,
+                                                    detail: truncateForEvent(event.data.taskDescription),
+                                                    status: "running",
+                                                    source: event.data.agentId,
+                                                });
                                             }
                                             break;
                                         case "agent_progress":
@@ -259,7 +398,28 @@ export default function Home() {
                                                         ...(tasks[event.data.agentId].progressLogs || []),
                                                         event.data.message
                                                     ];
-                                                    updateMessageProgress({ agentTasks: tasks });
+                                                    
+                                                    const updates: Partial<Message> = { agentTasks: tasks };
+                                                    
+                                                    // Also capture any research findings sent during progress
+                                                    if (event.data.finding) {
+                                                        console.log('[page] SSE: found finding in agent_progress', event.data.finding);
+                                                        updates.allFindings = [
+                                                            ...(userMessage.allFindings || []),
+                                                            event.data.finding
+                                                        ];
+                                                    }
+                                                    
+                                                    updateMessageProgress(updates);
+                                                    // deep-agent 的内部时间线已经通过 timeline_event 展示，避免首屏重复刷屏
+                                                    if (event.data.message && event.data.agentId !== "deep-agent") {
+                                                        appendEventLog({
+                                                            label: `${getAgentName(event.data.agentId)} 进度`,
+                                                            detail: truncateForEvent(event.data.message),
+                                                            status: "running",
+                                                            source: event.data.agentId,
+                                                        });
+                                                    }
                                                 }
                                             }
                                             break;
@@ -267,10 +427,31 @@ export default function Home() {
                                             if (event.data.agentId) {
                                                 const tasks = { ...(userMessage.agentTasks || {}) };
                                                 if (tasks[event.data.agentId]) {
+                                                    const findings = event.data.findings || [];
+                                                    console.log(`[page] SSE: agent_done for ${event.data.agentId}`, { 
+                                                        hasResults: !!event.data.results,
+                                                        findingsCount: findings.length,
+                                                        data: event.data
+                                                    });
+                                                    
                                                     tasks[event.data.agentId].status = "done";
                                                     tasks[event.data.agentId].resultSummary = event.data.summary;
                                                     tasks[event.data.agentId].rawResult = event.data.results?.[0];
-                                                    updateMessageProgress({ agentTasks: tasks });
+                                                    
+                                                    const updates: Partial<Message> = { agentTasks: tasks };
+                                                    if (findings.length > 0) {
+                                                        updates.allFindings = [
+                                                            ...(userMessage.allFindings || []),
+                                                            ...findings
+                                                        ];
+                                                    }
+                                                    updateMessageProgress(updates);
+                                                    appendEventLog({
+                                                        label: `${getAgentName(event.data.agentId)} 完成`,
+                                                        detail: truncateForEvent(event.data.summary),
+                                                        status: "success",
+                                                        source: event.data.agentId,
+                                                    });
                                                 }
                                             }
                                             break;
@@ -284,6 +465,19 @@ export default function Home() {
                                                 }
                                             }
                                             break;
+                                        case "direct_answer":
+                                            // 直接回答（如能力边界询问）
+                                            console.log('[page] SSE: direct_answer', event.data);
+                                            if (event.data.answer) {
+                                                updateMessageProgress({
+                                                    status: "complete",
+                                                    optimisticAnswer: event.data.answer,
+                                                    debateSummary: event.data.answer,
+                                                    debateWinner: "draw",
+                                                    isDirectAnswer: true,
+                                                });
+                                            }
+                                            break;
                                         case "gate_keeper_check":
                                             updateMessageProgress({
                                                 status: "analyzing",
@@ -291,10 +485,18 @@ export default function Home() {
                                             });
                                             break;
                                         case "final_verdict":
+                                            finalVerdictSnapshot = event.data;
+                                            // 仅更新最终裁决，避免覆盖流式辩论内容与轮次
                                             updateMessageProgress({
-                                                status: "complete",
                                                 finalVerdict: event.data,
                                                 cioPlanning: false,
+                                                status: userMessage.status === "complete" ? "complete" : "analyzing",
+                                            });
+                                            appendEventLog({
+                                                label: "最终建议准备",
+                                                detail: truncateForEvent(event.data.summary),
+                                                status: "success",
+                                                source: "final-verdict",
                                             });
                                             break;
                                         case "planning":
@@ -306,7 +508,7 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "searching",
                                                 currentQuery:
-                                                    event.data.currentQuery,
+                                                    event.data?.currentQuery || event.message || "搜索中...",
                                                 findingsCount:
                                                     (userMessage.findingsCount ||
                                                         0) + 1,
@@ -316,34 +518,47 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "searching",
                                                 currentQuery:
-                                                    event.data.message ||
+                                                    event.message ||
                                                     "正在查询数据库...",
+                                            });
+                                            appendEventLog({
+                                                label: "数据库查询",
+                                                detail: truncateForEvent(event.message),
+                                                status: "running",
+                                                source: "db-agent",
                                             });
                                             break;
                                         case "db_result":
-                                            if (event.data.results) {
-                                                currentDbResults = [
-                                                    ...currentDbResults,
-                                                    ...event.data.results,
-                                                ];
-                                            }
+                                            // db_result 是进度通知，实际结果从 skill 输出获取
                                             updateMessageProgress({
-                                                dbResults: currentDbResults,
+                                                status: "analyzing",
+                                            });
+                                            appendEventLog({
+                                                label: "数据库返回",
+                                                detail: truncateForEvent(event.message || "查询完成"),
+                                                status: "success",
+                                                source: "db-agent",
                                             });
                                             break;
                                         case "search_result":
+                                            // search_result 可能没有 data 字段，从 message 提取查询
+                                            const searchQuery = event.data?.query || event.message?.replace('搜索: ', '') || '未知查询';
+                                            const searchResults = event.data?.results || [];
                                             currentSearchResults = [
                                                 ...currentSearchResults,
                                                 {
-                                                    query: event.data.query,
-                                                    results:
-                                                        event.data.results ||
-                                                        [],
+                                                    query: searchQuery,
+                                                    results: searchResults,
                                                 },
                                             ];
                                             updateMessageProgress({
-                                                searchResults:
-                                                    currentSearchResults,
+                                                searchResults: currentSearchResults,
+                                            });
+                                            appendEventLog({
+                                                label: "网页搜索完成",
+                                                detail: `${truncateForEvent(searchQuery)} · ${searchResults.length} 条`,
+                                                status: "success",
+                                                source: "web-search",
                                             });
                                             break;
                                         case "search_complete":
@@ -354,7 +569,43 @@ export default function Home() {
                                                     "搜索完成，正在生成关键事实...",
                                             });
                                             break;
-                                        case "analyzing":
+                                         case "all_findings":
+                                             console.log('[page] SSE: all_findings', event.data);
+                                             updateMessageProgress({
+                                                 status: "analyzing",
+                                                 allFindings: event.data.allFindings,
+                                             });
+                                             break;
+                                         case "timeline_event":
+                                             // Claude Code 风格的详细时间线事件
+                                             console.log('[page] SSE: timeline_event', event.data);
+                                             if (event.data) {
+                                                 const isLowSignalBootstrapEvent =
+                                                     (event.data.label === '状态评估' &&
+                                                         event.data.metadata?.confidence === 0 &&
+                                                         event.data.metadata?.gapCount === 0) ||
+                                                     (event.data.label === '分析目标') ||
+                                                     (event.data.label === '轮次裁决' &&
+                                                         typeof event.data.detail === 'string' &&
+                                                         event.data.detail.includes('评估第 1 轮'));
+
+                                                 if (isLowSignalBootstrapEvent) {
+                                                     break;
+                                                 }
+
+                                                 appendEventLog({
+                                                     type: event.data.eventType || 'thinking',
+                                                     label: event.data.label || '执行中...',
+                                                     detail: event.data.detail,
+                                                     status: event.data.eventType === 'complete' ? 'success' : 'running',
+                                                     source: event.data.source || 'deep-agent',
+                                                     expandable: event.data.expandable,
+                                                     expandedContent: event.data.content,
+                                                     metadata: event.data.metadata,
+                                                 });
+                                             }
+                                             break;
+                                         case "analyzing":
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 currentQuery:
@@ -412,6 +663,9 @@ export default function Home() {
                                             });
                                             break;
                                         case "node_start":
+                                            if (event.data?.node === "round_judge") {
+                                                currentRound = event.data.round || currentRound;
+                                            }
                                             // 处理裁决完成事件
                                             if (
                                                 event.data.node ===
@@ -456,6 +710,8 @@ export default function Home() {
                                             }
                                             break;
                                         case "optimistic_output":
+                                            console.log('[page] SSE: optimistic_output', event.data);
+                                            updateDebateHistoryFull(1, 'optimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 optimisticAnswer:
@@ -463,8 +719,16 @@ export default function Home() {
                                                 optimisticThinking:
                                                     event.data.thinking,
                                             });
+                                            appendEventLog({
+                                                label: "乐观派观点生成",
+                                                detail: truncateForEvent(event.data.answer),
+                                                status: "running",
+                                                source: "debate",
+                                            });
                                             break;
                                         case "pessimistic_output":
+                                            console.log('[page] SSE: pessimistic_output', event.data);
+                                            updateDebateHistoryFull(1, 'pessimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 pessimisticAnswer:
@@ -472,8 +736,16 @@ export default function Home() {
                                                 pessimisticThinking:
                                                     event.data.thinking,
                                             });
+                                            appendEventLog({
+                                                label: "悲观派观点生成",
+                                                detail: truncateForEvent(event.data.answer),
+                                                status: "running",
+                                                source: "debate",
+                                            });
                                             break;
                                         case "optimistic_rebuttal":
+                                            console.log('[page] SSE: optimistic_rebuttal', event.data);
+                                            updateDebateHistoryFull(currentRound, 'optimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 optimisticRebuttal:
@@ -481,6 +753,8 @@ export default function Home() {
                                             });
                                             break;
                                         case "pessimistic_rebuttal":
+                                            console.log('[page] SSE: pessimistic_rebuttal', event.data);
+                                            updateDebateHistoryFull(currentRound, 'pessimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 pessimisticRebuttal:
@@ -488,6 +762,7 @@ export default function Home() {
                                             });
                                             break;
                                         case "round_judge":
+                                            console.log('[page] SSE: round_judge', event.data);
                                             // round_judge fires with final result \u2014 replace pending card or append
                                             if (event.data.round !== undefined) {
                                                 const currentDecisions = userMessage.decisions || [];
@@ -503,9 +778,12 @@ export default function Home() {
                                                 const updatedDecisions = pendingIdx !== undefined
                                                     ? currentDecisions.map((d, i) => i === pendingIdx ? judgeDecision : d)
                                                     : [...currentDecisions, judgeDecision];
-                                                // Reset flags: next round gets fresh pending cards
-                                                deciderCardCreated = false;
-                                                roundJudgeCardCreated = false;
+                                                // Update currentRound for next rebuttal
+                                                if (event.data.shouldContinue && event.data.round) {
+                                                    currentRound = (event.data.round as number) + 1;
+                                                    console.log('[page] Incremented currentRound to', currentRound);
+                                                }
+
                                                 updateMessageProgress({
                                                     status: "analyzing",
                                                     decisions: updatedDecisions,
@@ -513,52 +791,20 @@ export default function Home() {
                                             }
                                             break;
                                         case "stream_chunk":
-                                            // 流式打字机效果 - 累积显示
-                                            if (
-                                                event.data.node &&
-                                                event.data.chunk
-                                            ) {
-                                                const node = event.data
-                                                    .node as string;
-                                                const chunk = event.data
-                                                    .chunk as string;
-                                                // 根据节点类型更新对应的内容
-                                                switch (node) {
-                                                    case "optimistic":
-                                                        optimisticStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            optimisticAnswer:
-                                                                optimisticStreamContent,
-                                                        });
+                                            if (event.data?.chunk) {
+                                                const chunk = event.data.chunk;
+                                                switch (event.data.node) {
+                                                    case "optimistic_initial":
+                                                        updateDebateHistory(1, 'optimistic', chunk);
                                                         break;
-                                                    case "pessimistic":
-                                                        pessimisticStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            pessimisticAnswer:
-                                                                pessimisticStreamContent,
-                                                        });
+                                                    case "pessimistic_initial":
+                                                        updateDebateHistory(1, 'pessimistic', chunk);
                                                         break;
                                                     case "optimistic_rebuttal":
-                                                        optimisticRebuttalStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            optimisticRebuttal:
-                                                                optimisticRebuttalStreamContent,
-                                                        });
+                                                        updateDebateHistory(currentRound, 'optimistic', chunk);
                                                         break;
                                                     case "pessimistic_rebuttal":
-                                                        pessimisticRebuttalStreamContent +=
-                                                            chunk;
-                                                        updateMessageProgress({
-                                                            status: "analyzing",
-                                                            pessimisticRebuttal:
-                                                                pessimisticRebuttalStreamContent,
-                                                        });
+                                                        updateDebateHistory(currentRound, 'pessimistic', chunk);
                                                         break;
                                                     case "round_judge":
                                                         // On first round_judge chunk: immediately show a pending judge card
@@ -580,8 +826,6 @@ export default function Home() {
                                                         }
                                                         break;
                                                     case "decider":
-                                                        deciderStreamContent +=
-                                                            chunk;
                                                         // On the very first decider chunk, push a pending decision card immediately
                                                         if (!deciderCardCreated) {
                                                             deciderCardCreated = true;
@@ -600,6 +844,17 @@ export default function Home() {
                                                             });
                                                         }
                                                         break;
+                                                    case "reflector":
+                                                        {
+                                                            const depth = event.data.depth || 0;
+                                                            const currentReflections = { ...(userMessage.reflections || {}) };
+                                                            currentReflections[depth] = (currentReflections[depth] || "") + chunk;
+                                                            updateMessageProgress({
+                                                                status: "analyzing",
+                                                                reflections: currentReflections
+                                                            });
+                                                        }
+                                                        break;
                                                 }
                                             }
                                             break;
@@ -613,9 +868,12 @@ export default function Home() {
                                                     cioPlanning: false,
                                                 });
                                             }
-                                            if (event.result) {
-                                                finalResult = event.result;
-                                            }
+                                            appendEventLog({
+                                                label: "分析结束",
+                                                detail: truncateForEvent(event.data?.summary),
+                                                status: "success",
+                                                source: "complete",
+                                            });
                                             break;
                                         case "error":
                                             console.error("[Page] SSE 'error' event received:", event);
@@ -647,7 +905,14 @@ export default function Home() {
                             const event = JSON.parse(buffer.slice(6));
                             console.log("[Page] Parsing final buffer event:", event);
                             if (event.type === "complete") {
-                                finalResult = event.result;
+                                if (event.data?.summary) {
+                                    updateMessageProgress({
+                                        status: "complete",
+                                        debateSummary: event.data.summary,
+                                        debateWinner: event.data.winner || userMessage.debateWinner || "draw",
+                                        cioPlanning: false,
+                                    });
+                                }
                             } else if (event.type === "error") {
                                 throw new Error(event.data?.error || event.error);
                             }
@@ -660,44 +925,27 @@ export default function Home() {
                     }
                 }
 
-                if (finalResult) {
-                    // 更新现有消息而不是添加新消息
-                    // 注意：不覆盖 searchResults，保留之前实时更新的结果
-                    updateMessageInConversation(
-                        activeConversation.id,
-                        userMessage.id,
-                        {
-                            status: "complete",
-                            optimisticAnswer: finalResult.optimisticAnswer,
-                            pessimisticAnswer: finalResult.pessimisticAnswer,
-                            optimisticRebuttal: finalResult.optimisticRebuttal,
-                            pessimisticRebuttal:
-                                finalResult.pessimisticRebuttal,
-                            debateWinner: finalResult.debateWinner,
-                            debateSummary: finalResult.debateSummary,
-                            // 不覆盖 searchResults，保留之前实时更新的结果
-                            allFindings: (finalResult as any).allFindings,
-                            researchSummary: finalResult.researchSummary,
-                            dbResults:
-                                finalResult.dbResults || currentDbResults,
-                            engineUsage: finalResult.engineUsage,
-                            round: finalResult.round,
-                            finalVerdict: finalResult.finalVerdict || userMessage.finalVerdict,
-                            cioPlanning: false,
-                        } as any,
-                    );
+                // SSE 收尾：只做状态收口，不再用 finalResult 二次覆盖流式内容
+                updateMessageInConversation(
+                    activeConversation.id,
+                    userMessage.id,
+                    {
+                        status: "complete",
+                        // 保留流式阶段已写入的内容；仅补充缺失字段
+                        finalVerdict: finalVerdictSnapshot || userMessage.finalVerdict,
+                        dbResults: currentDbResults.length > 0 ? currentDbResults : userMessage.dbResults,
+                        cioPlanning: false,
+                        isDirectAnswer: userMessage.isDirectAnswer,
+                    } as any,
+                );
 
-                    // 如果是第一条消息，更新对话标题
-                    if (activeConversation.messages.length === 1) {
-                        updateConversationTitle(
-                            activeConversation.id,
-                            question,
-                        );
-                    }
-
-                    setConversations(getConversations());
-                    setCurrentConversation(getCurrentConversation());
+                // 如果是第一条消息，更新对话标题（异步 AI 摘要）
+                if (activeConversation.messages.length === 1) {
+                    generateAISummary(activeConversation.id, question);
                 }
+
+                setConversations(getConversations());
+                setCurrentConversation(getCurrentConversation());
             } else {
                 // Fallback to regular JSON response
                 const data = await response.json();
@@ -720,11 +968,14 @@ export default function Home() {
                         researchSummary: data.researchSummary,
                         engineUsage: data.engineUsage,
                         round: data.round,
+                        isDirectAnswer: userMessage.isDirectAnswer,
                     } as any,
                 );
 
                 if (activeConversation.messages.length === 1) {
-                    updateConversationTitle(activeConversation.id, question);
+                    if (activeConversation.messages.length === 1) {
+                        generateAISummary(activeConversation.id, question);
+                    }
                 }
 
                 setConversations(getConversations());

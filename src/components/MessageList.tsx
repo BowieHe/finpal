@@ -3,8 +3,10 @@
 import { MessageCard } from './MessageCard';
 import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
+import DebateRoundStatsCard from './DebateRoundStatsCard';
 import { TimelineDebate, TimelineMessage } from './TimelineDebate';
 import { RoundDecision } from './RoundDecisionCard';
+import { EventLogEntry } from "@/types/conversation";
 
 interface MessageListProps {
   messages: Array<{
@@ -35,6 +37,13 @@ interface MessageListProps {
     cioPlanning?: boolean;
     agentTasks?: Record<string, any>;
     finalVerdict?: any;
+    reflections?: Record<number, string>;
+    debateHistory?: any[];
+    // Database fetches
+    dbResults?: any[];
+    // Live event timeline
+    eventHistory?: EventLogEntry[];
+    isDirectAnswer?: boolean;
   }>;
   isLoading?: boolean;
 }
@@ -131,9 +140,15 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
             message.researchSummary.summary
           );
           const hasAgentTasks = message.agentTasks && Object.keys(message.agentTasks).length > 0;
-          const shouldShowResearch = hasSearchResults || hasResearchSummary || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
+          const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
+          const hasAllFindings = message.allFindings && message.allFindings.length > 0;
+          const hasEventHistory = message.eventHistory && message.eventHistory.length > 0;
+          const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
+          const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || hasEventHistory || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
+          const shouldShowDebate =
+            !message.isDirectAnswer && (debateMessages.length > 0 || hasDebateHistory);
 
           return (
             <div key={message.id} className="mb-8">
@@ -145,7 +160,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               />
               
               {/* Analyzing State - No spinner */}
-              {isAnalyzing && (
+              {/* Analyzing State - Only shown when no search or debate content yet */}
+              {isAnalyzing && !shouldShowResearch && debateMessages.length === 0 && (
                 <div className="my-4 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
@@ -169,20 +185,28 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                   <ResearchResults
                     searchResults={searchResults}
                     allFindings={message.allFindings}
-                    researchSummary={message.researchSummary}
-                    engineUsage={message.engineUsage || {}}
                     isSearching={message.status === 'searching'}
                     pendingQueries={message.status === 'searching' && message.currentQuery ? [message.currentQuery] : []}
-                    cioPlanning={message.cioPlanning}
                     agentTasks={message.agentTasks}
-                    finalVerdict={message.finalVerdict}
+                    eventHistory={message.eventHistory}
                   />
                 </div>
               )}
 
               {/* Timeline Debate - 多空辩论 */}
-              {debateMessages.length > 0 && (
-                <TimelineDebate messages={debateMessages} decisions={message.decisions} />
+              {shouldShowDebate && (
+                <>
+                  <DebateRoundStatsCard
+                    decisions={message.decisions}
+                    debateHistory={message.debateHistory}
+                    status={message.status}
+                  />
+                  <TimelineDebate 
+                    messages={debateMessages} 
+                    decisions={message.decisions}
+                    debateHistory={message.debateHistory}
+                  />
+                </>
               )}
 
               {/* Final Decision */}
