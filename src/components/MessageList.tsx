@@ -141,8 +141,9 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           const hasAgentTasks = message.agentTasks && Object.keys(message.agentTasks).length > 0;
           const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
           const hasAllFindings = message.allFindings && message.allFindings.length > 0;
+          const hasEventHistory = message.eventHistory && message.eventHistory.length > 0;
           const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
-          const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
+          const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || hasEventHistory || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
           const shouldShowDebate =
@@ -183,14 +184,9 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                   <ResearchResults
                     searchResults={searchResults}
                     allFindings={message.allFindings}
-                    researchSummary={message.researchSummary}
-                    engineUsage={message.engineUsage || {}}
                     isSearching={message.status === 'searching'}
                     pendingQueries={message.status === 'searching' && message.currentQuery ? [message.currentQuery] : []}
-                    cioPlanning={message.cioPlanning}
                     agentTasks={message.agentTasks}
-                    finalVerdict={message.finalVerdict}
-                    reflections={message.reflections}
                     eventHistory={message.eventHistory}
                   />
                 </div>

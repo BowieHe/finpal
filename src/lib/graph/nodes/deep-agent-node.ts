@@ -46,6 +46,9 @@ export const deepAgentNode = async (
 
   const startTime = Date.now();
 
+  // 用于累积所有 findings
+  const allFindings: any[] = [];
+
   try {
     // 提取实体
     const entity = extractEntity(state.question);
@@ -68,7 +71,34 @@ export const deepAgentNode = async (
       onProgress: (event) => {
         if (!state.progressCallback) return;
 
-        // 将 DeepAgent 事件直接透传给前端需要的 event 类型
+        // 将 DeepAgent 的 eventDetail 透传给前端
+        if (event.eventDetail) {
+          state.progressCallback({
+            type: 'timeline_event',
+            data: event.eventDetail as any,
+          });
+        }
+
+        // 处理搜索完成事件，累积 findings
+        if (event.type === 'search_complete' && event.data?.searchResults) {
+          const searchResults = event.data.searchResults;
+          for (const result of searchResults) {
+            if (result.query && result.results) {
+              allFindings.push({
+                query: result.query,
+                content: result.results.map((r: any) =>
+                  `${r.title}\n${r.description || r.snippet || ''}`
+                ).join('\n\n'),
+                sources: result.results.map((r: any) => r.url || r.link).filter(Boolean),
+                depth: event.step || 0,
+                engine: result.engine,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        }
+
+        // 继续透传原始事件类型
         const directEvents = [
           'searching',
           'search_result',
@@ -77,13 +107,29 @@ export const deepAgentNode = async (
           'db_result',
         ];
         if (directEvents.includes(event.type)) {
+          const detail = event.eventDetail;
+          const metadata = detail?.metadata || {};
+          const forwardedData: Record<string, unknown> = {
+            ...(event.data || {}),
+          };
+
+          if (metadata.query && !forwardedData.query) {
+            forwardedData.query = metadata.query as string;
+          }
+
+          if (event.type === 'search_result' && Array.isArray(detail?.content) && !forwardedData.results) {
+            forwardedData.results = detail.content;
+          }
+
           state.progressCallback({
             type: event.type,
-            data: event.data,
+            data: forwardedData,
+            message: event.message,
+            step: event.step,
           } as any);
-          return;
         }
 
+        // agent_progress 事件
         state.progressCallback({
           type: 'agent_progress',
           data: {
@@ -126,7 +172,41 @@ export const deepAgentNode = async (
       }
       return {
         errors: [...(state.errors || []), `DeepAgent 执行失败: ${result.error}`],
+        allFindings,
       };
+    }
+
+    // 从 observations 中提取搜索数据
+    const searchObservations = result.observations.filter(
+      obs => obs.skillName === 'fund-deep-search' && obs.output.success
+    );
+
+    for (const obs of searchObservations) {
+      const searchData = obs.output.data;
+      if (searchData?.searchResults) {
+        for (const sr of searchData.searchResults) {
+          if (!allFindings.find(f => f.query === sr.query)) {
+            allFindings.push({
+              query: sr.query,
+              content: sr.results?.map((r: any) =>
+                `${r.title}\n${r.description || r.snippet || ''}`
+              ).join('\n\n') || '',
+              sources: sr.results?.map((r: any) => r.url || r.link).filter(Boolean) || [],
+              depth: obs.step,
+              engine: sr.engine,
+              timestamp: obs.timestamp,
+            });
+          }
+        }
+      }
+    }
+
+    // 发送所有 findings
+    if (state.progressCallback && allFindings.length > 0) {
+      state.progressCallback({
+        type: 'all_findings',
+        data: { allFindings },
+      });
     }
 
     // 检查是否是直接回答场景（没有 debate 数据，但有 thoughts 包含回答）
@@ -149,10 +229,8 @@ export const deepAgentNode = async (
             agentId: 'deep-agent',
           },
         });
-      }
 
-      // 发送 agent_done 事件
-      if (state.progressCallback) {
+        // 发送 agent_done 事件
         state.progressCallback({
           type: 'agent_done',
           data: {
@@ -166,6 +244,7 @@ export const deepAgentNode = async (
               data: obs.output.data,
             })),
             results: [{ directAnswer }],
+            allFindings,
           },
         });
 
@@ -196,6 +275,7 @@ export const deepAgentNode = async (
           optimisticAnswer: directAnswer,
           pessimisticAnswer: '',
         }],
+        allFindings,
       };
     }
 
@@ -247,6 +327,7 @@ export const deepAgentNode = async (
             synthesis,
             evCalculation,
           }],
+          allFindings,
         },
       });
     }
@@ -263,6 +344,9 @@ export const deepAgentNode = async (
           context: `置信度: ${(obs.output.confidence * 100).toFixed(0)}%`,
         })),
       },
+
+      // 搜索 findings
+      allFindings,
 
       // 辩论数据
       optimisticAnswer: bullCase?.thesis || '',
@@ -337,6 +421,7 @@ export const deepAgentNode = async (
 
     return {
       errors: [...(state.errors || []), `DeepAgent 错误: ${errorMessage}`],
+      allFindings,
     };
   }
 };

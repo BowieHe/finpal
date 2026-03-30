@@ -53,7 +53,7 @@ export interface SkillOutput {
 export interface Skill {
   name: string;
   description: string;
-  execute: (input: any) => Promise<SkillOutput>;
+  execute: (input: any, onProgress?: (event: ProgressEvent) => void) => Promise<SkillOutput>;
 }
 
 // ==================== DeepAgent 状态类型 ====================
@@ -231,7 +231,30 @@ export type ProgressEventType =
   | 'search_result'
   | 'search_complete'
   | 'db_query'
-  | 'db_result';
+  | 'db_result'
+  | 'analyzing'      // 新增：分析中
+  | 'skill_start'    // 新增：skill 开始
+  | 'skill_complete' // 新增：skill 完成
+  | 'gap_detected';  // 新增：检测到信息缺口
+
+/**
+ * 详细事件信息（用于时间线显示）
+ */
+export interface EventDetail {
+  eventType: 'read' | 'search' | 'db_query' | 'thinking' | 'analyze' | 'skill_call' | 'complete';
+  label: string;
+  detail?: string;
+  expandable?: boolean;
+  content?: any;
+  metadata?: {
+    durationMs?: number;
+    resultCount?: number;
+    query?: string;
+    tool?: string;
+    gaps?: string[];
+    [key: string]: any;
+  };
+}
 
 /**
  * 进度事件
@@ -241,6 +264,9 @@ export interface ProgressEvent {
   step: number;
   message: string;
   data?: any;
+
+  // 新增：详细事件信息（用于时间线）
+  eventDetail?: EventDetail;
 }
 
 // ==================== 辅助类型 ====================

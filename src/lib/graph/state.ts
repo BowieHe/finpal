@@ -90,7 +90,9 @@ export type ProgressCallback = (event: {
     | 'search_result'
     | 'search_complete'
     | 'db_query'
-    | 'db_result';
+    | 'db_result'
+    | 'timeline_event'    // 新增：详细时间线事件
+    | 'all_findings';     // 新增：所有搜索 findings
   data?: {
     node?: string;
     message?: string;
@@ -105,6 +107,7 @@ export type ProgressCallback = (event: {
     pessimisticAnswer?: string;
     optimisticData?: OptimisticData | null;
     pessimisticData?: PessimisticData | null;
+    allFindings?: any[];  // 新增
     [key: string]: unknown;
   };
 }) => void;
@@ -182,6 +185,22 @@ export const GraphAnnotation = Annotation.Root({
   progressCallback: Annotation<ProgressCallback | undefined>({
     reducer: (prev, next) => next ?? prev,
     default: () => undefined,
+  }),
+
+  // 搜索 findings（用于显示搜索结果）
+  allFindings: Annotation<any[]>({
+    reducer: (prev, next) => {
+      // 合并并去重
+      const combined = [...prev, ...next];
+      const seen = new Set<string>();
+      return combined.filter(f => {
+        const key = f.query || f.id || JSON.stringify(f);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+    default: () => [],
   }),
 });
 

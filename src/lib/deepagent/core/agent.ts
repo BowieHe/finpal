@@ -77,11 +77,17 @@ export class DeepAgent {
     try {
       // 初始化状态
       const state = this.initializeState(goal, entity);
-      
+
       this.emitProgress({
         type: 'thinking',
         step: 0,
         message: '开始分析任务...',
+        eventDetail: {
+          eventType: 'thinking',
+          label: '分析目标',
+          detail: `分析对象: ${entity}`,
+          metadata: { goal, entity }
+        }
       });
 
       // 执行循环
@@ -93,16 +99,29 @@ export class DeepAgent {
 
         // 1. 观察当前状态
         const observationContext = this.buildObservationContext(state);
-        
+
         this.emitProgress({
           type: 'thinking',
           step: state.step,
           message: `正在评估当前状态 (置信度: ${(state.context.confidence * 100).toFixed(0)}%)...`,
+          eventDetail: {
+            eventType: 'thinking',
+            label: '状态评估',
+            detail: `置信度: ${(state.context.confidence * 100).toFixed(0)}%, 缺口: ${state.context.gaps.length} 个`,
+            expandable: state.context.gaps.length > 0,
+            content: state.context.gaps,
+            metadata: {
+              confidence: state.context.confidence,
+              gapCount: state.context.gaps.length,
+              gaps: state.context.gaps,
+              step: state.step
+            }
+          }
         });
 
         // 2. LLM 推理决策
         const decision = await this.think(observationContext);
-        
+
         // 记录思考
         state.thoughts.push({
           step: state.step,
@@ -117,14 +136,46 @@ export class DeepAgent {
           reason: decision.reason,
         });
 
+        this.emitProgress({
+          type: 'thinking',
+          step: state.step,
+          message: decision.reason,
+          eventDetail: {
+            eventType: 'thinking',
+            label: '决策',
+            detail: decision.reason,
+            expandable: true,
+            content: {
+              thought: decision.thought,
+              analysis: decision.analysis,
+              nextSkill: decision.nextSkill,
+              skillInput: decision.skillInput
+            },
+            metadata: {
+              decision: decision.decision,
+              nextSkill: decision.nextSkill
+            }
+          }
+        });
+
         // 3. 根据决策行动
         if (decision.decision === 'finalize') {
           this.emitProgress({
             type: 'complete',
             step: state.step,
             message: '信息充足，生成最终报告...',
+            eventDetail: {
+              eventType: 'complete',
+              label: '生成报告',
+              detail: `基于 ${state.observations.length} 次观察生成最终分析`,
+              metadata: {
+                observations: state.observations.length,
+                confidence: state.context.confidence,
+                steps: state.step
+              }
+            }
           });
-          
+
           const result = await this.finalize(state, startTime);
           logger.info('DeepAgent execution completed', { totalSteps: state.step });
           return result;
@@ -133,30 +184,52 @@ export class DeepAgent {
         if (decision.decision === 'error') {
           state.status = 'error';
           state.error = decision.reason || '决策错误';
-          
+
           this.emitProgress({
             type: 'error',
             step: state.step,
             message: `执行出错: ${state.error}`,
+            eventDetail: {
+              eventType: 'search',
+              label: '执行错误',
+              detail: state.error,
+              metadata: { error: state.error }
+            }
           });
-          
+
           return this.createErrorResult(state, startTime);
         }
 
         if (decision.decision === 'continue' && decision.nextSkill) {
-          // 检查是否已使用过该 Skill
-          const skillUseCount = state.context.skillsUsed.filter(s => s === decision.nextSkill).length;
-          
-          if (skillUseCount >= 2) {
-            logger.warn(`Skill ${decision.nextSkill} already used ${skillUseCount} times, forcing finalize`);
-            
+          // 检查是否重复调用完全相同的 Skill + Task
+          const skillTaskKey = `${decision.nextSkill}:${JSON.stringify(decision.skillInput || {})}`;
+          const skillTaskUseCount = state.actions.filter(
+            a => `${a.skillName}:${JSON.stringify(a.input || {})}` === skillTaskKey
+          ).length;
+
+          // 只有完全相同的 (skill + input) 调用超过 1 次才阻止
+          if (skillTaskUseCount >= 1) {
+            logger.warn(`Same skill+task ${decision.nextSkill} already executed, forcing finalize`);
+
             state.thoughts.push({
               step: state.step,
-              content: `${decision.nextSkill} 已使用 ${skillUseCount} 次，为避免循环强制结束`,
+              content: `${decision.nextSkill} 已经执行过相同任务，为避免重复强制结束`,
               type: 'decision',
               timestamp: Date.now(),
             });
-            
+
+            this.emitProgress({
+              type: 'thinking',
+              step: state.step,
+              message: `${decision.nextSkill} 已执行过，生成最终报告...`,
+              eventDetail: {
+                eventType: 'thinking',
+                label: '避免重复',
+                detail: `相同任务已执行，进入总结阶段`,
+                metadata: { skill: decision.nextSkill }
+              }
+            });
+
             const result = await this.finalize(state, startTime);
             return result;
           }
@@ -170,7 +243,7 @@ export class DeepAgent {
 
       // 达到最大步数，强制结束
       logger.info('Max steps reached, finalizing');
-      
+
       state.thoughts.push({
         step: state.step,
         content: `达到最大步数限制 (${this.maxSteps})，强制结束`,
@@ -182,10 +255,16 @@ export class DeepAgent {
         type: 'complete',
         step: state.step,
         message: '达到最大步数，生成最终报告...',
+        eventDetail: {
+          eventType: 'complete',
+          label: '强制结束',
+          detail: `达到最大步数限制 (${this.maxSteps})`,
+          metadata: { maxSteps: this.maxSteps }
+        }
       });
 
       return await this.finalize(state, startTime, '达到最大步数限制');
-      
+
     } catch (error) {
       logger.error('DeepAgent execution failed', { error: String(error) });
       throw error;
@@ -317,95 +396,76 @@ export class DeepAgent {
     skillInput: any
   ): Promise<void> {
     const skill = this.skillRegistry.get(skillName);
-    
+
     if (!skill) {
       throw new Error(`Skill not found: ${skillName}`);
     }
+
+    // 准备输入（添加 previousGaps 用于优化）
+    const enrichedInput = {
+      ...skillInput,
+      entity: skillInput?.entity || state.entity,
+      previousGaps: state.context.gaps,
+      isRetry: state.context.skillsUsed.filter(s => s === skillName).length > 0,
+    };
 
     this.emitProgress({
       type: 'acting',
       step: state.step,
       message: `执行 ${skillName}...`,
-      data: { skillName, input: skillInput },
+      data: { skillName, input: enrichedInput },
+      eventDetail: {
+        eventType: 'skill_call',
+        label: '执行 Skill',
+        detail: skillName,
+        metadata: {
+          skillName,
+          hasPreviousGaps: state.context.gaps.length > 0,
+          isRetry: enrichedInput.isRetry
+        }
+      }
     });
 
     // 记录行动
     const action: Action = {
       step: state.step,
       skillName,
-      input: skillInput,
+      input: enrichedInput,
       timestamp: Date.now(),
     };
     state.actions.push(action);
     state.context.skillsUsed.push(skillName);
     state.status = 'acting';
 
-    if (skillName === 'fund-deep-search') {
-      const searchLabel =
-        skillInput?.entity || skillInput?.query || skillInput?.name || '未知搜索';
-      this.emitProgress({
-        type: 'searching',
-        step: state.step,
-        message: `正在搜索: ${searchLabel}`,
-        data: { currentQuery: searchLabel },
-      });
-    }
-
-    if (skillName === 'db-agent') {
-      this.emitProgress({
-        type: 'db_query',
-        step: state.step,
-        message: `数据库查询: ${skillInput?.task ?? '未知任务'}`,
-        data: {
-          task: skillInput?.task,
-          params: skillInput?.params,
-        },
-      });
-    }
-
     try {
-      // 执行 Skill
-      const output = await skill.execute(skillInput);
+      // 创建 progress handler 来透传 skill 的事件
+      const skillProgressHandler = (event: ProgressEvent) => {
+        // 透传 eventDetail 到上层
+        this.emitProgress({
+          ...event,
+          step: state.step,
+        });
+      };
+
+      // 执行 Skill（传递 progress handler）
+      const output = await skill.execute(enrichedInput, skillProgressHandler);
 
       this.emitProgress({
         type: 'observing',
         step: state.step,
         message: `${skillName} 执行完成 (置信度: ${(output.confidence * 100).toFixed(0)}%)`,
         data: { skillName, output },
+        eventDetail: {
+          eventType: 'analyze',
+          label: 'Skill 完成',
+          detail: `${skillName} · 置信度 ${(output.confidence * 100).toFixed(0)}%`,
+          metadata: {
+            skillName,
+            confidence: output.confidence,
+            gaps: output.gaps
+          }
+        }
       });
-
-      if (skillName === 'fund-deep-search') {
-        const searchResults = output.data?.searchResults || [];
-        const searchLabel =
-          skillInput?.entity || skillInput?.query || skillInput?.name || 'search';
-        this.emitProgress({
-          type: 'search_result',
-          step: state.step,
-          message: `网页搜索完成: ${searchResults.length} 条`,
-          data: {
-            query: searchLabel,
-            results: searchResults,
-          },
-        });
-        this.emitProgress({
-          type: 'search_complete',
-          step: state.step,
-          message: `搜索阶段完成: ${searchLabel}`,
-          data: { query: searchLabel },
-        });
-      }
-
-      if (skillName === 'db-agent') {
-        this.emitProgress({
-          type: 'db_result',
-          step: state.step,
-          message: `数据库结果: ${skillInput?.task ?? '查询'}`,
-          data: {
-            task: skillInput?.task,
-            results: output.data,
-          },
-        });
-      }
 
       // 记录观察
       const observation: Observation = {
@@ -419,10 +479,22 @@ export class DeepAgent {
       // 更新上下文
       this.updateContext(state, skillName, output);
       state.status = 'observing';
-      
+
     } catch (error) {
       logger.error(`Skill ${skillName} execution failed`, { error: String(error) });
-      
+
+      this.emitProgress({
+        type: 'error',
+        step: state.step,
+        message: `${skillName} 执行失败: ${String(error)}`,
+        eventDetail: {
+          eventType: 'search',
+          label: 'Skill 失败',
+          detail: String(error),
+          metadata: { skillName, error: String(error) }
+        }
+      });
+
       // 记录失败的观察
       const failedObservation: Observation = {
         step: state.step,
@@ -499,10 +571,12 @@ export class DeepAgent {
       return state.context.collectedData['fund-debate'];
     }
 
-    // 否则基于搜索结果生成简化报告
+    // 收集所有数据
+    const dbData = state.context.collectedData['db-agent'];
     const searchData = state.context.collectedData['fund-deep-search'];
-    
-    if (!searchData) {
+
+    // 如果没有数据，返回错误
+    if (!dbData && !searchData) {
       return {
         error: '没有收集到足够数据',
         observations: state.observations.map(o => ({
@@ -513,7 +587,74 @@ export class DeepAgent {
       };
     }
 
-    return searchData;
+    // 使用 LLM 基于收集的数据生成总结
+    try {
+      const summary = await this.generateSummary(state.goal, dbData, searchData, state.thoughts);
+      return {
+        summary,
+        dbData,
+        searchData,
+        sources: searchData?.sources || [],
+      };
+    } catch (error) {
+      logger.error('Failed to generate summary, returning raw data', { error: String(error) });
+      return {
+        summary: '基于收集的数据，我为您整理以下信息：',
+        dbData,
+        searchData,
+        sources: searchData?.sources || [],
+      };
+    }
+  }
+
+  /**
+   * 使用 LLM 生成总结
+   */
+  private async generateSummary(
+    goal: string,
+    dbData: any,
+    searchData: any,
+    thoughts: Thought[]
+  ): Promise<string> {
+    const prompt = `基于以下收集的信息，请为用户问题生成一个简洁但有信息量的回答。
+
+## 用户问题
+${goal}
+
+## 已收集的数据
+
+### 持仓数据（来自数据库）
+${dbData ? JSON.stringify(dbData, null, 2) : '无持仓数据'}
+
+### 搜索数据（来自 web）
+${searchData ? JSON.stringify({
+  fundInfo: searchData.fundInfo,
+  news: searchData.news?.slice(0, 3),
+  risks: searchData.risks?.slice(0, 5),
+}, null, 2) : '无搜索数据'}
+
+## 分析过程
+${thoughts.map(t => `- ${t.type}: ${t.content.substring(0, 200)}`).join('\n')}
+
+## 输出要求
+
+请生成一个结构化的回答，包含：
+1. 简要总结当前情况
+2. 关键发现（基于收集的数据）
+3. 给用户的相关建议
+
+回答要简洁明了，控制在 300-500 字。直接写回答内容，不要包含 "以下是回答" 这样的前缀。`;
+
+    try {
+      const response = await this.llm.invoke(prompt);
+      const content = typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+      return content.trim();
+    } catch (error) {
+      logger.error('LLM summary generation failed', { error: String(error) });
+      throw error;
+    }
   }
 
   /**

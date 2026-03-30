@@ -7,7 +7,7 @@
 import { getLLMInstance } from '@/lib/llm/client';
 import { createLogger } from '@/lib/logger';
 import { ISkill, SkillMetadata, FundDebateInput, FundDebateData, FundDeepSearchData } from '../types';
-import { SkillInput, SkillOutput } from '../../core/types';
+import { SkillInput, SkillOutput, ProgressEvent } from '../../core/types';
 
 const logger = createLogger('FundDebateSkill');
 
@@ -151,13 +151,26 @@ function calculateOverallConfidence(data: FundDebateData): number {
 export class FundDebateSkill implements ISkill {
   readonly metadata = METADATA;
 
-  async execute(input: SkillInput): Promise<SkillOutput> {
+  async execute(input: SkillInput, onProgress?: (event: ProgressEvent) => void): Promise<SkillOutput> {
     const startTime = Date.now();
     const typedInput = input as FundDebateInput;
-    
-    logger.info('Executing fund-debate', { 
+
+    logger.info('Executing fund-debate', {
       entity: typedInput.entity,
       hasResearchData: !!typedInput.researchData,
+    });
+
+    // 发送开始事件
+    onProgress?.({
+      type: 'acting',
+      step: 1,
+      message: '开始多空辩论分析...',
+      eventDetail: {
+        eventType: 'analyze',
+        label: '多空分析',
+        detail: `分析对象: ${typedInput.entity}`,
+        metadata: { entity: typedInput.entity }
+      }
     });
 
     try {
@@ -171,14 +184,26 @@ export class FundDebateSkill implements ISkill {
       );
 
       // 调用 LLM
+      onProgress?.({
+        type: 'thinking',
+        step: 2,
+        message: 'LLM 分析多空观点...',
+        eventDetail: {
+          eventType: 'thinking',
+          label: 'AI 分析',
+          detail: '基于研究数据生成多空观点',
+          metadata: { researchDataSize: JSON.stringify(typedInput.researchData).length }
+        }
+      });
+
       const response = await llm.invoke(prompt);
-      const content = typeof response.content === 'string' 
-        ? response.content 
+      const content = typeof response.content === 'string'
+        ? response.content
         : JSON.stringify(response.content);
 
       // 解析输出
       let debateData = parseDebateOutput(content);
-      
+
       if (!debateData) {
         logger.warn('Failed to parse debate output, using default');
         debateData = generateDefaultOutput(typedInput.entity);
@@ -189,6 +214,23 @@ export class FundDebateSkill implements ISkill {
       debateData.synthesis.conviction = Math.round(confidence * 100);
 
       const durationMs = Date.now() - startTime;
+
+      // 发送完成事件
+      onProgress?.({
+        type: 'complete',
+        step: 3,
+        message: `多空分析完成: ${debateData.synthesis.recommendation}`,
+        eventDetail: {
+          eventType: 'complete',
+          label: '分析完成',
+          detail: `建议: ${debateData.synthesis.recommendation} · 确信度: ${debateData.synthesis.conviction}%`,
+          metadata: {
+            recommendation: debateData.synthesis.recommendation,
+            conviction: debateData.synthesis.conviction,
+            durationMs
+          }
+        }
+      });
 
       logger.info('Fund debate completed', {
         entity: typedInput.entity,

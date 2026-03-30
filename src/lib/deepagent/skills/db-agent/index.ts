@@ -7,7 +7,7 @@
 import { dbAgent } from "@/lib/agents/db-agent";
 import { DBAgentInput, DBAgentTask } from "@/lib/agents/types";
 import { createLogger } from "@/lib/logger";
-import { SkillInput, SkillOutput } from "../../core/types";
+import { SkillInput, SkillOutput, ProgressEvent } from "../../core/types";
 import { ISkill, SkillMetadata } from "../types";
 
 const logger = createLogger("DbAgentSkill");
@@ -28,13 +28,26 @@ export interface DbAgentSkillInput extends SkillInput {
 export class DbAgentSkill implements ISkill {
   readonly metadata = METADATA;
 
-  async execute(input: SkillInput): Promise<SkillOutput> {
+  async execute(input: SkillInput, onProgress?: (event: ProgressEvent) => void): Promise<SkillOutput> {
     const startTime = Date.now();
     const typedInput = input as DbAgentSkillInput;
 
     logger.info("Executing db-agent skill", {
       task: typedInput.task,
       params: typedInput.params,
+    });
+
+    // 发送开始事件
+    onProgress?.({
+      type: 'db_query',
+      step: 1,
+      message: `数据库查询: ${typedInput.task}`,
+      eventDetail: {
+        eventType: 'db_query',
+        label: '数据库查询',
+        detail: typedInput.task,
+        metadata: { task: typedInput.task, params: typedInput.params }
+      }
     });
 
     try {
@@ -48,6 +61,19 @@ export class DbAgentSkill implements ISkill {
 
       const durationMs = Date.now() - startTime;
       const success = result.status === "success";
+
+      // 发送完成事件
+      onProgress?.({
+        type: 'db_result',
+        step: 2,
+        message: `数据库查询完成: ${typedInput.task}`,
+        eventDetail: {
+          eventType: 'complete',
+          label: '查询完成',
+          detail: `${typedInput.task} · ${success ? '成功' : '失败'}`,
+          metadata: { task: typedInput.task, success, durationMs }
+        }
+      });
 
       return {
         success,

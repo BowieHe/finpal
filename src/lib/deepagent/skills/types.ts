@@ -38,9 +38,9 @@ export interface SkillMetadata {
 export interface ISkill {
   /** Skill 元数据 */
   readonly metadata: SkillMetadata;
-  
+
   /** 执行 Skill */
-  execute(input: SkillInput): Promise<SkillOutput>;
+  execute(input: SkillInput, onProgress?: (event: any) => void): Promise<SkillOutput>;
 }
 
 /**
@@ -48,13 +48,16 @@ export interface ISkill {
  */
 export interface FundDeepSearchInput extends SkillInput {
   /** 搜索焦点 */
-  focus?: ('financial' | 'news' | 'manager' | 'risk' | 'competitor')[];
-  
+  focus?: ('financial' | 'news' | 'manager' | 'risk' | 'competitor' | 'macro' | 'technical')[];
+
   /** 搜索深度 */
   depth?: 'shallow' | 'normal' | 'deep';
-  
+
   /** 之前发现的缺口，用于补充搜索 */
   previousGaps?: string[];
+
+  /** 是否是重试（基于缺口优化） */
+  isRetry?: boolean;
 }
 
 /**
@@ -63,7 +66,10 @@ export interface FundDeepSearchInput extends SkillInput {
 export interface FundDeepSearchData {
   /** 数据置信度 */
   confidence?: number;
-  
+
+  /** 信息缺口 */
+  gaps?: string[];
+
   fundInfo: {
     name: string;
     code?: string;
@@ -73,14 +79,14 @@ export interface FundDeepSearchData {
     manager?: string;
     company?: string;
   };
-  
+
   financials?: {
     latestReport?: string;
     revenue?: number;
     profit?: number;
     expenseRatio?: number;
   };
-  
+
   news: Array<{
     title: string;
     date?: string;
@@ -88,9 +94,9 @@ export interface FundDeepSearchData {
     sentiment: 'positive' | 'neutral' | 'negative';
     summary?: string;
   }>;
-  
+
   risks: string[];
-  
+
   competitors?: string[];
 
   sources: string[];

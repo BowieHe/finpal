@@ -211,7 +211,7 @@ export default function Home() {
             });
         };
 
-        const EVENT_HISTORY_LIMIT = 10;
+        const EVENT_HISTORY_LIMIT = 80;
         const truncateForEvent = (text?: string, length = 80) =>
             text ? (text.length > length ? text.slice(0, length) + "…" : text) : undefined;
 
@@ -521,7 +521,7 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "searching",
                                                 currentQuery:
-                                                    event.data.currentQuery,
+                                                    event.data?.currentQuery || event.message || "搜索中...",
                                                 findingsCount:
                                                     (userMessage.findingsCount ||
                                                         0) + 1,
@@ -531,50 +531,45 @@ export default function Home() {
                                             updateMessageProgress({
                                                 status: "searching",
                                                 currentQuery:
-                                                    event.data.message ||
+                                                    event.message ||
                                                     "正在查询数据库...",
                                             });
                                             appendEventLog({
                                                 label: "数据库查询",
-                                                detail: truncateForEvent(event.data.message),
+                                                detail: truncateForEvent(event.message),
                                                 status: "running",
                                                 source: "db-agent",
                                             });
                                             break;
                                         case "db_result":
-                                            if (event.data.results) {
-                                                currentDbResults = [
-                                                    ...currentDbResults,
-                                                    ...event.data.results,
-                                                ];
-                                            }
+                                            // db_result 是进度通知，实际结果从 skill 输出获取
                                             updateMessageProgress({
-                                                dbResults: currentDbResults,
+                                                status: "analyzing",
                                             });
                                             appendEventLog({
                                                 label: "数据库返回",
-                                                detail: `${truncateForEvent(event.data.query || "内部数据")} · ${Array.isArray(event.data.results) ? event.data.results.length : 0} 条`,
-                                                status: event.data.error ? "error" : "success",
+                                                detail: truncateForEvent(event.message || "查询完成"),
+                                                status: "success",
                                                 source: "db-agent",
                                             });
                                             break;
                                         case "search_result":
+                                            // search_result 可能没有 data 字段，从 message 提取查询
+                                            const searchQuery = event.data?.query || event.message?.replace('搜索: ', '') || '未知查询';
+                                            const searchResults = event.data?.results || [];
                                             currentSearchResults = [
                                                 ...currentSearchResults,
                                                 {
-                                                    query: event.data.query,
-                                                    results:
-                                                        event.data.results ||
-                                                        [],
+                                                    query: searchQuery,
+                                                    results: searchResults,
                                                 },
                                             ];
                                             updateMessageProgress({
-                                                searchResults:
-                                                    currentSearchResults,
+                                                searchResults: currentSearchResults,
                                             });
                                             appendEventLog({
                                                 label: "网页搜索完成",
-                                                detail: `${truncateForEvent(event.data.query)} · ${event.data.results?.length ?? 0} 条`,
+                                                detail: `${truncateForEvent(searchQuery)} · ${searchResults.length} 条`,
                                                 status: "success",
                                                 source: "web-search",
                                             });
@@ -593,6 +588,22 @@ export default function Home() {
                                                  status: "analyzing",
                                                  allFindings: event.data.allFindings,
                                              });
+                                             break;
+                                         case "timeline_event":
+                                             // Claude Code 风格的详细时间线事件
+                                             console.log('[page] SSE: timeline_event', event.data);
+                                             if (event.data) {
+                                                 appendEventLog({
+                                                     type: event.data.eventType || 'thinking',
+                                                     label: event.data.label || '执行中...',
+                                                     detail: event.data.detail,
+                                                     status: event.data.eventType === 'complete' ? 'success' : 'running',
+                                                     source: event.data.source || 'deep-agent',
+                                                     expandable: event.data.expandable,
+                                                     expandedContent: event.data.content,
+                                                     metadata: event.data.metadata,
+                                                 });
+                                             }
                                              break;
                                          case "analyzing":
                                             updateMessageProgress({

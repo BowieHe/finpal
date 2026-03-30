@@ -12,13 +12,15 @@ export const smartSearch = async (
   options?: {
     useLLM?: boolean;
     maxRetries?: number;
+    count?: number;
   }
 ): Promise<SearchResult> => {
   const startTime = Date.now();
   const maxRetries = options?.maxRetries ?? 1; // 默认重试 1 次
+  const count = options?.count ?? 10; // 默认每次返回 10 条
   let attempts = 0;
 
-  logger.info('Starting MCP search', { query });
+  logger.info('Starting MCP search', { query, count });
 
   while (attempts <= maxRetries) {
     try {
@@ -32,7 +34,7 @@ export const smartSearch = async (
         async () => {
           const response = await client.callTool({
             name: 'bailian_web_search',
-            arguments: { query },
+            arguments: { query, count },
           });
 
           // 解析 MCP 返回的结果
