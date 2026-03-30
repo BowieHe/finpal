@@ -216,6 +216,41 @@ export default function ResearchResults({
         </div>
       )}
 
+      {Array.isArray(board.coveredGaps) && board.coveredGaps.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Covered Gaps
+          </div>
+          <div className="space-y-2">
+            {board.coveredGaps.map((item: any, idx: number) => (
+              <div
+                key={`${item.gap}-${idx}`}
+                className="rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 p-3"
+              >
+                <div className="text-xs font-medium text-emerald-800 dark:text-emerald-200">
+                  {item.gap}
+                </div>
+                <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300">
+                  来源查询: {item.query}
+                </div>
+                {Array.isArray(item.evidence) && item.evidence.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {item.evidence.map((evidence: string, evidenceIdx: number) => (
+                      <div
+                        key={`${evidence}-${evidenceIdx}`}
+                        className="text-[11px] text-emerald-700 dark:text-emerald-300"
+                      >
+                        {evidenceIdx + 1}. {evidence}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {Array.isArray(board.failedPaths) && board.failedPaths.length > 0 && (
         <div className="space-y-2">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -272,6 +307,39 @@ export default function ResearchResults({
                 <div className="text-xs font-medium text-emerald-800 dark:text-emerald-200">{item.title}</div>
                 {item.url && (
                   <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300 break-all">{item.url}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(review.coveredGaps) && review.coveredGaps.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Gap Coverage
+          </div>
+          <div className="space-y-2">
+            {review.coveredGaps.map((item: any, idx: number) => (
+              <div
+                key={`${item.gap}-${idx}`}
+                className="rounded-md border border-cyan-200 dark:border-cyan-800 bg-cyan-50/70 dark:bg-cyan-950/20 p-3"
+              >
+                <div className="text-xs font-medium text-cyan-800 dark:text-cyan-200">{item.gap}</div>
+                <div className="mt-1 text-[11px] text-cyan-700 dark:text-cyan-300">
+                  覆盖度 {Math.round((item.confidence || 0) * 100)}%
+                </div>
+                {Array.isArray(item.evidence) && item.evidence.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {item.evidence.map((evidence: string, evidenceIdx: number) => (
+                      <div
+                        key={`${evidence}-${evidenceIdx}`}
+                        className="text-[11px] text-cyan-700 dark:text-cyan-300"
+                      >
+                        {evidenceIdx + 1}. {evidence}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             ))}

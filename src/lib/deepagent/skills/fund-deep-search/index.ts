@@ -24,6 +24,11 @@ type CriticReview = {
   accepted: boolean;
   reason: string;
   informationDelta: number;
+  coveredGaps: Array<{
+    gap: string;
+    evidence: string[];
+    confidence: number;
+  }>;
   acceptedResults: any[];
   rejectedResults: Array<{
     title: string;
@@ -145,6 +150,7 @@ function initializeResearchBoard(
     hypotheses: [],
     searchedQueries: [],
     failedPaths: [],
+    coveredGaps: [],
   };
 }
 
@@ -359,6 +365,7 @@ function evaluateSearchResults(
 
   const acceptedResults: any[] = [];
   const rejectedResults: CriticReview['rejectedResults'] = [];
+  const coveredGapsMap = new Map<string, { gap: string; evidence: string[]; confidence: number }>();
 
   for (const item of resultItems) {
     const title = item.title || '搜索结果';
@@ -383,6 +390,47 @@ function evaluateSearchResults(
       continue;
     }
 
+    const gapSignals = [
+      {
+        gap: '缺少最新财报数据',
+        test: /财报|业绩|营收|利润|季报|年报|净值/i,
+      },
+      {
+        gap: '缺少最新新闻动态',
+        test: /新闻|快讯|动态|消息|走势|价格|行情/i,
+      },
+      {
+        gap: '未识别风险因素',
+        test: /风险|回撤|波动|下跌|警示|危机/i,
+      },
+      {
+        gap: '缺少基金经理信息',
+        test: /基金经理|经理|掌舵|投资总监/i,
+      },
+      {
+        gap: '缺少基金规模\/净值信息',
+        test: /规模|资产规模|aum|净值|份额/i,
+      },
+    ];
+
+    for (const signal of gapSignals) {
+      if (signal.test.test(`${title} ${snippet}`)) {
+        const existing = coveredGapsMap.get(signal.gap);
+        if (existing) {
+          if (existing.evidence.length < 3) {
+            existing.evidence.push(title);
+          }
+          existing.confidence = Math.max(existing.confidence, 0.6);
+        } else {
+          coveredGapsMap.set(signal.gap, {
+            gap: signal.gap,
+            evidence: [title],
+            confidence: snippet.length > 80 ? 0.8 : 0.6,
+          });
+        }
+      }
+    }
+
     seenTitles.add(normalizedTitle);
     if (url) seenUrls.add(url);
     acceptedResults.push(item);
@@ -398,9 +446,28 @@ function evaluateSearchResults(
       ? `保留 ${acceptedResults.length} 条高价值结果，过滤 ${rejectedResults.length} 条低价值或重复结果`
       : `查询“${query}”未提供有效信息增量`,
     informationDelta,
+    coveredGaps: Array.from(coveredGapsMap.values()),
     acceptedResults,
     rejectedResults,
   };
+}
+
+function mergeCoveredGaps(board: ResearchBoard, query: string, review: CriticReview) {
+  for (const item of review.coveredGaps) {
+    const existing = board.coveredGaps?.find(entry => entry.gap === item.gap);
+    if (existing) {
+      existing.evidence = Array.from(new Set([...existing.evidence, ...item.evidence])).slice(0, 4);
+      existing.confidence = Math.max(existing.confidence, item.confidence);
+      existing.query = existing.query || query;
+    } else {
+      board.coveredGaps?.push({
+        gap: item.gap,
+        query,
+        evidence: item.evidence.slice(0, 3),
+        confidence: item.confidence,
+      });
+    }
+  }
 }
 
 function shouldStopEarly(
@@ -417,6 +484,10 @@ function shouldStopEarly(
 
   if (hasCoveredNews && hasCoveredRisk && hasCoveredFundamentals && acceptedGroups.length >= 3) {
     return '核心维度已有覆盖，提前结束剩余搜索轮次';
+  }
+
+  if ((board.coveredGaps?.length || 0) >= 3 && acceptedGroups.length >= 2) {
+    return '关键缺口已有明显覆盖，提前结束并进入分析阶段';
   }
 
   if (board.failedPaths.length >= 4 && remainingQueries <= 2) {
@@ -575,6 +646,7 @@ async function performMultiSearch(
         engine: results.engine,
         duration: searchDuration
       });
+      mergeCoveredGaps(researchBoard, query, review);
 
       // 收集来源
       filteredItems.forEach((item: any) => {
@@ -634,6 +706,7 @@ async function performMultiSearch(
           content: {
             query,
             informationDelta: review.informationDelta,
+            coveredGaps: review.coveredGaps,
             acceptedResults: review.acceptedResults.map(item => ({
               title: item.title,
               url: item.url || item.link,
@@ -643,6 +716,7 @@ async function performMultiSearch(
           metadata: {
             query,
             informationDelta: review.informationDelta,
+            coveredGapCount: review.coveredGaps.length,
             keptCount: review.acceptedResults.length,
             rejectedCount: review.rejectedResults.length,
           }
@@ -839,6 +913,7 @@ async function performMultiSearch(
       content: {
         knownFacts: researchBoard.knownFacts.slice(0, 8),
         informationGaps: researchBoard.informationGaps,
+        coveredGaps: researchBoard.coveredGaps,
         failedPaths: researchBoard.failedPaths,
       },
       metadata: {

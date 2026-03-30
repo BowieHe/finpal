@@ -95,6 +95,12 @@ export interface FundDeepSearchData {
       query: string;
       reason: string;
     }>;
+    coveredGaps?: Array<{
+      gap: string;
+      query: string;
+      evidence: string[];
+      confidence: number;
+    }>;
     stopReason?: string;
   };
 

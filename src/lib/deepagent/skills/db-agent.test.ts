@@ -14,8 +14,8 @@ describe("DbAgentSkill", () => {
 
   it("exposes schema info and success metadata", async () => {
     const payload = {
-      agentId: "db-agent",
-      task: "portfolio_summary",
+      agentId: "db-agent" as const,
+      task: "portfolio_summary" as const,
       status: "success" as const,
       data: { totalValue: 1234 },
       schema: dbAgentSchema,
