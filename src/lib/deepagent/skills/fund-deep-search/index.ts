@@ -11,6 +11,15 @@ import { ISkill, SkillMetadata, FundDeepSearchInput, FundDeepSearchData } from '
 import { SkillInput, SkillOutput, ProgressEvent } from '../../core/types';
 
 const logger = createLogger('FundDeepSearchSkill');
+const MAX_SEARCH_QUERIES = 10;
+
+type ResearchBoard = NonNullable<FundDeepSearchData['researchBoard']>;
+type SearchResultGroup = {
+  query: string;
+  results: any[];
+  engine: string;
+  duration: number;
+};
 
 /**
  * Skill 元数据
@@ -84,6 +93,85 @@ function detectGaps(data: FundDeepSearchData): string[] {
   }
 
   return gaps;
+}
+
+function createResearchProposal(entity: string, focus?: string[]): ResearchBoard['proposal'] {
+  const isFund = /\d{6}/.test(entity);
+  const subQuestions = [
+    isFund ? '基金基础信息是否完整' : '资产当前价格与趋势如何',
+    '近期市场新闻和催化因素有哪些',
+    '主要风险信号是什么',
+  ];
+
+  if (!focus || focus.includes('financial')) {
+    subQuestions.push(isFund ? '最新财报和净值表现如何' : '收益表现和宏观驱动如何');
+  }
+  if (isFund && (!focus || focus.includes('manager'))) {
+    subQuestions.push('基金经理与管理人背景如何');
+  }
+  if (!focus || focus.includes('competitor')) {
+    subQuestions.push('是否存在可比较的竞品或替代资产');
+  }
+
+  return {
+    mainQuestion: `围绕 ${entity} 构建投资研究底稿`,
+    subQuestions,
+    priorityOrder: [...subQuestions],
+  };
+}
+
+function initializeResearchBoard(
+  entity: string,
+  focus?: string[],
+  previousGaps?: string[]
+): ResearchBoard {
+  return {
+    proposal: createResearchProposal(entity, focus),
+    knownFacts: [],
+    informationGaps: previousGaps?.length
+      ? [...previousGaps]
+      : ['最新新闻动态', '风险信号', '基础信息完整性'],
+    hypotheses: [],
+    searchedQueries: [],
+    failedPaths: [],
+  };
+}
+
+function recordKnownFacts(board: ResearchBoard, resultGroups: SearchResultGroup[]) {
+  for (const group of resultGroups) {
+    const topResults = group.results.slice(0, 2);
+    for (const item of topResults) {
+      const title = item.title || '';
+      const source = item.url || item.link || '';
+      if (!title || !source) continue;
+      if (board.knownFacts.some(fact => fact.claim === title && fact.source === source)) continue;
+
+      board.knownFacts.push({
+        claim: title,
+        source,
+        confidence: item.description ? 0.65 : 0.5,
+      });
+    }
+  }
+}
+
+function refreshInformationGaps(board: ResearchBoard, data: FundDeepSearchData) {
+  const detected = detectGaps(data);
+  board.informationGaps = detected;
+
+  for (const fact of board.knownFacts) {
+    if (!fact.gapCovered) {
+      if (fact.claim.includes('风险') || fact.claim.includes('下跌')) {
+        fact.gapCovered = '风险信号';
+      } else if (fact.claim.includes('基金') || fact.claim.includes('ETF')) {
+        fact.gapCovered = '基础信息完整性';
+      } else if (fact.claim.includes('业绩') || fact.claim.includes('财报')) {
+        fact.gapCovered = '财报与业绩';
+      } else if (fact.claim.includes('新闻') || fact.claim.includes('价格')) {
+        fact.gapCovered = '最新新闻动态';
+      }
+    }
+  }
 }
 
 /**
@@ -189,6 +277,63 @@ function generateOptimizedQueries(
   return uniqueQueries;
 }
 
+function deriveHypotheses(
+  entity: string,
+  queries: string[],
+  gaps: string[] | undefined,
+  isRetry: boolean
+): ResearchBoard['hypotheses'] {
+  const effectiveGaps = gaps?.length ? gaps : ['基础面', '新闻动态', '风险信号'];
+
+  return effectiveGaps.map((gap, index) => ({
+    gap,
+    rationale: isRetry
+      ? `上一轮仍存在“${gap}”缺口，因此收窄搜索策略并更换关键词路径`
+      : `先验证“${gap}”是否能通过公开网页信息补齐`,
+    targetSources: gap.includes('财报')
+      ? ['基金公告', '公司财报', '交易所披露']
+      : gap.includes('经理')
+        ? ['基金公司官网', '公开简历', '第三方基金资料页']
+        : ['新闻站点', '研究文章', '行情页'],
+    queryPatterns: queries.slice(index, index + 2),
+  }));
+}
+
+function normalizeQuery(query: string): string {
+  return query.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isNearDuplicateQuery(query: string, searchedQueries: string[]): boolean {
+  const normalized = normalizeQuery(query);
+  return searchedQueries.some(prev => {
+    const normalizedPrev = normalizeQuery(prev);
+    return normalizedPrev === normalized
+      || normalized.includes(normalizedPrev)
+      || normalizedPrev.includes(normalized);
+  });
+}
+
+function decideStopReason(
+  board: ResearchBoard,
+  queryCount: number,
+  gaps: string[],
+  confidence: number
+): string {
+  if (gaps.length === 0) {
+    return '核心信息缺口已补齐，搜索可以优雅结束';
+  }
+  if (confidence >= 0.7) {
+    return `当前置信度 ${(confidence * 100).toFixed(0)}% 已足够进入分析阶段`;
+  }
+  if (queryCount >= MAX_SEARCH_QUERIES) {
+    return `已达到网络搜索上限 ${MAX_SEARCH_QUERIES} 次，避免无效重复搜索`;
+  }
+  if (board.failedPaths.length >= Math.max(3, Math.ceil(queryCount / 2))) {
+    return '连续出现低价值或失败路径，建议切换到辩论或数据库上下文';
+  }
+  return '保留部分信息缺口，交由后续技能继续补齐';
+}
+
 /**
  * 执行多维度搜索，带进度回调
  */
@@ -201,11 +346,13 @@ async function performMultiSearch(
 ): Promise<FundDeepSearchData> {
   const startTime = Date.now();
   const sources: string[] = [];
-  const MAX_SEARCH_QUERIES = 10;
+  const researchBoard = initializeResearchBoard(entity, focus, previousGaps);
 
   // 1. 生成优化查询
   const generatedQueries = generateOptimizedQueries(entity, focus, previousGaps, isRetry);
-  const searchQueries = generatedQueries.slice(0, MAX_SEARCH_QUERIES);
+  const dedupedQueries = generatedQueries.filter(query => !isNearDuplicateQuery(query, researchBoard.searchedQueries));
+  const searchQueries = dedupedQueries.slice(0, MAX_SEARCH_QUERIES);
+  researchBoard.hypotheses = deriveHypotheses(entity, searchQueries, previousGaps, isRetry);
 
   // 2. 发送规划事件
   onProgress?.({
@@ -220,6 +367,8 @@ async function performMultiSearch(
         : `生成 ${searchQueries.length} 个初始查询`,
       expandable: true,
       content: {
+        proposal: researchBoard.proposal,
+        hypotheses: researchBoard.hypotheses,
         queries: searchQueries,
         truncatedQueries: generatedQueries.length > MAX_SEARCH_QUERIES
           ? generatedQueries.slice(MAX_SEARCH_QUERIES)
@@ -227,12 +376,28 @@ async function performMultiSearch(
         gaps: previousGaps,
         optimized: isRetry
       },
-      metadata: {
+          metadata: {
         queryCount: searchQueries.length,
         queryLimit: MAX_SEARCH_QUERIES,
         truncated: generatedQueries.length > MAX_SEARCH_QUERIES,
         gaps: previousGaps,
         isRetry
+      }
+    }
+  });
+
+  onProgress?.({
+    type: 'thinking',
+    step: 1,
+    message: `研究大纲已建立: ${researchBoard.proposal.subQuestions.length} 个子问题`,
+    eventDetail: {
+      eventType: 'thinking',
+      label: 'Research Proposal',
+      detail: researchBoard.proposal.mainQuestion,
+      expandable: true,
+      content: researchBoard.proposal,
+      metadata: {
+        subQuestionCount: researchBoard.proposal.subQuestions.length,
       }
     }
   });
@@ -249,6 +414,29 @@ async function performMultiSearch(
 
   for (let i = 0; i < searchQueries.length; i++) {
     const query = searchQueries[i];
+    if (isNearDuplicateQuery(query, researchBoard.searchedQueries)) {
+      researchBoard.failedPaths.push({
+        query,
+        reason: 'query_duplicate',
+      });
+
+      onProgress?.({
+        type: 'thinking',
+        step: i + 1,
+        message: `跳过重复搜索: ${query}`,
+        eventDetail: {
+          eventType: 'thinking',
+          label: '跳过重复路径',
+          detail: query,
+          metadata: {
+            query,
+            reason: 'query_duplicate',
+          }
+        }
+      });
+      continue;
+    }
+    researchBoard.searchedQueries.push(query);
 
     // 发送搜索开始事件
     onProgress?.({
@@ -276,6 +464,12 @@ async function performMultiSearch(
 
       // 收集结果
       const resultItems = results.results || [];
+      if (resultItems.length === 0 || results.error) {
+        researchBoard.failedPaths.push({
+          query,
+          reason: resultItems.length === 0 ? 'no_results' : 'search_error',
+        });
+      }
       allResults.push({
         query,
         results: resultItems,
@@ -317,6 +511,10 @@ async function performMultiSearch(
 
     } catch (error) {
       logger.warn('Search failed for query', { query, error: String(error) });
+      researchBoard.failedPaths.push({
+        query,
+        reason: String(error),
+      });
 
       onProgress?.({
         type: 'error',
@@ -443,6 +641,7 @@ async function performMultiSearch(
     sources: sources.slice(0, 10),
     searchResults: allResults,
     searchQueries,
+    researchBoard,
   };
 
   // 合并详细数据
@@ -451,6 +650,9 @@ async function performMultiSearch(
                          detailedInfo.summary.includes('债券') ? '债券型' :
                          detailedInfo.summary.includes('混合') ? '混合型' : '其他';
   }
+
+  recordKnownFacts(researchBoard, allResults);
+  refreshInformationGaps(researchBoard, data);
 
   // 发送完成事件
   onProgress?.({
@@ -461,12 +663,19 @@ async function performMultiSearch(
       eventType: 'complete',
       label: '搜索完成',
       detail: `找到 ${news.length} 条新闻, ${risks.length} 个风险信号, ${sources.length} 个来源`,
+      expandable: true,
+      content: {
+        knownFacts: researchBoard.knownFacts.slice(0, 8),
+        informationGaps: researchBoard.informationGaps,
+        failedPaths: researchBoard.failedPaths,
+      },
       metadata: {
         durationMs: duration,
         newsCount: news.length,
         riskCount: risks.length,
         sourceCount: sources.length,
-        queryCount: searchQueries.length
+        queryCount: searchQueries.length,
+        failedPathCount: researchBoard.failedPaths.length,
       }
     }
   });
@@ -553,6 +762,9 @@ export class FundDeepSearchSkill implements ISkill {
       // 更新数据中的置信度
       data.confidence = confidence;
       data.gaps = gaps;
+      if (data.researchBoard) {
+        data.researchBoard.stopReason = decideStopReason(data.researchBoard, data.searchQueries.length, gaps, confidence);
+      }
 
       const durationMs = Date.now() - startTime;
 
@@ -569,6 +781,9 @@ export class FundDeepSearchSkill implements ISkill {
       } else {
         suggestions.push(`建议继续补充信息（当前置信度 ${(confidence * 100).toFixed(0)}%）`);
       }
+      if (data.researchBoard?.stopReason) {
+        suggestions.push(data.researchBoard.stopReason);
+      }
 
       // 发送 skill 完成事件
       onProgress?.({
@@ -579,12 +794,15 @@ export class FundDeepSearchSkill implements ISkill {
           eventType: 'complete',
           label: '搜索完成',
           detail: `置信度: ${(confidence * 100).toFixed(0)}%, 缺口: ${gaps.length} 个`,
+          expandable: true,
+          content: data.researchBoard,
           metadata: {
             durationMs,
             confidence,
             gapCount: gaps.length,
             newsCount: data.news.length,
-            riskCount: data.risks.length
+            riskCount: data.risks.length,
+            stopReason: data.researchBoard?.stopReason,
           }
         }
       });

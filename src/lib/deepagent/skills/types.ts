@@ -70,6 +70,34 @@ export interface FundDeepSearchData {
   /** 信息缺口 */
   gaps?: string[];
 
+  /** 研究白板 */
+  researchBoard?: {
+    proposal: {
+      mainQuestion: string;
+      subQuestions: string[];
+      priorityOrder: string[];
+    };
+    knownFacts: Array<{
+      claim: string;
+      source: string;
+      confidence: number;
+      gapCovered?: string;
+    }>;
+    informationGaps: string[];
+    hypotheses: Array<{
+      gap: string;
+      rationale: string;
+      targetSources: string[];
+      queryPatterns: string[];
+    }>;
+    searchedQueries: string[];
+    failedPaths: Array<{
+      query: string;
+      reason: string;
+    }>;
+    stopReason?: string;
+  };
+
   fundInfo: {
     name: string;
     code?: string;
