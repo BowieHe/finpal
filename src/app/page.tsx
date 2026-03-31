@@ -8,7 +8,7 @@ import SettingsModal from "@/components/SettingsModal";
 import PersonaModal from "@/components/PersonaModal";
 import AddHoldingModal, { HoldingData } from "@/components/AddHoldingModal";
 import ThemeToggle from "@/components/ThemeToggle";
-import { Conversation, Message, EventLogEntry } from "@/types/conversation";
+import { Conversation, Message, EventLogEntry, DebateRound, DebateJudgeState } from "@/types/conversation";
 import { LLMConfig, Theme } from "@/types/config";
 import {
     getConversations,
@@ -173,17 +173,15 @@ export default function Home() {
         const userMessage: Message = {
             id: generateId(),
             question,
-            optimisticAnswer: "",
-            pessimisticAnswer: "",
             timestamp: Date.now(),
             status: "searching",
             searchResults: [],
             findingsCount: 0,
             totalQueries: 0,
-            decisions: [],
             cioPlanning: false,
             agentTasks: {},
             isDirectAnswer: false,
+            debateRounds: [],
         };
         addMessageToConversation(activeConversation.id, userMessage);
         setConversations(getConversations());
@@ -228,64 +226,76 @@ export default function Home() {
             updateMessageProgress({ eventHistory: history });
         };
 
-        // 用于累积流式内容的变量
         let currentRound = 1;
-        let optimisticStreamContent = "";
-        let pessimisticStreamContent = "";
-        let optimisticRebuttalStreamContent = "";
-        let pessimisticRebuttalStreamContent = "";
-        let deciderStreamContent = "";
-        let deciderCardCreated = false;
-        let roundJudgeCardCreated = false;
         
-        const updateDebateHistory = (roundNum: number, role: 'optimistic' | 'pessimistic', chunk: string, isThinking = false) => {
-            const history = [...(userMessage.debateHistory || [])];
-            let round = history.find(r => r.round === roundNum);
-            
+        const updateDebateRounds = (mutator: (rounds: DebateRound[]) => void) => {
+            const rounds = [...(userMessage.debateRounds || [])].map((round) => ({
+                ...round,
+                optimistic: round.optimistic ? { ...round.optimistic } : undefined,
+                pessimistic: round.pessimistic ? { ...round.pessimistic } : undefined,
+                judge: round.judge ? { ...round.judge } : undefined,
+            }));
+
+            mutator(rounds);
+            rounds.sort((a, b) => a.round - b.round);
+            updateMessageProgress({ debateRounds: rounds });
+        };
+
+        const ensureRound = (rounds: DebateRound[], roundNum: number): DebateRound => {
+            let round = rounds.find((item) => item.round === roundNum);
             if (!round) {
                 round = { round: roundNum };
-                history.push(round);
+                rounds.push(round);
             }
-            
-            if (role === 'optimistic') {
-                if (isThinking) round.optimisticThinking = (round.optimisticThinking || "") + chunk;
-                else {
-                    round.optimisticAnswer = (round.optimisticAnswer || "") + chunk;
-                    if (roundNum === 1) optimisticStreamContent += chunk;
-                    else optimisticRebuttalStreamContent += chunk;
-                }
-            } else {
-                if (isThinking) round.pessimisticThinking = (round.pessimisticThinking || "") + chunk;
-                else {
-                    round.pessimisticAnswer = (round.pessimisticAnswer || "") + chunk;
-                    if (roundNum === 1) pessimisticStreamContent += chunk;
-                    else pessimisticRebuttalStreamContent += chunk;
-                }
-            }
-            
-            console.log('[page] updateDebateHistory', { roundNum, role, chunk: chunk.substring(0, 20), isThinking });
-            updateMessageProgress({ 
-                debateHistory: history,
+            return round;
+        };
+
+        const updateDebateChunk = (
+            roundNum: number,
+            role: "optimistic" | "pessimistic",
+            chunk: string
+        ) => {
+            updateDebateRounds((rounds) => {
+                const round = ensureRound(rounds, roundNum);
+                const existing = round[role] || { content: "" };
+                round[role] = {
+                    ...existing,
+                    content: `${existing.content || ""}${chunk}`,
+                };
             });
         };
 
-        const updateDebateHistoryFull = (roundNum: number, role: 'optimistic' | 'pessimistic', content: string, thinking?: string) => {
-            const history = [...(userMessage.debateHistory || [])];
-            console.log('[page] updateDebateHistoryFull - before', { roundNum, role, historyLen: history.length });
-            let round = history.find(r => r.round === roundNum);
-            if (!round) {
-                round = { round: roundNum };
-                history.push(round);
-            }
-            if (role === 'optimistic') {
-                round.optimisticAnswer = content;
-                if (thinking) round.optimisticThinking = thinking;
-            } else {
-                round.pessimisticAnswer = content;
-                if (thinking) round.pessimisticThinking = thinking;
-            }
-            console.log('[page] updateDebateHistoryFull - after', { historyLen: history.length, round });
-            updateMessageProgress({ debateHistory: history });
+        const updateDebateMessage = (
+            roundNum: number,
+            role: "optimistic" | "pessimistic",
+            content: string,
+            thinking?: string
+        ) => {
+            updateDebateRounds((rounds) => {
+                const round = ensureRound(rounds, roundNum);
+                round[role] = {
+                    content,
+                    thinking,
+                    done: true,
+                };
+            });
+        };
+
+        const updateJudgeState = (
+            roundNum: number,
+            judge: Partial<DebateJudgeState>
+        ) => {
+            updateDebateRounds((rounds) => {
+                const round = ensureRound(rounds, roundNum);
+                round.judge = {
+                    round: roundNum,
+                    winner: "draw",
+                    shouldContinue: false,
+                    reason: "",
+                    ...round.judge,
+                    ...judge,
+                };
+            });
         };
 
         const getAgentName = (id: string) => {
@@ -465,7 +475,6 @@ export default function Home() {
                                             if (event.data.answer) {
                                                 updateMessageProgress({
                                                     status: "complete",
-                                                    optimisticAnswer: event.data.answer,
                                                     debateSummary: event.data.answer,
                                                     debateWinner: "draw",
                                                     isDirectAnswer: true,
@@ -660,52 +669,15 @@ export default function Home() {
                                             if (event.data?.node === "round_judge") {
                                                 currentRound = event.data.round || currentRound;
                                             }
-                                            // 处理裁决完成事件
-                                            if (
-                                                event.data.node ===
-                                                    "decider_complete" &&
-                                                event.data.winner
-                                            ) {
-                                                const currentDecisions =
-                                                    userMessage.decisions || [];
-                                                const newDecision = {
-                                                    round:
-                                                        event.data.round ||
-                                                        currentDecisions.filter(d => !d.pending).length + 1,
-                                                    winner: event.data.winner,
-                                                    shouldContinue:
-                                                        event.data
-                                                            .shouldContinue ??
-                                                        false,
-                                                    reason:
-                                                        event.data.reason || "",
-                                                    isFinal:
-                                                        !event.data
-                                                            .shouldContinue,
-                                                    pending: false,
-                                                };
-                                                // Replace the last pending card, or append if none
-                                                const pendingIdx = currentDecisions.map((d, i) => d.pending ? i : -1).filter(i => i >= 0).pop();
-                                                const updatedDecisions = pendingIdx !== undefined
-                                                    ? currentDecisions.map((d, i) => i === pendingIdx ? newDecision : d)
-                                                    : [...currentDecisions, newDecision];
-                                                updateMessageProgress({
-                                                    status: "analyzing",
-                                                    currentQuery:
-                                                        event.data.message,
-                                                    decisions: updatedDecisions,
-                                                });
-                                            } else {
-                                                updateMessageProgress({
-                                                    status: "analyzing",
-                                                    currentQuery:
-                                                        event.data.message,
-                                                });
-                                            }
+                                            updateMessageProgress({
+                                                status: "analyzing",
+                                                currentQuery:
+                                                    event.data.message,
+                                            });
                                             break;
                                         case "optimistic_output":
                                             console.log('[page] SSE: optimistic_output', event.data);
-                                            updateDebateHistoryFull(1, 'optimistic', event.data.answer, event.data.thinking);
+                                            updateDebateMessage(1, 'optimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                             });
@@ -718,7 +690,7 @@ export default function Home() {
                                             break;
                                         case "pessimistic_output":
                                             console.log('[page] SSE: pessimistic_output', event.data);
-                                            updateDebateHistoryFull(1, 'pessimistic', event.data.answer, event.data.thinking);
+                                            updateDebateMessage(1, 'pessimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                             });
@@ -731,36 +703,28 @@ export default function Home() {
                                             break;
                                         case "optimistic_rebuttal":
                                             console.log('[page] SSE: optimistic_rebuttal', event.data);
-                                            updateDebateHistoryFull(currentRound, 'optimistic', event.data.rebuttal);
+                                            updateDebateMessage(currentRound, 'optimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                             });
                                             break;
                                         case "pessimistic_rebuttal":
                                             console.log('[page] SSE: pessimistic_rebuttal', event.data);
-                                            updateDebateHistoryFull(currentRound, 'pessimistic', event.data.rebuttal);
+                                            updateDebateMessage(currentRound, 'pessimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
                                             });
                                             break;
                                         case "round_judge":
                                             console.log('[page] SSE: round_judge', event.data);
-                                            // round_judge fires with final result \u2014 replace pending card or append
                                             if (event.data.round !== undefined) {
-                                                const currentDecisions = userMessage.decisions || [];
-                                                const judgeDecision = {
-                                                    round: event.data.round as number,
+                                                updateJudgeState(event.data.round as number, {
                                                     winner: (event.data.winner || 'draw') as 'optimistic' | 'pessimistic' | 'draw',
                                                     shouldContinue: Boolean(event.data.shouldContinue),
                                                     reason: String(event.data.reason || ''),
                                                     isFinal: !event.data.shouldContinue,
                                                     pending: false,
-                                                };
-                                                const pendingIdx = currentDecisions.map((d, i) => d.pending ? i : -1).filter(i => i >= 0).pop();
-                                                const updatedDecisions = pendingIdx !== undefined
-                                                    ? currentDecisions.map((d, i) => i === pendingIdx ? judgeDecision : d)
-                                                    : [...currentDecisions, judgeDecision];
-                                                // Update currentRound for next rebuttal
+                                                });
                                                 if (event.data.shouldContinue && event.data.round) {
                                                     currentRound = (event.data.round as number) + 1;
                                                     console.log('[page] Incremented currentRound to', currentRound);
@@ -768,7 +732,6 @@ export default function Home() {
 
                                                 updateMessageProgress({
                                                     status: "analyzing",
-                                                    decisions: updatedDecisions,
                                                 });
                                             }
                                             break;
@@ -777,54 +740,27 @@ export default function Home() {
                                                 const chunk = event.data.chunk;
                                                 switch (event.data.node) {
                                                     case "optimistic_initial":
-                                                        updateDebateHistory(1, 'optimistic', chunk);
+                                                        updateDebateChunk(1, 'optimistic', chunk);
                                                         break;
                                                     case "pessimistic_initial":
-                                                        updateDebateHistory(1, 'pessimistic', chunk);
+                                                        updateDebateChunk(1, 'pessimistic', chunk);
                                                         break;
                                                     case "optimistic_rebuttal":
-                                                        updateDebateHistory(currentRound, 'optimistic', chunk);
+                                                        updateDebateChunk(currentRound, 'optimistic', chunk);
                                                         break;
                                                     case "pessimistic_rebuttal":
-                                                        updateDebateHistory(currentRound, 'pessimistic', chunk);
+                                                        updateDebateChunk(currentRound, 'pessimistic', chunk);
                                                         break;
                                                     case "round_judge":
-                                                        // On first round_judge chunk: immediately show a pending judge card
-                                                        if (!roundJudgeCardCreated) {
-                                                            roundJudgeCardCreated = true;
-                                                            const existingDecisions = userMessage.decisions || [];
-                                                            const pendingJudge = {
-                                                                round: existingDecisions.filter(d => !d.pending).length + 1,
-                                                                winner: 'draw' as const,
-                                                                shouldContinue: true,
-                                                                reason: '裁决中...',
-                                                                isFinal: false,
-                                                                pending: true,
-                                                            };
-                                                            updateMessageProgress({
-                                                                status: "analyzing",
-                                                                decisions: [...existingDecisions, pendingJudge],
-                                                            });
-                                                        }
+                                                        updateJudgeState(currentRound, {
+                                                            pending: true,
+                                                            winner: "draw",
+                                                            shouldContinue: true,
+                                                            reason: "裁决中...",
+                                                            isFinal: false,
+                                                        });
                                                         break;
                                                     case "decider":
-                                                        // On the very first decider chunk, push a pending decision card immediately
-                                                        if (!deciderCardCreated) {
-                                                            deciderCardCreated = true;
-                                                            const existingDecisions = userMessage.decisions || [];
-                                                            const pendingDecision = {
-                                                                round: existingDecisions.length + 1,
-                                                                winner: 'draw' as const,
-                                                                shouldContinue: false,
-                                                                reason: '裁决中...',
-                                                                isFinal: false,
-                                                                pending: true,
-                                                            };
-                                                            updateMessageProgress({
-                                                                status: "analyzing",
-                                                                decisions: [...existingDecisions, pendingDecision],
-                                                            });
-                                                        }
                                                         break;
                                                     case "reflector":
                                                         {
@@ -938,10 +874,6 @@ export default function Home() {
                     userMessage.id,
                     {
                         status: "complete",
-                        optimisticAnswer: data.optimisticAnswer,
-                        pessimisticAnswer: data.pessimisticAnswer,
-                        optimisticRebuttal: data.optimisticRebuttal,
-                        pessimisticRebuttal: data.pessimisticRebuttal,
                         debateWinner: data.debateWinner,
                         debateSummary: data.debateSummary,
                         searchResults: data.searchResults,
@@ -949,7 +881,25 @@ export default function Home() {
                         allFindings: (data as any).allFindings,
                         researchSummary: data.researchSummary,
                         engineUsage: data.engineUsage,
-                        round: data.round,
+                        debateRounds: data.debateHistory
+                            ? data.debateHistory.map((round: any) => ({
+                                  round: round.round,
+                                  optimistic: round.optimisticAnswer
+                                      ? {
+                                            content: round.optimisticAnswer,
+                                            thinking: round.optimisticThinking,
+                                            done: true,
+                                        }
+                                      : undefined,
+                                  pessimistic: round.pessimisticAnswer
+                                      ? {
+                                            content: round.pessimisticAnswer,
+                                            thinking: round.pessimisticThinking,
+                                            done: true,
+                                        }
+                                      : undefined,
+                              }))
+                            : [],
                         isDirectAnswer: userMessage.isDirectAnswer,
                     } as any,
                 );
@@ -971,10 +921,6 @@ export default function Home() {
             // Update the user message with error instead of showing alert
             updateMessageInConversation(activeConversation.id, userMessage.id, {
                 status: "error",
-                optimisticAnswer: "",
-                pessimisticAnswer: "",
-                optimisticRebuttal: "",
-                pessimisticRebuttal: "",
                 debateWinner: "error",
                 debateSummary: `请求失败: ${errorMsg}`,
                 searchResults: [],
@@ -982,7 +928,7 @@ export default function Home() {
                 allFindings: [],
                 researchSummary: null,
                 engineUsage: null,
-                round: 0,
+                debateRounds: [],
             } as any);
 
             setConversations(getConversations());

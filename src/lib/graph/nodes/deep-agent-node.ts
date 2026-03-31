@@ -284,14 +284,14 @@ export const deepAgentNode = async (
           key_facts: result.thoughts.map(t => t.content),
           data_points: [],
         },
-        optimisticAnswer: directAnswer,
-        pessimisticAnswer: '',
         debateWinner: 'draw',
         debateSummary: directAnswer,
         debateHistory: [{
           round: 1,
-          optimisticAnswer: directAnswer,
-          pessimisticAnswer: '',
+          optimistic: {
+            content: directAnswer,
+            done: true,
+          },
         }],
         allFindings,
       };
@@ -380,7 +380,6 @@ export const deepAgentNode = async (
       allFindings,
 
       // 辩论数据
-      optimisticAnswer: '',
       optimisticData: bullCase ? {
         probability: {
           baseRate: 50,
@@ -398,7 +397,6 @@ export const deepAgentNode = async (
         confidenceLevel: bullCase.confidence,
       } : null,
 
-      pessimisticAnswer: '',
       pessimisticData: bearCase ? {
         probability: {
           downsideProbability: 100 - bearCase.confidence,
@@ -424,13 +422,33 @@ export const deepAgentNode = async (
       debateHistory: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
         ? debateData.rounds.map((r: any) => ({
             round: r.round,
-            optimisticAnswer: r.optimistic || '',
-            pessimisticAnswer: r.pessimistic || '',
+            optimistic: r.optimistic
+              ? {
+                  content: r.optimistic,
+                  done: true,
+                }
+              : undefined,
+            pessimistic: r.pessimistic
+              ? {
+                  content: r.pessimistic,
+                  done: true,
+                }
+              : undefined,
           }))
         : [{
             round: 1,
-            optimisticAnswer: bullCase?.thesis || '',
-            pessimisticAnswer: bearCase?.thesis || '',
+            optimistic: bullCase?.thesis
+              ? {
+                  content: bullCase.thesis,
+                  done: true,
+                }
+              : undefined,
+            pessimistic: bearCase?.thesis
+              ? {
+                  content: bearCase.thesis,
+                  done: true,
+                }
+              : undefined,
           }],
 
       // 其他状态

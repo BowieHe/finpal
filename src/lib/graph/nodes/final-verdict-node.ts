@@ -53,8 +53,12 @@ export const finalVerdictNode = async (
       typeof c === 'string' ? c : c.description
     ));
   }
-  if (state.optimisticAnswer && !bullPoints.includes(state.optimisticAnswer)) {
-    bullPoints.unshift(state.optimisticAnswer);
+  const latestBullContent = state.debateHistory
+    .map((round) => round.optimistic?.content)
+    .filter((content): content is string => Boolean(content))
+    .at(-1);
+  if (latestBullContent && !bullPoints.includes(latestBullContent)) {
+    bullPoints.unshift(latestBullContent);
   }
 
   // 构建 bearPoints（看跌观点）
@@ -64,8 +68,12 @@ export const finalVerdictNode = async (
       typeof r === 'string' ? r : r.description
     ));
   }
-  if (state.pessimisticAnswer && !bearPoints.includes(state.pessimisticAnswer)) {
-    bearPoints.unshift(state.pessimisticAnswer);
+  const latestBearContent = state.debateHistory
+    .map((round) => round.pessimistic?.content)
+    .filter((content): content is string => Boolean(content))
+    .at(-1);
+  if (latestBearContent && !bearPoints.includes(latestBearContent)) {
+    bearPoints.unshift(latestBearContent);
   }
 
   // 构建 riskWarnings（风险提示）

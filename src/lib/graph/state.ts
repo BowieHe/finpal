@@ -123,8 +123,6 @@ export type ProgressCallback = (event: {
     summary?: string;
     answer?: string;
     winner?: DebateWinner;
-    optimisticAnswer?: string;
-    pessimisticAnswer?: string;
     optimisticData?: OptimisticData | null;
     pessimisticData?: PessimisticData | null;
     allFindings?: any[];  // 新增
@@ -147,22 +145,11 @@ export const GraphAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),
-
-  // 乐观派
-  optimisticAnswer: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
   optimisticData: Annotation<OptimisticData | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),
 
-  // 悲观派
-  pessimisticAnswer: Annotation<string>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => '',
-  }),
   pessimisticData: Annotation<PessimisticData | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
@@ -185,7 +172,19 @@ export const GraphAnnotation = Annotation.Root({
       next.forEach((newRound) => {
         const existingIdx = result.findIndex((r) => r.round === newRound.round);
         if (existingIdx !== -1) {
-          result[existingIdx] = { ...result[existingIdx], ...newRound };
+          result[existingIdx] = {
+            ...result[existingIdx],
+            ...newRound,
+            optimistic: newRound.optimistic
+              ? { ...result[existingIdx].optimistic, ...newRound.optimistic }
+              : result[existingIdx].optimistic,
+            pessimistic: newRound.pessimistic
+              ? { ...result[existingIdx].pessimistic, ...newRound.pessimistic }
+              : result[existingIdx].pessimistic,
+            judge: newRound.judge
+              ? { ...result[existingIdx].judge, ...newRound.judge }
+              : result[existingIdx].judge,
+          };
         } else {
           result.push(newRound);
         }
