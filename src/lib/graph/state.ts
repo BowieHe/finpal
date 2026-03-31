@@ -96,9 +96,10 @@ export type ProgressCallback = (event: {
   type:
     | 'analyzing'
     | 'node_start'
-    | 'optimistic_output'
-    | 'pessimistic_output'
-    | 'stream_chunk'
+    | 'debate_chunk'
+    | 'debate_message_done'
+    | 'debate_judge_pending'
+    | 'debate_judge_done'
     | 'complete'
     | 'agent_start'
     | 'agent_progress'
@@ -165,8 +166,8 @@ export const GraphAnnotation = Annotation.Root({
     default: () => '',
   }),
 
-  // 辩论历史
-  debateHistory: Annotation<DebateRound[]>({
+  // 辩论轮次
+  debateRounds: Annotation<DebateRound[]>({
     reducer: (prev, next) => {
       const result = [...prev];
       next.forEach((newRound) => {

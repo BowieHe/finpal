@@ -107,12 +107,10 @@ export const deepAgentNode = async (
           'search_complete',
           'db_query',
           'db_result',
-          'optimistic_output',
-          'pessimistic_output',
-          'optimistic_rebuttal',
-          'pessimistic_rebuttal',
-          'round_judge',
-          'stream_chunk',
+          'debate_chunk',
+          'debate_message_done',
+          'debate_judge_pending',
+          'debate_judge_done',
         ];
         if (directEvents.includes(event.type)) {
           const detail = event.eventDetail;
@@ -286,7 +284,7 @@ export const deepAgentNode = async (
         },
         debateWinner: 'draw',
         debateSummary: directAnswer,
-        debateHistory: [{
+        debateRounds: [{
           round: 1,
           optimistic: {
             content: directAnswer,
@@ -305,23 +303,27 @@ export const deepAgentNode = async (
 
     const hasRoundStreaming = Array.isArray(debateData?.rounds) && debateData.rounds.length > 0;
 
-    // 发送 optimistic_output 事件 (fallback，避免旧路径无输出)
+    // 发送 debate_message_done 事件 (fallback，避免旧路径无输出)
     if (state.progressCallback && bullCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
-        type: 'optimistic_output',
+        type: 'debate_message_done',
         data: {
-          answer: bullCase.thesis,
+          round: 1,
+          role: 'optimistic',
+          content: bullCase.thesis,
           thinking: bullCase.catalysts?.join('\n') || '',
         },
       });
     }
 
-    // 发送 pessimistic_output 事件 (fallback，避免旧路径无输出)
+    // 发送 debate_message_done 事件 (fallback，避免旧路径无输出)
     if (state.progressCallback && bearCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
-        type: 'pessimistic_output',
+        type: 'debate_message_done',
         data: {
-          answer: bearCase.thesis,
+          round: 1,
+          role: 'pessimistic',
+          content: bearCase.thesis,
           thinking: bearCase.risks?.join('\n') || '',
         },
       });
@@ -418,8 +420,8 @@ export const deepAgentNode = async (
         confidenceLevel: bearCase.confidence,
       } : null,
 
-      // 辩论历史（优先使用多轮结果，避免覆盖流式轮次）
-      debateHistory: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
+      // 辩论轮次（优先使用多轮结果，避免覆盖流式轮次）
+      debateRounds: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
         ? debateData.rounds.map((r: any) => ({
             round: r.round,
             optimistic: r.optimistic
@@ -432,6 +434,15 @@ export const deepAgentNode = async (
               ? {
                   content: r.pessimistic,
                   done: true,
+                }
+              : undefined,
+            judge: r.judge
+              ? {
+                  round: r.round,
+                  winner: r.judge.winner,
+                  shouldContinue: r.judge.shouldContinue,
+                  reason: r.judge.reason,
+                  isFinal: !r.judge.shouldContinue,
                 }
               : undefined,
           }))
@@ -449,6 +460,7 @@ export const deepAgentNode = async (
                   done: true,
                 }
               : undefined,
+            judge: undefined,
           }],
 
       // 其他状态

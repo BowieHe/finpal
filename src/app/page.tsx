@@ -666,57 +666,49 @@ export default function Home() {
                                             });
                                             break;
                                         case "node_start":
-                                            if (event.data?.node === "round_judge") {
-                                                currentRound = event.data.round || currentRound;
-                                            }
                                             updateMessageProgress({
                                                 status: "analyzing",
                                                 currentQuery:
                                                     event.data.message,
                                             });
                                             break;
-                                        case "optimistic_output":
-                                            console.log('[page] SSE: optimistic_output', event.data);
-                                            updateDebateMessage(1, 'optimistic', event.data.answer, event.data.thinking);
+                                        case "debate_message_done":
+                                            console.log('[page] SSE: debate_message_done', event.data);
+                                            updateDebateMessage(
+                                                Number(event.data.round || currentRound),
+                                                event.data.role as 'optimistic' | 'pessimistic',
+                                                String(event.data.content || ''),
+                                                typeof event.data.thinking === 'string' ? event.data.thinking : undefined
+                                            );
                                             updateMessageProgress({
                                                 status: "analyzing",
                                             });
                                             appendEventLog({
-                                                label: "乐观派观点生成",
-                                                detail: truncateForEvent(event.data.answer),
+                                                label: event.data.role === 'optimistic' ? "乐观派观点生成" : "悲观派观点生成",
+                                                detail: truncateForEvent(event.data.content),
                                                 status: "running",
                                                 source: "debate",
                                             });
                                             break;
-                                        case "pessimistic_output":
-                                            console.log('[page] SSE: pessimistic_output', event.data);
-                                            updateDebateMessage(1, 'pessimistic', event.data.answer, event.data.thinking);
+                                        case "debate_judge_pending":
+                                            console.log('[page] SSE: debate_judge_pending', event.data);
+                                            if (event.data.round !== undefined) {
+                                                updateJudgeState(event.data.round as number, {
+                                                    pending: true,
+                                                    winner: "draw",
+                                                    shouldContinue: true,
+                                                    reason: "裁决中...",
+                                                    isFinal: false,
+                                                });
+                                                currentRound = event.data.round as number;
+                                            }
                                             updateMessageProgress({
                                                 status: "analyzing",
-                                            });
-                                            appendEventLog({
-                                                label: "悲观派观点生成",
-                                                detail: truncateForEvent(event.data.answer),
-                                                status: "running",
-                                                source: "debate",
+                                                currentQuery: event.data.message || "裁决中...",
                                             });
                                             break;
-                                        case "optimistic_rebuttal":
-                                            console.log('[page] SSE: optimistic_rebuttal', event.data);
-                                            updateDebateMessage(currentRound, 'optimistic', event.data.rebuttal);
-                                            updateMessageProgress({
-                                                status: "analyzing",
-                                            });
-                                            break;
-                                        case "pessimistic_rebuttal":
-                                            console.log('[page] SSE: pessimistic_rebuttal', event.data);
-                                            updateDebateMessage(currentRound, 'pessimistic', event.data.rebuttal);
-                                            updateMessageProgress({
-                                                status: "analyzing",
-                                            });
-                                            break;
-                                        case "round_judge":
-                                            console.log('[page] SSE: round_judge', event.data);
+                                        case "debate_judge_done":
+                                            console.log('[page] SSE: debate_judge_done', event.data);
                                             if (event.data.round !== undefined) {
                                                 updateJudgeState(event.data.round as number, {
                                                     winner: (event.data.winner || 'draw') as 'optimistic' | 'pessimistic' | 'draw',
@@ -735,45 +727,13 @@ export default function Home() {
                                                 });
                                             }
                                             break;
-                                        case "stream_chunk":
+                                        case "debate_chunk":
                                             if (event.data?.chunk) {
-                                                const chunk = event.data.chunk;
-                                                switch (event.data.node) {
-                                                    case "optimistic_initial":
-                                                        updateDebateChunk(1, 'optimistic', chunk);
-                                                        break;
-                                                    case "pessimistic_initial":
-                                                        updateDebateChunk(1, 'pessimistic', chunk);
-                                                        break;
-                                                    case "optimistic_rebuttal":
-                                                        updateDebateChunk(currentRound, 'optimistic', chunk);
-                                                        break;
-                                                    case "pessimistic_rebuttal":
-                                                        updateDebateChunk(currentRound, 'pessimistic', chunk);
-                                                        break;
-                                                    case "round_judge":
-                                                        updateJudgeState(currentRound, {
-                                                            pending: true,
-                                                            winner: "draw",
-                                                            shouldContinue: true,
-                                                            reason: "裁决中...",
-                                                            isFinal: false,
-                                                        });
-                                                        break;
-                                                    case "decider":
-                                                        break;
-                                                    case "reflector":
-                                                        {
-                                                            const depth = event.data.depth || 0;
-                                                            const currentReflections = { ...(userMessage.reflections || {}) };
-                                                            currentReflections[depth] = (currentReflections[depth] || "") + chunk;
-                                                            updateMessageProgress({
-                                                                status: "analyzing",
-                                                                reflections: currentReflections
-                                                            });
-                                                        }
-                                                        break;
-                                                }
+                                                updateDebateChunk(
+                                                    Number(event.data.round || currentRound),
+                                                    event.data.role as 'optimistic' | 'pessimistic',
+                                                    String(event.data.chunk)
+                                                );
                                             }
                                             break;
                                         case "complete":
@@ -881,23 +841,24 @@ export default function Home() {
                         allFindings: (data as any).allFindings,
                         researchSummary: data.researchSummary,
                         engineUsage: data.engineUsage,
-                        debateRounds: data.debateHistory
-                            ? data.debateHistory.map((round: any) => ({
+                        debateRounds: data.debateRounds
+                            ? data.debateRounds.map((round: any) => ({
                                   round: round.round,
-                                  optimistic: round.optimisticAnswer
+                                  optimistic: round.optimistic
                                       ? {
-                                            content: round.optimisticAnswer,
-                                            thinking: round.optimisticThinking,
-                                            done: true,
+                                            content: round.optimistic.content,
+                                            thinking: round.optimistic.thinking,
+                                            done: Boolean(round.optimistic.done),
                                         }
                                       : undefined,
-                                  pessimistic: round.pessimisticAnswer
+                                  pessimistic: round.pessimistic
                                       ? {
-                                            content: round.pessimisticAnswer,
-                                            thinking: round.pessimisticThinking,
-                                            done: true,
+                                            content: round.pessimistic.content,
+                                            thinking: round.pessimistic.thinking,
+                                            done: Boolean(round.pessimistic.done),
                                         }
                                       : undefined,
+                                  judge: round.judge,
                               }))
                             : [],
                         isDirectAnswer: userMessage.isDirectAnswer,

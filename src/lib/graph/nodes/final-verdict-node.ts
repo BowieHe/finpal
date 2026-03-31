@@ -53,7 +53,7 @@ export const finalVerdictNode = async (
       typeof c === 'string' ? c : c.description
     ));
   }
-  const latestBullContent = state.debateHistory
+  const latestBullContent = state.debateRounds
     .map((round) => round.optimistic?.content)
     .filter((content): content is string => Boolean(content))
     .at(-1);
@@ -68,7 +68,7 @@ export const finalVerdictNode = async (
       typeof r === 'string' ? r : r.description
     ));
   }
-  const latestBearContent = state.debateHistory
+  const latestBearContent = state.debateRounds
     .map((round) => round.pessimistic?.content)
     .filter((content): content is string => Boolean(content))
     .at(-1);

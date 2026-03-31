@@ -398,6 +398,8 @@ async function streamDebateResponse(
     node: DebateStreamNode;
     label: string;
     step: number;
+    round?: number;
+    role?: 'optimistic' | 'pessimistic';
     onProgress?: (event: ProgressEvent) => void;
     emitChunks?: boolean;
   }
@@ -429,11 +431,12 @@ async function streamDebateResponse(
         const visibleChunk = contentExtractor?.append(chunk) || '';
         if (visibleChunk) {
           options.onProgress?.({
-            type: 'stream_chunk',
+            type: 'debate_chunk',
             step: options.step,
             message: `${options.label} streaming`,
             data: {
-              node: options.node,
+              round: options.round,
+              role: options.role,
               chunk: visibleChunk,
             },
           });
@@ -510,6 +513,8 @@ export class FundDebateSkill implements ISkill {
           node: 'optimistic_initial',
           label: 'Bull round 1',
           step: 2,
+          round: 1,
+          role: 'optimistic',
           onProgress,
           emitChunks: true,
         }
@@ -526,11 +531,13 @@ export class FundDebateSkill implements ISkill {
       });
 
       onProgress?.({
-        type: 'optimistic_output',
+        type: 'debate_message_done',
         step: 2,
         message: '多头首轮发言完成',
         data: {
-          answer: bullRound1,
+          round: 1,
+          role: 'optimistic',
+          content: bullRound1,
           thinking: bullCatalysts.join('\n'),
         },
         eventDetail: {
@@ -560,6 +567,8 @@ export class FundDebateSkill implements ISkill {
           node: 'pessimistic_initial',
           label: 'Bear round 1',
           step: 3,
+          round: 1,
+          role: 'pessimistic',
           onProgress,
           emitChunks: true,
         }
@@ -576,11 +585,13 @@ export class FundDebateSkill implements ISkill {
       });
 
       onProgress?.({
-        type: 'pessimistic_output',
+        type: 'debate_message_done',
         step: 3,
         message: '空头首轮发言完成',
         data: {
-          answer: bearRound1,
+          round: 1,
+          role: 'pessimistic',
+          content: bearRound1,
           thinking: bearRisks.join('\n'),
         },
         eventDetail: {
@@ -597,11 +608,10 @@ export class FundDebateSkill implements ISkill {
 
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         onProgress?.({
-          type: 'node_start',
+          type: 'debate_judge_pending',
           step: 4 + round,
           message: `第 ${round} 轮裁决中...`,
           data: {
-            node: 'round_judge',
             round,
             message: `第 ${round} 轮裁决中...`,
           },
@@ -620,8 +630,9 @@ export class FundDebateSkill implements ISkill {
             node: 'round_judge',
             label: `Judge round ${round}`,
             step: 4 + round,
+            round,
             onProgress,
-            emitChunks: true,
+            emitChunks: false,
           }
         );
         const judgeParsed = extractJson<JudgeDecision>(judgeRaw);
@@ -631,7 +642,7 @@ export class FundDebateSkill implements ISkill {
         logger.info('Round judged', { round, ...judge });
 
         onProgress?.({
-          type: 'round_judge',
+          type: 'debate_judge_done',
           step: 4 + round,
           message: `第 ${round} 轮裁决: ${judge.winner}`,
           data: {
@@ -693,6 +704,8 @@ export class FundDebateSkill implements ISkill {
             node: 'optimistic_rebuttal',
             label: `Bull rebuttal round ${nextRound}`,
             step: 8 + nextRound,
+            round: nextRound,
+            role: 'optimistic',
             onProgress,
             emitChunks: true,
           }
@@ -707,12 +720,13 @@ export class FundDebateSkill implements ISkill {
         });
 
         onProgress?.({
-          type: 'optimistic_rebuttal',
+          type: 'debate_message_done',
           step: 8 + nextRound,
           message: `多头第 ${nextRound} 轮发言`,
           data: {
             round: nextRound,
-            rebuttal: latestOptimistic,
+            role: 'optimistic',
+            content: latestOptimistic,
           },
           eventDetail: {
             eventType: 'analyze',
@@ -729,6 +743,8 @@ export class FundDebateSkill implements ISkill {
             node: 'pessimistic_rebuttal',
             label: `Bear rebuttal round ${nextRound}`,
             step: 9 + nextRound,
+            round: nextRound,
+            role: 'pessimistic',
             onProgress,
             emitChunks: true,
           }
@@ -743,12 +759,13 @@ export class FundDebateSkill implements ISkill {
         });
 
         onProgress?.({
-          type: 'pessimistic_rebuttal',
+          type: 'debate_message_done',
           step: 9 + nextRound,
           message: `空头第 ${nextRound} 轮发言`,
           data: {
             round: nextRound,
-            rebuttal: latestPessimistic,
+            role: 'pessimistic',
+            content: latestPessimistic,
           },
           eventDetail: {
             eventType: 'analyze',
@@ -876,7 +893,7 @@ export class FundDebateSkill implements ISkill {
 
       // 即使超时，也发一条降级裁决，避免前端“等待首轮裁决”卡死
       onProgress?.({
-        type: 'round_judge',
+        type: 'debate_judge_done',
         step: 99,
         message: '辩论降级裁决',
         data: {
