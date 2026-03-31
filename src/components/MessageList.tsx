@@ -136,11 +136,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                 <div className="mt-6">
                   <DeciderResult 
                     winner={message.debateWinner || "draw"}
-                    summary={
-                      message.finalVerdict
-                        ? JSON.stringify(message.finalVerdict)
-                        : (message.debateSummary || '')
-                    }
+                    verdict={message.finalVerdict}
+                    summary={message.finalVerdict?.summary || message.debateSummary || ''}
                   />
                 </div>
               )}

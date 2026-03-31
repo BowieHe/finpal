@@ -23,6 +23,34 @@ import {
 import { getLLMConfig, setLLMConfig as persistLLMConfig } from "@/lib/config";
 import { generateId } from "@/utils/format";
 
+const normalizeDebateRounds = (rounds?: any[]): DebateRound[] =>
+    Array.isArray(rounds)
+        ? rounds.map((round: any) => ({
+              round: round.round,
+              optimistic: round.optimistic
+                  ? {
+                        content: String(round.optimistic.content || ""),
+                        thinking:
+                            typeof round.optimistic.thinking === "string"
+                                ? round.optimistic.thinking
+                                : undefined,
+                        done: Boolean(round.optimistic.done),
+                    }
+                  : undefined,
+              pessimistic: round.pessimistic
+                  ? {
+                        content: String(round.pessimistic.content || ""),
+                        thinking:
+                            typeof round.pessimistic.thinking === "string"
+                                ? round.pessimistic.thinking
+                                : undefined,
+                        done: Boolean(round.pessimistic.done),
+                    }
+                  : undefined,
+              judge: round.judge,
+          }))
+        : [];
+
 export default function Home() {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [currentConversation, setCurrentConversation] =
@@ -335,7 +363,7 @@ export default function Home() {
                 // Handle SSE stream
                 const reader = response.body?.getReader();
                 const decoder = new TextDecoder();
-                let finalVerdictSnapshot: any = null;
+                let finalVerdictSnapshot: Message["finalVerdict"] | null = null;
                 let buffer = ""; // Buffer for incomplete SSE messages
                 let currentSearchResults: any[] = [];
                 let currentDbResults: any[] = [];
@@ -488,7 +516,7 @@ export default function Home() {
                                             });
                                             break;
                                         case "final_verdict":
-                                            finalVerdictSnapshot = event.data;
+                                            finalVerdictSnapshot = event.data as Message["finalVerdict"];
                                             // 仅更新最终裁决，避免覆盖流式辩论内容与轮次
                                             updateMessageProgress({
                                                 finalVerdict: event.data,
@@ -841,26 +869,8 @@ export default function Home() {
                         allFindings: (data as any).allFindings,
                         researchSummary: data.researchSummary,
                         engineUsage: data.engineUsage,
-                        debateRounds: data.debateRounds
-                            ? data.debateRounds.map((round: any) => ({
-                                  round: round.round,
-                                  optimistic: round.optimistic
-                                      ? {
-                                            content: round.optimistic.content,
-                                            thinking: round.optimistic.thinking,
-                                            done: Boolean(round.optimistic.done),
-                                        }
-                                      : undefined,
-                                  pessimistic: round.pessimistic
-                                      ? {
-                                            content: round.pessimistic.content,
-                                            thinking: round.pessimistic.thinking,
-                                            done: Boolean(round.pessimistic.done),
-                                        }
-                                      : undefined,
-                                  judge: round.judge,
-                              }))
-                            : [],
+                        finalVerdict: data.finalVerdict || null,
+                        debateRounds: normalizeDebateRounds(data.debateRounds),
                         isDirectAnswer: userMessage.isDirectAnswer,
                     } as any,
                 );

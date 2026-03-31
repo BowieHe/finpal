@@ -10,17 +10,18 @@ import { FinalVerdict } from '@/types/conversation';
 
 interface DeciderResultProps {
   winner: string;
-  summary: string;
+  summary?: string;
+  verdict?: FinalVerdict | null;
   isStreaming?: boolean;
 }
 
-export default function DeciderResult({ winner, summary, isStreaming }: DeciderResultProps) {
-  let parsedVerdict: FinalVerdict | null = null;
-  try {
-    parsedVerdict = JSON.parse(summary);
-  } catch (e) {
-    // ignore
-  }
+export default function DeciderResult({
+  winner,
+  summary = '',
+  verdict = null,
+  isStreaming,
+}: DeciderResultProps) {
+  const parsedVerdict = verdict;
 
   const markdownComponents = useMemo(() => ({
     code({ node, inline, className, children, ...props }: any) {
@@ -100,7 +101,7 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
   const recInfo = getRecommendationLabel(parsedVerdict.recommendation);
 
   return (
-    <div className={`mt-6 p-5 rounded-xl border ${colorClass} space-y-4`}>
+      <div className={`mt-6 p-5 rounded-xl border ${colorClass} space-y-4`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xl">{info.emoji}</span>
@@ -113,8 +114,13 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
         </div>
       </div>
 
-      <div className="text-sm font-medium text-slate-800 dark:text-slate-200 bg-white/50 dark:bg-black/20 p-3 rounded-lg">
-        {parsedVerdict.summary}
+      <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto prose prose-slate dark:prose-invert prose-p:my-1 prose-table:my-2 prose-th:px-2 prose-td:px-2 max-w-none bg-white/50 dark:bg-black/20 p-3 rounded-lg">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={markdownComponents}
+        >
+          {parsedVerdict.summary}
+        </ReactMarkdown>
       </div>
 
       {parsedVerdict.searchStopReason && (
