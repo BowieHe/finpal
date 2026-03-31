@@ -72,4 +72,33 @@ describe("FundDeepSearchSkill", () => {
     expect(output.gaps.length).toBeGreaterThan(0);
     expect(output.suggestions?.join(" ")).toMatch(/继续补充信息|进入分析阶段/);
   });
+
+  it("does not report fund-only gaps for index entities", async () => {
+    vi.mocked(smartSearch).mockImplementation(async (query: string) => ({
+      query,
+      engine: "bailian-websearch" as const,
+      results: [
+        {
+          title: "上证指数走势观察",
+          url: "https://example.com/sse",
+          description: "上证指数近期走势、成交量与风险因素分析。",
+        },
+        {
+          title: "上证指数投资分析",
+          url: "https://example.com/sse-analysis",
+          description: "市场表现、估值修复与宏观驱动的综合复盘。",
+        },
+      ],
+      timestamp: Date.now(),
+      reasoning: "success",
+      duration: 800,
+    }));
+
+    const output = await fundDeepSearchSkill.execute({ entity: "上证指数" });
+
+    expect(output.success).toBe(true);
+    expect(output.gaps).not.toContain("缺少最新财报数据");
+    expect(output.gaps).not.toContain("缺少基金规模/净值信息");
+    expect(output.gaps).not.toContain("缺少基金经理信息");
+  });
 });

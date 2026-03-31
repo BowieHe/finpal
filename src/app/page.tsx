@@ -217,16 +217,22 @@ export default function Home() {
 
         // Helper function to update message with search progress
         // OPTIMIZATION: Use ref-based or batch updates to avoid layout shift and slow localStorage reads
-        const updateMessageProgress = (updates: Partial<Message>) => {
+        const updateMessageProgress = (
+            updates: Partial<Message>,
+            options?: { persist?: boolean }
+        ) => {
+            const shouldPersist = options?.persist ?? true;
+
             // Update the local object reference for immediate access in the next SSE callback
             Object.assign(userMessage, updates);
             
-            // Persist state
-            updateMessageInConversation(
-                activeConversation.id,
-                userMessage.id,
-                { ...updates, timestamp: Date.now() },
-            );
+            if (shouldPersist) {
+                updateMessageInConversation(
+                    activeConversation.id,
+                    userMessage.id,
+                    { ...updates, timestamp: Date.now() },
+                );
+            }
             
             setCurrentConversation(prev => {
                 if (!prev) return null;
@@ -256,7 +262,10 @@ export default function Home() {
 
         let currentRound = 1;
         
-        const updateDebateRounds = (mutator: (rounds: DebateRound[]) => void) => {
+        const updateDebateRounds = (
+            mutator: (rounds: DebateRound[]) => void,
+            options?: { persist?: boolean }
+        ) => {
             const rounds = [...(userMessage.debateRounds || [])].map((round) => ({
                 ...round,
                 optimistic: round.optimistic ? { ...round.optimistic } : undefined,
@@ -266,7 +275,7 @@ export default function Home() {
 
             mutator(rounds);
             rounds.sort((a, b) => a.round - b.round);
-            updateMessageProgress({ debateRounds: rounds });
+            updateMessageProgress({ debateRounds: rounds }, options);
         };
 
         const ensureRound = (rounds: DebateRound[], roundNum: number): DebateRound => {
@@ -290,7 +299,7 @@ export default function Home() {
                     ...existing,
                     content: `${existing.content || ""}${chunk}`,
                 };
-            });
+            }, { persist: false });
         };
 
         const updateDebateMessage = (
