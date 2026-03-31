@@ -41,17 +41,17 @@ export const finalVerdictNode = async (
   }
 
   // 从 DeepAgent 结果中提取数据
-  const optimisticData = state.optimisticData;
-  const pessimisticData = state.pessimisticData;
+  const debateSnapshot = state.debateSnapshot;
+  const bullCase = debateSnapshot?.bullCase;
+  const bearCase = debateSnapshot?.bearCase;
+  const synthesis = debateSnapshot?.synthesis;
   const researchSummary = state.researchSummary;
   const researchBoard = researchSummary?.research_board;
 
   // 构建 bullPoints（看涨观点）
   const bullPoints: string[] = [];
-  if (optimisticData?.catalysts) {
-    bullPoints.push(...optimisticData.catalysts.map(c =>
-      typeof c === 'string' ? c : c.description
-    ));
+  if (bullCase?.catalysts?.length) {
+    bullPoints.push(...bullCase.catalysts);
   }
   const latestBullContent = state.debateRounds
     .map((round) => round.optimistic?.content)
@@ -63,10 +63,8 @@ export const finalVerdictNode = async (
 
   // 构建 bearPoints（看跌观点）
   const bearPoints: string[] = [];
-  if (pessimisticData?.riskFactors) {
-    bearPoints.push(...pessimisticData.riskFactors.map(r =>
-      typeof r === 'string' ? r : r.description
-    ));
+  if (bearCase?.risks?.length) {
+    bearPoints.push(...bearCase.risks);
   }
   const latestBearContent = state.debateRounds
     .map((round) => round.pessimistic?.content)
@@ -78,13 +76,8 @@ export const finalVerdictNode = async (
 
   // 构建 riskWarnings（风险提示）
   const riskWarnings: string[] = [];
-  if (pessimisticData?.riskFactors) {
-    riskWarnings.push(...pessimisticData.riskFactors.map(r =>
-      typeof r === 'string' ? r : r.description
-    ));
-  }
-  if (optimisticData?.keyRisks) {
-    riskWarnings.push(...optimisticData.keyRisks);
+  if (bearCase?.risks?.length) {
+    riskWarnings.push(...bearCase.risks);
   }
 
   // 构建 sources（来源）
@@ -105,7 +98,8 @@ export const finalVerdictNode = async (
     ...(researchSummary?.key_facts || []).slice(0, 3),
   ].filter(Boolean);
 
-  const finalSummary = state.debateSummary
+  const finalSummary = synthesis?.summary
+    || state.debateSummary
     || researchSummary?.summary
     || [
       coveredGaps.length > 0 ? `已覆盖关键研究缺口：${coveredGaps.join('、')}` : '',
@@ -116,13 +110,17 @@ export const finalVerdictNode = async (
 
   // 确定推荐和置信度
   const recommendation = normalizeRecommendation(
-    state.debateWinner === 'optimistic' ? 'buy' :
-    state.debateWinner === 'pessimistic' ? 'reduce' : 'hold'
+    synthesis?.recommendation || (
+      state.debateWinner === 'optimistic' ? 'buy' :
+      state.debateWinner === 'pessimistic' ? 'reduce' : 'hold'
+    )
   );
 
-  const confidence = optimisticData?.confidenceLevel ||
-                    pessimisticData?.confidenceLevel ||
-                    50;
+  const confidence =
+    synthesis?.conviction ||
+    (bullCase?.confidence && bearCase?.confidence
+      ? Math.round((bullCase.confidence + bearCase.confidence) / 2)
+      : bullCase?.confidence || bearCase?.confidence || 50);
 
   // 发送完整的 final_verdict 事件
   if (state.progressCallback) {

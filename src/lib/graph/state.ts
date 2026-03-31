@@ -1,5 +1,6 @@
 import { Annotation } from '@langchain/langgraph';
 import { DebateRound } from '@/types/conversation';
+import type { FundDebateData } from '@/lib/deepagent/skills/types';
 
 /**
  * 研究总结数据结构
@@ -41,53 +42,10 @@ export interface ResearchSummary {
  */
 export type DebateWinner = 'optimistic' | 'pessimistic' | 'draw';
 
-/**
- * 乐观派数据（用于 EV 计算）
- */
-export interface OptimisticData {
-  probability: {
-    baseRate: number;
-    adjustedRate: number;
-    adjustmentReason: string;
-  };
-  payoff: {
-    upsidePotential: number;
-    downsideRisk: number;
-    timeframe: string;
-    expectedReturn: number;
-  };
-  catalysts: Array<{
-    description: string;
-    impact: 'high' | 'medium' | 'low';
-    timeline: string;
-  }>;
-  keyRisks: string[];
-  confidenceLevel: number;
-}
-
-/**
- * 悲观派数据（用于 EV 计算）
- */
-export interface PessimisticData {
-  probability: {
-    downsideProbability: number;
-    severity: 'low' | 'medium' | 'high';
-    timeline: string;
-  };
-  payoff: {
-    upsideCap: number;
-    downsideRisk: number;
-    timeframe: string;
-    expectedReturn: number;
-  };
-  riskFactors: Array<{
-    description: string;
-    severity: 'low' | 'medium' | 'high';
-    probability: number;
-  }>;
-  catalystsForDecline: string[];
-  confidenceLevel: number;
-}
+export type DebateSnapshot = Pick<
+  FundDebateData,
+  'bullCase' | 'bearCase' | 'synthesis' | 'evCalculation'
+>;
 
 /**
  * 进度回调函数类型
@@ -124,8 +82,6 @@ export type ProgressCallback = (event: {
     summary?: string;
     answer?: string;
     winner?: DebateWinner;
-    optimisticData?: OptimisticData | null;
-    pessimisticData?: PessimisticData | null;
     allFindings?: any[];  // 新增
     [key: string]: unknown;
   };
@@ -146,12 +102,7 @@ export const GraphAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),
-  optimisticData: Annotation<OptimisticData | null>({
-    reducer: (prev, next) => next ?? prev,
-    default: () => null,
-  }),
-
-  pessimisticData: Annotation<PessimisticData | null>({
+  debateSnapshot: Annotation<DebateSnapshot | null>({
     reducer: (prev, next) => next ?? prev,
     default: () => null,
   }),

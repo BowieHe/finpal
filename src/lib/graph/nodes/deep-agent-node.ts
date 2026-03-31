@@ -381,44 +381,15 @@ export const deepAgentNode = async (
       // 搜索 findings
       allFindings,
 
-      // 辩论数据
-      optimisticData: bullCase ? {
-        probability: {
-          baseRate: 50,
-          adjustedRate: bullCase.confidence,
-          adjustmentReason: 'DeepAgent 分析',
-        },
-        payoff: {
-          upsidePotential: 15,
-          downsideRisk: -10,
-          timeframe: synthesis?.timeHorizon || '6-12个月',
-          expectedReturn: evCalculation?.expectedReturn || 0,
-        },
-        catalysts: bullCase.catalysts || [],
-        keyRisks: bearCase?.risks || [],
-        confidenceLevel: bullCase.confidence,
-      } : null,
-
-      pessimisticData: bearCase ? {
-        probability: {
-          downsideProbability: 100 - bearCase.confidence,
-          severity: 'medium',
-          timeline: synthesis?.timeHorizon || '6-12个月',
-        },
-        payoff: {
-          upsideCap: 10,
-          downsideRisk: -15,
-          timeframe: synthesis?.timeHorizon || '6-12个月',
-          expectedReturn: evCalculation?.expectedReturn || 0,
-        },
-        riskFactors: (bearCase.risks || []).map((r: string) => ({
-          description: r,
-          severity: 'medium' as const,
-          probability: 50,
-        })),
-        catalystsForDecline: [],
-        confidenceLevel: bearCase.confidence,
-      } : null,
+      debateSnapshot:
+        bullCase || bearCase || synthesis
+          ? {
+              bullCase,
+              bearCase,
+              synthesis,
+              evCalculation,
+            }
+          : null,
 
       // 辩论轮次（优先使用多轮结果，避免覆盖流式轮次）
       debateRounds: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
