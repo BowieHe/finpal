@@ -1,17 +1,10 @@
 'use client';
 
 import ReactMarkdown from 'react-markdown';
-
-export interface RoundDecision {
-  round: number;
-  winner: 'optimistic' | 'pessimistic' | 'draw';
-  shouldContinue: boolean;
-  reason: string;
-  isFinal?: boolean;
-}
+import { DebateJudgeState } from '@/types/conversation';
 
 interface RoundDecisionCardProps {
-  decision: RoundDecision;
+  decision: DebateJudgeState;
   isStreaming?: boolean;
 }
 

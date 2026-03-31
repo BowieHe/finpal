@@ -6,21 +6,27 @@ export interface Conversation {
   updatedAt: number;
 }
 
-export interface RoundDecision {
+export interface DebateJudgeState {
   round: number;
   winner: 'optimistic' | 'pessimistic' | 'draw';
   shouldContinue: boolean;
   reason: string;
   isFinal?: boolean;
-  pending?: boolean; // true while decider is still streaming
+  pending?: boolean;
+  nextFocus?: string[];
+}
+
+export interface DebateParticipantTurn {
+  content: string;
+  thinking?: string;
+  done?: boolean;
 }
 
 export interface DebateRound {
   round: number;
-  optimisticAnswer?: string;
-  pessimisticAnswer?: string;
-  optimisticThinking?: string;
-  pessimisticThinking?: string;
+  optimistic?: DebateParticipantTurn;
+  pessimistic?: DebateParticipantTurn;
+  judge?: DebateJudgeState;
 }
 
 // ==================== 时间线事件类型 ====================
@@ -63,18 +69,11 @@ export interface EventLogEntry {
 export interface Message {
   id: string;
   question: string;
-  optimisticAnswer: string;
-  pessimisticAnswer: string;
-  optimisticThinking?: string;
-  pessimisticThinking?: string;
-  optimisticRebuttal?: string;
-  pessimisticRebuttal?: string;
   debateWinner?: string;
   debateSummary?: string;
   searchResults?: any[];
   researchSummary?: any;
   engineUsage?: Record<string, number>;
-  round?: number;
   timestamp: number;
   // Real-time search status
   status?: 'searching' | 'analyzing' | 'complete' | 'error';
@@ -82,16 +81,14 @@ export interface Message {
   findingsCount?: number;
   totalQueries?: number;
   dbResults?: any[]; // For storing database fetch results
-  // Decider decisions per round
-  decisions?: RoundDecision[];
   // Phase 4: Dynamic Agent Rendering Pipeline
   cioPlanning?: boolean;
   agentTasks?: Record<string, AgentTask>;
   finalVerdict?: FinalVerdict;
   // Deep Search logic reflections (depth -> reasoning)
   reflections?: Record<number, string>;
-  // NEW: Multi-round debate support
-  debateHistory?: DebateRound[];
+  // Multi-round debate support
+  debateRounds?: DebateRound[];
   // NEW: Comprehensive search findings
   allFindings?: any[];
   // NEW: Event timeline for live activity updates

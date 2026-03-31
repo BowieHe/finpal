@@ -60,107 +60,6 @@ type DebateStreamNode =
   | 'round_judge'
   | 'decider';
 
-class JsonContentStreamExtractor {
-  private raw = '';
-  private emittedLength = 0;
-
-  append(chunk: string): string {
-    this.raw += chunk;
-    const content = this.extractContent(this.raw);
-
-    if (content.length <= this.emittedLength) {
-      return '';
-    }
-
-    const delta = content.slice(this.emittedLength);
-    this.emittedLength = content.length;
-    return delta;
-  }
-
-  private extractContent(input: string): string {
-    const keyIndex = input.indexOf('"content"');
-    if (keyIndex === -1) return '';
-
-    const colonIndex = input.indexOf(':', keyIndex);
-    if (colonIndex === -1) return '';
-
-    let startQuote = -1;
-    for (let i = colonIndex + 1; i < input.length; i++) {
-      const char = input[i];
-      if (char === '"') {
-        startQuote = i;
-        break;
-      }
-      if (!/\s/.test(char)) {
-        return '';
-      }
-    }
-    if (startQuote === -1) return '';
-
-    let result = '';
-    let escaping = false;
-
-    for (let i = startQuote + 1; i < input.length; i++) {
-      const char = input[i];
-
-      if (escaping) {
-        switch (char) {
-          case 'n':
-            result += '\n';
-            break;
-          case 'r':
-            result += '\r';
-            break;
-          case 't':
-            result += '\t';
-            break;
-          case '"':
-            result += '"';
-            break;
-          case '\\':
-            result += '\\';
-            break;
-          case '/':
-            result += '/';
-            break;
-          case 'b':
-            result += '\b';
-            break;
-          case 'f':
-            result += '\f';
-            break;
-          case 'u': {
-            const hex = input.slice(i + 1, i + 5);
-            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-              result += String.fromCharCode(parseInt(hex, 16));
-              i += 4;
-            }
-            break;
-          }
-          default:
-            result += char;
-            break;
-        }
-        escaping = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        escaping = true;
-        continue;
-      }
-
-      if (char === '"') {
-        return result;
-      }
-
-      result += char;
-    }
-
-    return result;
-  }
-}
-
 function extractJson<T>(content: string): T | null {
   try {
     return JSON.parse(content) as T;
@@ -218,12 +117,7 @@ ${buildResearchContext(entity, researchData)}
 - 催化剂（至少 3 条）
 - 风险应对（至少 2 条）
 2. 不要空话，必须引用数据或事实线索。
-3. 最后输出 JSON（必须）：
-{
-  "content": "Markdown正文",
-  "catalysts": ["...", "..."],
-  "confidence": 0-100
-}`;
+3. 只输出 Markdown 正文，不要输出 JSON，不要输出字段名，不要额外解释你的格式。`;
 }
 
 function buildBearInitialPrompt(entity: string, researchData: FundDeepSearchData, bullText: string): string {
@@ -241,12 +135,7 @@ ${bullText}
 - 触发条件（至少 3 条）
 - 失效条件（至少 2 条）
 2. 必须指出多头论证中的薄弱点。
-3. 最后输出 JSON（必须）：
-{
-  "content": "Markdown正文",
-  "risks": ["...", "..."],
-  "confidence": 0-100
-}`;
+3. 只输出 Markdown 正文，不要输出 JSON，不要输出字段名，不要额外解释你的格式。`;
 }
 
 function buildRebuttalPrompt(
@@ -274,11 +163,7 @@ ${opponentLast}
 1. 使用 **Markdown**，不少于 3 段。
 2. 必须逐点回应对手至少 2 个核心论点。
 3. 给出新的补充论据至少 2 条。
-4. 最后输出 JSON（必须）：
-{
-  "content": "Markdown正文",
-  "confidence": 0-100
-}`;
+4. 只输出 Markdown 正文，不要输出 JSON，不要输出字段名，不要额外解释你的格式。`;
 }
 
 function buildJudgePrompt(
@@ -361,6 +246,38 @@ function safeMarkdown(text?: string): string {
   return text.trim();
 }
 
+function extractSectionBullets(text: string, headingKeywords: string[], limit = 6): string[] {
+  const lines = text.split('\n');
+  let inSection = false;
+  const items: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const isHeading = /^#{1,6}\s+/.test(line) || /[:：]$/.test(line);
+    if (isHeading) {
+      inSection = headingKeywords.some((keyword) => line.includes(keyword));
+      continue;
+    }
+
+    if (!inSection) continue;
+
+    const bulletMatch = line.match(/^[-*+]\s+(.+)$/) || line.match(/^\d+[.)、]\s+(.+)$/);
+    if (bulletMatch) {
+      items.push(bulletMatch[1].trim());
+    } else if (items.length === 0) {
+      items.push(line.replace(/^[^:：]+[:：]\s*/, '').trim());
+    }
+
+    if (items.length >= limit) {
+      break;
+    }
+  }
+
+  return items.filter(Boolean).slice(0, limit);
+}
+
 function generateDefaultOutput(entity: string): FundDebateData {
   return {
     bullCase: {
@@ -398,6 +315,8 @@ async function streamDebateResponse(
     node: DebateStreamNode;
     label: string;
     step: number;
+    round?: number;
+    role?: 'optimistic' | 'pessimistic';
     onProgress?: (event: ProgressEvent) => void;
     emitChunks?: boolean;
   }
@@ -405,7 +324,6 @@ async function streamDebateResponse(
   const startTime = Date.now();
   let firstChunkAt: number | null = null;
   let outputLength = 0;
-  const contentExtractor = options.emitChunks ? new JsonContentStreamExtractor() : null;
 
   logger.info(`${options.label} request started`, {
     node: options.node,
@@ -426,15 +344,15 @@ async function streamDebateResponse(
       }
 
       if (options.emitChunks) {
-        const visibleChunk = contentExtractor?.append(chunk) || '';
-        if (visibleChunk) {
+        if (chunk) {
           options.onProgress?.({
-            type: 'stream_chunk',
+            type: 'debate_chunk',
             step: options.step,
             message: `${options.label} streaming`,
             data: {
-              node: options.node,
-              chunk: visibleChunk,
+              round: options.round,
+              role: options.role,
+              chunk,
             },
           });
         }
@@ -510,14 +428,15 @@ export class FundDebateSkill implements ISkill {
           node: 'optimistic_initial',
           label: 'Bull round 1',
           step: 2,
+          round: 1,
+          role: 'optimistic',
           onProgress,
           emitChunks: true,
         }
       );
-      const bullParsed = extractJson<{ content: string; catalysts?: string[]; confidence?: number }>(bullRaw);
-      const bullRound1 = safeMarkdown(bullParsed?.content);
-      bullCatalysts = bullParsed?.catalysts?.slice(0, 6) || [];
-      bullConfidence = Math.min(100, Math.max(30, Number(bullParsed?.confidence ?? 65)));
+      const bullRound1 = safeMarkdown(bullRaw);
+      bullCatalysts = extractSectionBullets(bullRound1, ['催化', '证据链', '看多理由'], 6);
+      bullConfidence = 65;
 
       logger.info('Bull round 1 generated', {
         length: bullRound1.length,
@@ -526,11 +445,13 @@ export class FundDebateSkill implements ISkill {
       });
 
       onProgress?.({
-        type: 'optimistic_output',
+        type: 'debate_message_done',
         step: 2,
         message: '多头首轮发言完成',
         data: {
-          answer: bullRound1,
+          round: 1,
+          role: 'optimistic',
+          content: bullRound1,
           thinking: bullCatalysts.join('\n'),
         },
         eventDetail: {
@@ -560,14 +481,15 @@ export class FundDebateSkill implements ISkill {
           node: 'pessimistic_initial',
           label: 'Bear round 1',
           step: 3,
+          round: 1,
+          role: 'pessimistic',
           onProgress,
           emitChunks: true,
         }
       );
-      const bearParsed = extractJson<{ content: string; risks?: string[]; confidence?: number }>(bearRaw);
-      const bearRound1 = safeMarkdown(bearParsed?.content);
-      bearRisks = bearParsed?.risks?.slice(0, 6) || [];
-      bearConfidence = Math.min(100, Math.max(30, Number(bearParsed?.confidence ?? 65)));
+      const bearRound1 = safeMarkdown(bearRaw);
+      bearRisks = extractSectionBullets(bearRound1, ['风险', '触发条件', '反驳', '看空理由'], 6);
+      bearConfidence = 65;
 
       logger.info('Bear round 1 generated', {
         length: bearRound1.length,
@@ -576,11 +498,13 @@ export class FundDebateSkill implements ISkill {
       });
 
       onProgress?.({
-        type: 'pessimistic_output',
+        type: 'debate_message_done',
         step: 3,
         message: '空头首轮发言完成',
         data: {
-          answer: bearRound1,
+          round: 1,
+          role: 'pessimistic',
+          content: bearRound1,
           thinking: bearRisks.join('\n'),
         },
         eventDetail: {
@@ -597,11 +521,10 @@ export class FundDebateSkill implements ISkill {
 
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         onProgress?.({
-          type: 'node_start',
+          type: 'debate_judge_pending',
           step: 4 + round,
           message: `第 ${round} 轮裁决中...`,
           data: {
-            node: 'round_judge',
             round,
             message: `第 ${round} 轮裁决中...`,
           },
@@ -620,8 +543,9 @@ export class FundDebateSkill implements ISkill {
             node: 'round_judge',
             label: `Judge round ${round}`,
             step: 4 + round,
+            round,
             onProgress,
-            emitChunks: true,
+            emitChunks: false,
           }
         );
         const judgeParsed = extractJson<JudgeDecision>(judgeRaw);
@@ -631,7 +555,7 @@ export class FundDebateSkill implements ISkill {
         logger.info('Round judged', { round, ...judge });
 
         onProgress?.({
-          type: 'round_judge',
+          type: 'debate_judge_done',
           step: 4 + round,
           message: `第 ${round} 轮裁决: ${judge.winner}`,
           data: {
@@ -693,12 +617,13 @@ export class FundDebateSkill implements ISkill {
             node: 'optimistic_rebuttal',
             label: `Bull rebuttal round ${nextRound}`,
             step: 8 + nextRound,
+            round: nextRound,
+            role: 'optimistic',
             onProgress,
             emitChunks: true,
           }
         );
-        const bullRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bullRebuttalRaw);
-        latestOptimistic = safeMarkdown(bullRebuttalParsed?.content);
+        latestOptimistic = safeMarkdown(bullRebuttalRaw);
 
         logger.info('Bull rebuttal generated', {
           round: nextRound,
@@ -707,12 +632,13 @@ export class FundDebateSkill implements ISkill {
         });
 
         onProgress?.({
-          type: 'optimistic_rebuttal',
+          type: 'debate_message_done',
           step: 8 + nextRound,
           message: `多头第 ${nextRound} 轮发言`,
           data: {
             round: nextRound,
-            rebuttal: latestOptimistic,
+            role: 'optimistic',
+            content: latestOptimistic,
           },
           eventDetail: {
             eventType: 'analyze',
@@ -729,12 +655,13 @@ export class FundDebateSkill implements ISkill {
             node: 'pessimistic_rebuttal',
             label: `Bear rebuttal round ${nextRound}`,
             step: 9 + nextRound,
+            round: nextRound,
+            role: 'pessimistic',
             onProgress,
             emitChunks: true,
           }
         );
-        const bearRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bearRebuttalRaw);
-        latestPessimistic = safeMarkdown(bearRebuttalParsed?.content);
+        latestPessimistic = safeMarkdown(bearRebuttalRaw);
 
         logger.info('Bear rebuttal generated', {
           round: nextRound,
@@ -743,12 +670,13 @@ export class FundDebateSkill implements ISkill {
         });
 
         onProgress?.({
-          type: 'pessimistic_rebuttal',
+          type: 'debate_message_done',
           step: 9 + nextRound,
           message: `空头第 ${nextRound} 轮发言`,
           data: {
             round: nextRound,
-            rebuttal: latestPessimistic,
+            role: 'pessimistic',
+            content: latestPessimistic,
           },
           eventDetail: {
             eventType: 'analyze',
@@ -876,7 +804,7 @@ export class FundDebateSkill implements ISkill {
 
       // 即使超时，也发一条降级裁决，避免前端“等待首轮裁决”卡死
       onProgress?.({
-        type: 'round_judge',
+        type: 'debate_judge_done',
         step: 99,
         message: '辩论降级裁决',
         data: {

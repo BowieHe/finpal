@@ -236,12 +236,10 @@ export type ProgressEventType =
   | 'search_complete'
   | 'db_query'
   | 'db_result'
-  | 'optimistic_output'
-  | 'pessimistic_output'
-  | 'optimistic_rebuttal'
-  | 'pessimistic_rebuttal'
-  | 'round_judge'
-  | 'stream_chunk'
+  | 'debate_chunk'
+  | 'debate_message_done'
+  | 'debate_judge_pending'
+  | 'debate_judge_done'
   | 'analyzing'      // 新增：分析中
   | 'skill_start'    // 新增：skill 开始
   | 'skill_complete' // 新增：skill 完成

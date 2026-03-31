@@ -107,12 +107,10 @@ export const deepAgentNode = async (
           'search_complete',
           'db_query',
           'db_result',
-          'optimistic_output',
-          'pessimistic_output',
-          'optimistic_rebuttal',
-          'pessimistic_rebuttal',
-          'round_judge',
-          'stream_chunk',
+          'debate_chunk',
+          'debate_message_done',
+          'debate_judge_pending',
+          'debate_judge_done',
         ];
         if (directEvents.includes(event.type)) {
           const detail = event.eventDetail;
@@ -284,14 +282,14 @@ export const deepAgentNode = async (
           key_facts: result.thoughts.map(t => t.content),
           data_points: [],
         },
-        optimisticAnswer: directAnswer,
-        pessimisticAnswer: '',
         debateWinner: 'draw',
         debateSummary: directAnswer,
-        debateHistory: [{
+        debateRounds: [{
           round: 1,
-          optimisticAnswer: directAnswer,
-          pessimisticAnswer: '',
+          optimistic: {
+            content: directAnswer,
+            done: true,
+          },
         }],
         allFindings,
       };
@@ -305,23 +303,27 @@ export const deepAgentNode = async (
 
     const hasRoundStreaming = Array.isArray(debateData?.rounds) && debateData.rounds.length > 0;
 
-    // 发送 optimistic_output 事件 (fallback，避免旧路径无输出)
+    // 发送 debate_message_done 事件 (fallback，避免旧路径无输出)
     if (state.progressCallback && bullCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
-        type: 'optimistic_output',
+        type: 'debate_message_done',
         data: {
-          answer: bullCase.thesis,
+          round: 1,
+          role: 'optimistic',
+          content: bullCase.thesis,
           thinking: bullCase.catalysts?.join('\n') || '',
         },
       });
     }
 
-    // 发送 pessimistic_output 事件 (fallback，避免旧路径无输出)
+    // 发送 debate_message_done 事件 (fallback，避免旧路径无输出)
     if (state.progressCallback && bearCase?.thesis && !hasRoundStreaming) {
       state.progressCallback({
-        type: 'pessimistic_output',
+        type: 'debate_message_done',
         data: {
-          answer: bearCase.thesis,
+          round: 1,
+          role: 'pessimistic',
+          content: bearCase.thesis,
           thinking: bearCase.risks?.join('\n') || '',
         },
       });
@@ -379,58 +381,57 @@ export const deepAgentNode = async (
       // 搜索 findings
       allFindings,
 
-      // 辩论数据
-      optimisticAnswer: '',
-      optimisticData: bullCase ? {
-        probability: {
-          baseRate: 50,
-          adjustedRate: bullCase.confidence,
-          adjustmentReason: 'DeepAgent 分析',
-        },
-        payoff: {
-          upsidePotential: 15,
-          downsideRisk: -10,
-          timeframe: synthesis?.timeHorizon || '6-12个月',
-          expectedReturn: evCalculation?.expectedReturn || 0,
-        },
-        catalysts: bullCase.catalysts || [],
-        keyRisks: bearCase?.risks || [],
-        confidenceLevel: bullCase.confidence,
-      } : null,
+      debateSnapshot:
+        bullCase || bearCase || synthesis
+          ? {
+              bullCase,
+              bearCase,
+              synthesis,
+              evCalculation,
+            }
+          : null,
 
-      pessimisticAnswer: '',
-      pessimisticData: bearCase ? {
-        probability: {
-          downsideProbability: 100 - bearCase.confidence,
-          severity: 'medium',
-          timeline: synthesis?.timeHorizon || '6-12个月',
-        },
-        payoff: {
-          upsideCap: 10,
-          downsideRisk: -15,
-          timeframe: synthesis?.timeHorizon || '6-12个月',
-          expectedReturn: evCalculation?.expectedReturn || 0,
-        },
-        riskFactors: (bearCase.risks || []).map((r: string) => ({
-          description: r,
-          severity: 'medium' as const,
-          probability: 50,
-        })),
-        catalystsForDecline: [],
-        confidenceLevel: bearCase.confidence,
-      } : null,
-
-      // 辩论历史（优先使用多轮结果，避免覆盖流式轮次）
-      debateHistory: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
+      // 辩论轮次（优先使用多轮结果，避免覆盖流式轮次）
+      debateRounds: Array.isArray(debateData?.rounds) && debateData.rounds.length > 0
         ? debateData.rounds.map((r: any) => ({
             round: r.round,
-            optimisticAnswer: r.optimistic || '',
-            pessimisticAnswer: r.pessimistic || '',
+            optimistic: r.optimistic
+              ? {
+                  content: r.optimistic,
+                  done: true,
+                }
+              : undefined,
+            pessimistic: r.pessimistic
+              ? {
+                  content: r.pessimistic,
+                  done: true,
+                }
+              : undefined,
+            judge: r.judge
+              ? {
+                  round: r.round,
+                  winner: r.judge.winner,
+                  shouldContinue: r.judge.shouldContinue,
+                  reason: r.judge.reason,
+                  isFinal: !r.judge.shouldContinue,
+                }
+              : undefined,
           }))
         : [{
             round: 1,
-            optimisticAnswer: bullCase?.thesis || '',
-            pessimisticAnswer: bearCase?.thesis || '',
+            optimistic: bullCase?.thesis
+              ? {
+                  content: bullCase.thesis,
+                  done: true,
+                }
+              : undefined,
+            pessimistic: bearCase?.thesis
+              ? {
+                  content: bearCase.thesis,
+                  done: true,
+                }
+              : undefined,
+            judge: undefined,
           }],
 
       // 其他状态

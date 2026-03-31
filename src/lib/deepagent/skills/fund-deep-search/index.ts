@@ -13,6 +13,8 @@ import { SkillInput, SkillOutput, ProgressEvent } from '../../core/types';
 const logger = createLogger('FundDeepSearchSkill');
 const MAX_SEARCH_QUERIES = 10;
 
+type ResearchEntityKind = 'fund' | 'index' | 'asset';
+
 type ResearchBoard = NonNullable<FundDeepSearchData['researchBoard']>;
 type SearchResultGroup = {
   query: string;
@@ -52,7 +54,23 @@ const METADATA: SkillMetadata = {
 /**
  * 计算置信度
  */
+function classifyResearchEntity(data: Pick<FundDeepSearchData, 'fundInfo'>): ResearchEntityKind {
+  const name = `${data.fundInfo.name || ''} ${data.fundInfo.type || ''}`.toLowerCase();
+  const code = data.fundInfo.code || '';
+
+  if (/\d{6}/.test(code) || /基金|etf|lof|fof/.test(name)) {
+    return 'fund';
+  }
+
+  if (/指数|index|沪深|上证|深证|中证|恒生|纳斯达克|标普|日经|道琼斯/.test(name)) {
+    return 'index';
+  }
+
+  return 'asset';
+}
+
 function calculateConfidence(data: FundDeepSearchData): number {
+  const entityKind = classifyResearchEntity(data);
   let score = 0;
 
   // 基础信息 (最高 0.3)
@@ -60,9 +78,17 @@ function calculateConfidence(data: FundDeepSearchData): number {
   if (data.fundInfo.code) score += 0.1;
   if (data.fundInfo.type) score += 0.05;
 
-  // 财务数据 (最高 0.25)
-  if (data.financials?.latestReport) score += 0.15;
-  if (data.financials?.revenue || data.financials?.profit) score += 0.1;
+  // 基础面 / 价格数据 (最高 0.25)
+  if (entityKind === 'fund') {
+    if (data.financials?.latestReport) score += 0.15;
+    if (data.financials?.revenue || data.financials?.profit) score += 0.1;
+    if (data.fundInfo.aum || data.fundInfo.nav) score += 0.05;
+    if (data.fundInfo.manager) score += 0.05;
+  } else {
+    const hasMarketCoverage = data.searchQueries.some((query) => /价格|走势|收益|历史数据|市场表现/.test(query));
+    if (hasMarketCoverage) score += 0.15;
+    if (data.news.length >= 3) score += 0.1;
+  }
 
   // 新闻 (最高 0.2)
   if (data.news.length >= 5) score += 0.2;
@@ -84,9 +110,10 @@ function calculateConfidence(data: FundDeepSearchData): number {
  * 检测信息缺口
  */
 function detectGaps(data: FundDeepSearchData): string[] {
+  const entityKind = classifyResearchEntity(data);
   const gaps: string[] = [];
 
-  if (!data.financials?.latestReport) {
+  if (entityKind === 'fund' && !data.financials?.latestReport) {
     gaps.push('缺少最新财报数据');
   }
 
@@ -96,7 +123,7 @@ function detectGaps(data: FundDeepSearchData): string[] {
     gaps.push('新闻数量较少');
   }
 
-  if (!data.fundInfo.aum && !data.fundInfo.nav) {
+  if (entityKind === 'fund' && !data.fundInfo.aum && !data.fundInfo.nav) {
     gaps.push('缺少基金规模/净值信息');
   }
 
@@ -104,8 +131,15 @@ function detectGaps(data: FundDeepSearchData): string[] {
     gaps.push('未识别风险因素');
   }
 
-  if (!data.fundInfo.manager) {
+  if (entityKind === 'fund' && !data.fundInfo.manager) {
     gaps.push('缺少基金经理信息');
+  }
+
+  if (entityKind !== 'fund') {
+    const hasMarketCoverage = data.searchQueries.some((query) => /价格|走势|收益|历史数据|市场表现/.test(query));
+    if (!hasMarketCoverage) {
+      gaps.push('缺少价格走势与市场表现数据');
+    }
   }
 
   return gaps;

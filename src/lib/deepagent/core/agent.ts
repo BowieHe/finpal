@@ -14,16 +14,14 @@ import {
   Thought,
   Action,
   Observation,
-  AgentContext,
   SkillOutput,
   ProgressEvent,
   ObservationContext,
 } from './types';
 import { ISkill } from '../skills/types';
 import { SkillRegistry } from '../skills/registry';
-import { buildObservationPrompt, buildFinalizationPrompt, parseDecision } from './prompt';
+import { buildObservationPrompt, parseDecision } from './prompt';
 import { dbAgentSchema, formatDbSchemaForPrompt } from '@/lib/agents/db-agent-schema';
-import { streamWithCallback } from '@/lib/llm/client';
 
 const logger = createLogger('DeepAgent');
 
@@ -204,8 +202,12 @@ export class DeepAgent {
         }
 
         if (decision.decision === 'continue' && decision.nextSkill) {
+          // 只对搜索 skill 做预算和重复保护，其他 skill 交给 LLM 自主判断。
           if (decision.nextSkill === 'fund-deep-search') {
-            const searchUseCount = state.actions.filter(a => a.skillName === 'fund-deep-search').length;
+            const searchUseCount = state.actions.filter(
+              (action) => action.skillName === 'fund-deep-search'
+            ).length;
+
             if (searchUseCount >= this.searchSkillLimit) {
               logger.warn('Search skill limit reached, forcing finalize', {
                 limit: this.searchSkillLimit,
@@ -235,7 +237,38 @@ export class DeepAgent {
                 }
               });
 
-              const result = await this.finalize(state, startTime, 'fund-deep-search 达到搜索上限');
+              const result = await this.finalize(state, startTime);
+              return result;
+            }
+
+            const skillTaskKey = `${decision.nextSkill}:${JSON.stringify(decision.skillInput || {})}`;
+            const skillTaskUseCount = state.actions.filter(
+              a => `${a.skillName}:${JSON.stringify(a.input || {})}` === skillTaskKey
+            ).length;
+
+            if (skillTaskUseCount >= 1) {
+              logger.warn(`Same search skill+task ${decision.nextSkill} already executed, forcing finalize`);
+
+              state.thoughts.push({
+                step: state.step,
+                content: `${decision.nextSkill} 已经执行过相同任务，为避免重复搜索强制结束`,
+                type: 'decision',
+                timestamp: Date.now(),
+              });
+
+              this.emitProgress({
+                type: 'thinking',
+                step: state.step,
+                message: `${decision.nextSkill} 已执行过相同搜索，生成最终报告...`,
+                eventDetail: {
+                  eventType: 'thinking',
+                  label: '避免重复搜索',
+                  detail: `相同搜索任务已执行，进入总结阶段`,
+                  metadata: { skill: decision.nextSkill }
+                }
+              });
+
+              const result = await this.finalize(state, startTime);
               return result;
             }
           }
@@ -269,7 +302,7 @@ export class DeepAgent {
         }
       });
 
-      return await this.finalize(state, startTime, '达到最大步数限制');
+      return await this.finalize(state, startTime);
 
     } catch (error) {
       logger.error('DeepAgent execution failed', { error: String(error) });
@@ -336,7 +369,10 @@ export class DeepAgent {
     const prompt = buildObservationPrompt(context);
     
     try {
-      const content = await this.streamLLMContent(prompt, `DeepAgent think step ${context.step}`);
+      const response = await this.llm.invoke(prompt);
+      const content = typeof response.content === 'string' 
+        ? response.content 
+        : JSON.stringify(response.content);
 
       const parsed = parseDecision(content);
       
@@ -575,8 +611,7 @@ export class DeepAgent {
    */
   private async finalize(
     state: DeepAgentState,
-    startTime: number,
-    note?: string
+    startTime: number
   ): Promise<DeepAgentResult> {
     state.status = 'complete';
 
@@ -679,41 +714,15 @@ ${thoughts.map(t => `- ${t.type}: ${t.content.substring(0, 200)}`).join('\n')}
 回答要简洁明了，控制在 300-500 字。直接写回答内容，不要包含 "以下是回答" 这样的前缀。`;
 
     try {
-      const content = await this.streamLLMContent(prompt, 'DeepAgent summary');
+      const response = await this.llm.invoke(prompt);
+      const content = typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
       return content.trim();
     } catch (error) {
       logger.error('LLM summary generation failed', { error: String(error) });
       throw error;
     }
-  }
-
-  private async streamLLMContent(prompt: string, label: string): Promise<string> {
-    const startTime = Date.now();
-    let firstChunkAt: number | null = null;
-
-    logger.info(`${label} started`, { promptLength: prompt.length });
-
-    const content = await streamWithCallback(
-      prompt,
-      () => {
-        if (firstChunkAt === null) {
-          firstChunkAt = Date.now() - startTime;
-          logger.info(`${label} first chunk received`, {
-            firstChunkMs: firstChunkAt,
-          });
-        }
-      },
-      0,
-      this.llm
-    );
-
-    logger.info(`${label} completed`, {
-      durationMs: Date.now() - startTime,
-      firstChunkMs: firstChunkAt,
-      outputLength: content.length,
-    });
-
-    return content;
   }
 
   /**

@@ -4,47 +4,11 @@ import { MessageCard } from './MessageCard';
 import ResearchResults from './ResearchResults';
 import DeciderResult from './DeciderResult';
 import DebateRoundStatsCard from './DebateRoundStatsCard';
-import { TimelineDebate, TimelineMessage } from './TimelineDebate';
-import { RoundDecision } from './RoundDecisionCard';
-import { EventLogEntry } from "@/types/conversation";
+import { TimelineDebate } from './TimelineDebate';
+import { EventLogEntry, Message } from "@/types/conversation";
 
 interface MessageListProps {
-  messages: Array<{
-    id: string;
-    question: string;
-    optimisticAnswer: string;
-    pessimisticAnswer: string;
-    optimisticThinking?: string;
-    pessimisticThinking?: string;
-    optimisticRebuttal?: string;
-    pessimisticRebuttal?: string;
-    debateWinner?: string;
-    debateSummary?: string;
-    searchResults?: any[];
-    allFindings?: any[];
-    researchSummary?: any;
-    engineUsage?: Record<string, number>;
-    round?: number;
-    timestamp: number;
-    // Real-time search status
-    status?: 'searching' | 'analyzing' | 'complete' | 'error';
-    currentQuery?: string;
-    findingsCount?: number;
-    totalQueries?: number;
-    // Decider decisions per round
-    decisions?: RoundDecision[];
-    // Phase 4 tracking
-    cioPlanning?: boolean;
-    agentTasks?: Record<string, any>;
-    finalVerdict?: any;
-    reflections?: Record<number, string>;
-    debateHistory?: any[];
-    // Database fetches
-    dbResults?: any[];
-    // Live event timeline
-    eventHistory?: EventLogEntry[];
-    isDirectAnswer?: boolean;
-  }>;
+  messages: Message[];
   isLoading?: boolean;
 }
 
@@ -70,12 +34,9 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
   const getStatusText = (
     status?: string,
     currentQuery?: string,
-    optimisticAnswer?: string,
-    pessimisticAnswer?: string,
-    debateHistory?: any[]
+    debateRounds?: Message['debateRounds']
   ) => {
-    // 如果有乐观或悲观回答，说明正在辩论阶段
-    const isDebating = optimisticAnswer || pessimisticAnswer || (debateHistory && debateHistory.length > 0);
+    const isDebating = Boolean(debateRounds && debateRounds.length > 0);
     
     switch (status) {
       case 'searching':
@@ -98,47 +59,6 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         {messages.map((message) => {
-          const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
-
-          // Build debate messages array (exclude user message - it will be shown separately)
-          const debateMessages: TimelineMessage[] = [];
-
-          if (!hasDebateHistory) {
-            if (message.optimisticAnswer) {
-              debateMessages.push({
-                role: 'optimistic',
-                content: message.optimisticAnswer,
-                thinking: message.optimisticThinking,
-                timestamp: message.timestamp,
-              });
-            }
-
-            if (message.pessimisticAnswer) {
-              debateMessages.push({
-                role: 'pessimistic',
-                content: message.pessimisticAnswer,
-                thinking: message.pessimisticThinking,
-                timestamp: message.timestamp,
-              });
-            }
-
-            if (message.optimisticRebuttal) {
-              debateMessages.push({
-                role: 'optimistic',
-                content: message.optimisticRebuttal,
-                timestamp: message.timestamp,
-              });
-            }
-
-            if (message.pessimisticRebuttal) {
-              debateMessages.push({
-                role: 'pessimistic',
-                content: message.pessimisticRebuttal,
-                timestamp: message.timestamp,
-              });
-            }
-          }
-
           // Check if we should show real-time search results
           const isAnalyzing = message.status === 'analyzing';
           const hasSearchResults = message.searchResults && message.searchResults.length > 0;
@@ -150,11 +70,12 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
           const hasAllFindings = message.allFindings && message.allFindings.length > 0;
           const hasEventHistory = message.eventHistory && message.eventHistory.length > 0;
+          const hasDebateRounds = Boolean(message.debateRounds && message.debateRounds.length > 0);
           const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || hasEventHistory || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
           const shouldShowDebate =
-            !message.isDirectAnswer && (debateMessages.length > 0 || hasDebateHistory);
+            !message.isDirectAnswer && hasDebateRounds;
 
           return (
             <div key={message.id} className="mb-8">
@@ -167,7 +88,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               
               {/* Analyzing State - No spinner */}
               {/* Analyzing State - Only shown when no search or debate content yet */}
-              {isAnalyzing && !shouldShowResearch && debateMessages.length === 0 && (
+              {isAnalyzing && !shouldShowResearch && !hasDebateRounds && (
                 <div className="my-4 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
@@ -178,7 +99,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                         分析中
                       </h3>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer, message.debateHistory)}
+                        {getStatusText(message.status, message.currentQuery, message.debateRounds)}
                       </p>
                     </div>
                   </div>
@@ -203,15 +124,10 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               {shouldShowDebate && (
                 <>
                   <DebateRoundStatsCard
-                    decisions={message.decisions}
-                    debateHistory={message.debateHistory}
+                    debateRounds={message.debateRounds}
                     status={message.status}
                   />
-                  <TimelineDebate 
-                    messages={debateMessages} 
-                    decisions={message.decisions}
-                    debateHistory={message.debateHistory}
-                  />
+                  <TimelineDebate debateRounds={message.debateRounds} />
                 </>
               )}
 
@@ -220,11 +136,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                 <div className="mt-6">
                   <DeciderResult 
                     winner={message.debateWinner || "draw"}
-                    summary={
-                      message.finalVerdict
-                        ? JSON.stringify(message.finalVerdict)
-                        : (message.debateSummary || '')
-                    }
+                    verdict={message.finalVerdict}
+                    summary={message.finalVerdict?.summary || message.debateSummary || ''}
                   />
                 </div>
               )}

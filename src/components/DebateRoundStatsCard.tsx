@@ -1,11 +1,10 @@
 'use client';
 
 import { Activity, Gauge, Layers, Scale } from 'lucide-react';
-import { RoundDecision } from './RoundDecisionCard';
+import { DebateRound } from '@/types/conversation';
 
 interface DebateRoundStatsCardProps {
-  decisions?: Array<RoundDecision & { pending?: boolean }>;
-  debateHistory?: Array<{ round: number }>;
+  debateRounds?: DebateRound[];
   status?: 'searching' | 'analyzing' | 'complete' | 'error';
 }
 
@@ -22,15 +21,17 @@ function winnerColor(winner?: 'optimistic' | 'pessimistic' | 'draw') {
 }
 
 export default function DebateRoundStatsCard({
-  decisions = [],
-  debateHistory = [],
+  debateRounds = [],
   status,
 }: DebateRoundStatsCardProps) {
+  const decisions = debateRounds
+    .map((round) => round.judge)
+    .filter((judge): judge is NonNullable<typeof judge> => Boolean(judge));
   const completedDecisions = decisions.filter((d) => !d.pending);
   const pendingDecision = decisions.find((d) => d.pending);
   const latestDecision = completedDecisions[completedDecisions.length - 1];
   const completedRounds = completedDecisions.length;
-  const observedRounds = debateHistory.length;
+  const observedRounds = debateRounds.length;
 
   const inferredCurrentRound = pendingDecision
     ? pendingDecision.round

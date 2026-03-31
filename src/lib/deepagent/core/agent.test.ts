@@ -143,6 +143,27 @@ describe("DeepAgent orchestration", () => {
         skillInput: { entity: "Gold" },
         reason: "fetch batch 3",
       },
+      {
+        thought: "search fourth time",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 4",
+      },
+      {
+        thought: "search fifth time",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 5",
+      },
+      {
+        thought: "search sixth time",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 6",
+      },
     ];
 
     const fakeLLM = {
@@ -154,7 +175,7 @@ describe("DeepAgent orchestration", () => {
 
     const agent = new DeepAgent({
       llm: fakeLLM as any,
-      searchSkillLimit: 2,
+      searchSkillLimit: 5,
       confidenceThreshold: 0.95,
     });
 
@@ -180,7 +201,7 @@ describe("DeepAgent orchestration", () => {
     const searchActions = result.actions.filter((action) => action.skillName === "fund-deep-search");
 
     expect(result.success).toBe(true);
-    expect(searchActions).toHaveLength(2);
-    expect(result.totalSteps).toBeLessThanOrEqual(2);
+    expect(searchActions).toHaveLength(5);
+    expect(result.totalSteps).toBeLessThanOrEqual(5);
   });
 });
