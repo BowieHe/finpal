@@ -33,18 +33,10 @@ describe("FundDebateSkill", () => {
       invoke: vi
         .fn()
         .mockResolvedValueOnce({
-          content: JSON.stringify({
-            content: "## 看多结论\n\nBullish thesis",
-            catalysts: ["Catalyst A"],
-            confidence: 70,
-          }),
+          content: "## 看多结论\n\nBullish thesis\n\n### 催化剂\n- Catalyst A\n- Catalyst B",
         })
         .mockResolvedValueOnce({
-          content: JSON.stringify({
-            content: "## 看空结论\n\nBearish thesis",
-            risks: ["Risk A"],
-            confidence: 60,
-          }),
+          content: "## 看空结论\n\nBearish thesis\n\n### 风险\n- Risk A\n- Risk B",
         })
         .mockResolvedValueOnce({
           content: JSON.stringify({
@@ -54,16 +46,10 @@ describe("FundDebateSkill", () => {
           }),
         })
         .mockResolvedValueOnce({
-          content: JSON.stringify({
-            content: "## 多头补充\n\nBullish thesis round 2",
-            confidence: 72,
-          }),
+          content: "## 多头补充\n\nBullish thesis round 2",
         })
         .mockResolvedValueOnce({
-          content: JSON.stringify({
-            content: "## 空头补充\n\nBearish thesis round 2",
-            confidence: 61,
-          }),
+          content: "## 空头补充\n\nBearish thesis round 2",
         })
         .mockResolvedValueOnce({
           content: JSON.stringify({
