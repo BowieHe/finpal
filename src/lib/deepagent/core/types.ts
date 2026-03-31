@@ -213,6 +213,9 @@ export interface DeepAgentConfig {
   
   /** 置信度阈值 */
   confidenceThreshold?: number;
+
+  /** 搜索技能最多调用次数 */
+  searchSkillLimit?: number;
   
   /** 进度回调 */
   onProgress?: (event: ProgressEvent) => void;
@@ -238,6 +241,7 @@ export type ProgressEventType =
   | 'optimistic_rebuttal'
   | 'pessimistic_rebuttal'
   | 'round_judge'
+  | 'stream_chunk'
   | 'analyzing'      // 新增：分析中
   | 'skill_start'    // 新增：skill 开始
   | 'skill_complete' // 新增：skill 完成
@@ -292,4 +296,6 @@ export interface ObservationContext {
   availableSkills: string[];
   dbSchemaSummary: string;
   dbTaskList: string[];
+  skillUsage: Record<string, number>;
+  searchSkillLimit: number;
 }

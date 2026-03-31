@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLLMInstance, createLLMClient } from '@/lib/llm/client';
+import { createLLMClient, streamWithCallback } from '@/lib/llm/client';
 import { getConfig } from '@/lib/config/manager';
 import { createLogger } from '@/lib/logger';
 
@@ -29,11 +29,16 @@ export async function POST(req: Request) {
 提问内容：${question}
 标题：`;
 
-    const res = await llm.invoke(prompt);
-    const title = typeof res.content === 'string' ? res.content.trim() : '新对话';
+    const title = await streamWithCallback(
+      prompt,
+      () => {},
+      0,
+      llm
+    );
+    const cleanRawTitle = title.trim() || '新对话';
     
     // 移除可能的引导词和标点
-    const cleanTitle = title.replace(/^标题[：:]\s*/, '').replace(/[。！？，]$/, '').trim();
+    const cleanTitle = cleanRawTitle.replace(/^标题[：:]\s*/, '').replace(/[。！？，]$/, '').trim();
 
     return NextResponse.json({ title: cleanTitle });
   } catch (error) {

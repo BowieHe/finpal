@@ -60,7 +60,7 @@ export const DEEP_AGENT_SYSTEM_PROMPT = `你是 DeepAgent，一个专业的基�
 - 如果用户询问的是能力边界（如"你能看到我的持仓吗"），**直接返回 finalize**，reason 中说明：作为AI助手，我无法查看您的个人持仓信息。如果您想分析某只基金，请提供基金名称或代码。
 - 如果 confidence < 0.6 且有信息缺口，应该继续调用 fund-deep-search 补充
 - 如果 confidence >= 0.6，应该调用 fund-debate 进行分析
-- 不要重复调用同一个 Skill 超过 2 次（避免循环）
+- fund-deep-search 有单独的搜索预算限制，其它 Skill 不做固定次数限制，但要避免无意义重复
 - 最多执行 {{maxSteps}} 步
 
 ## 输出格式
@@ -97,6 +97,7 @@ export function buildObservationPrompt(context: ObservationContext): string {
 当前步数: ${context.step}
 已执行行动: ${context.actionsCount}
 当前置信度: ${(context.confidence * 100).toFixed(1)}%
+搜索预算: fund-deep-search 已使用 ${context.skillUsage['fund-deep-search'] || 0}/${context.searchSkillLimit}
 
 ## 已收集数据摘要
 ${context.lastObservation ? `
@@ -113,6 +114,11 @@ ${context.gaps.length > 0 ? context.gaps.map((gap, i) => `${i + 1}. ${gap}`).joi
 
 ## 可用工具
 ${availableSkillsStr}
+
+## 当前 Skill 使用情况
+${Object.entries(context.skillUsage).length > 0
+    ? Object.entries(context.skillUsage).map(([skill, count]) => `- ${skill}: ${count} 次`).join('\n')
+    : '- 暂无'}
 
 ## 工具协作提示
 - 如果问题涉及“我目前持有的基金”、“组合表现”或“风险控制”，请优先调用 db-agent，明确引用表名/字段（如 user_holdings.fund_code）。

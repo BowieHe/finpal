@@ -66,8 +66,9 @@ export const deepAgentNode = async (
 
     // 创建 DeepAgent 实例
     const agent = await createDeepAgent({
-      maxSteps: 5,
+      maxSteps: 20,
       confidenceThreshold: 0.6,
+      searchSkillLimit: 5,
       onProgress: (event) => {
         if (!state.progressCallback) return;
 
@@ -111,6 +112,7 @@ export const deepAgentNode = async (
           'optimistic_rebuttal',
           'pessimistic_rebuttal',
           'round_judge',
+          'stream_chunk',
         ];
         if (directEvents.includes(event.type)) {
           const detail = event.eventDetail;
@@ -378,7 +380,7 @@ export const deepAgentNode = async (
       allFindings,
 
       // 辩论数据
-      optimisticAnswer: bullCase?.thesis || '',
+      optimisticAnswer: '',
       optimisticData: bullCase ? {
         probability: {
           baseRate: 50,
@@ -396,7 +398,7 @@ export const deepAgentNode = async (
         confidenceLevel: bullCase.confidence,
       } : null,
 
-      pessimisticAnswer: bearCase?.thesis || '',
+      pessimisticAnswer: '',
       pessimisticData: bearCase ? {
         probability: {
           downsideProbability: 100 - bearCase.confidence,

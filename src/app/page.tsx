@@ -266,11 +266,6 @@ export default function Home() {
             console.log('[page] updateDebateHistory', { roundNum, role, chunk: chunk.substring(0, 20), isThinking });
             updateMessageProgress({ 
                 debateHistory: history,
-                // 为了向后兼容某些组件，同时更新顶层字段
-                optimisticAnswer: roundNum === 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticAnswer,
-                pessimisticAnswer: roundNum === 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticAnswer,
-                optimisticRebuttal: roundNum > 1 && role === 'optimistic' ? round.optimisticAnswer : userMessage.optimisticRebuttal,
-                pessimisticRebuttal: roundNum > 1 && role === 'pessimistic' ? round.pessimisticAnswer : userMessage.pessimisticRebuttal,
             });
         };
 
@@ -310,7 +305,6 @@ export default function Home() {
                 },
                 body: JSON.stringify({
                     question,
-                    config: llmConfig,
                 }),
                 signal: abortControllerRef.current.signal,
             });
@@ -714,10 +708,6 @@ export default function Home() {
                                             updateDebateHistoryFull(1, 'optimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
-                                                optimisticAnswer:
-                                                    event.data.answer,
-                                                optimisticThinking:
-                                                    event.data.thinking,
                                             });
                                             appendEventLog({
                                                 label: "乐观派观点生成",
@@ -731,10 +721,6 @@ export default function Home() {
                                             updateDebateHistoryFull(1, 'pessimistic', event.data.answer, event.data.thinking);
                                             updateMessageProgress({
                                                 status: "analyzing",
-                                                pessimisticAnswer:
-                                                    event.data.answer,
-                                                pessimisticThinking:
-                                                    event.data.thinking,
                                             });
                                             appendEventLog({
                                                 label: "悲观派观点生成",
@@ -748,8 +734,6 @@ export default function Home() {
                                             updateDebateHistoryFull(currentRound, 'optimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
-                                                optimisticRebuttal:
-                                                    event.data.rebuttal,
                                             });
                                             break;
                                         case "pessimistic_rebuttal":
@@ -757,8 +741,6 @@ export default function Home() {
                                             updateDebateHistoryFull(currentRound, 'pessimistic', event.data.rebuttal);
                                             updateMessageProgress({
                                                 status: "analyzing",
-                                                pessimisticRebuttal:
-                                                    event.data.rebuttal,
                                             });
                                             break;
                                         case "round_judge":

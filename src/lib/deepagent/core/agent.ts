@@ -23,6 +23,7 @@ import { ISkill } from '../skills/types';
 import { SkillRegistry } from '../skills/registry';
 import { buildObservationPrompt, buildFinalizationPrompt, parseDecision } from './prompt';
 import { dbAgentSchema, formatDbSchemaForPrompt } from '@/lib/agents/db-agent-schema';
+import { streamWithCallback } from '@/lib/llm/client';
 
 const logger = createLogger('DeepAgent');
 
@@ -33,13 +34,15 @@ export class DeepAgent {
   private llm: ChatOpenAI;
   private maxSteps: number;
   private confidenceThreshold: number;
+  private searchSkillLimit: number;
   private skillRegistry: SkillRegistry;
   private onProgress?: (event: ProgressEvent) => void;
 
   constructor(config: DeepAgentConfig) {
     this.llm = config.llm;
-    this.maxSteps = config.maxSteps ?? 10;
+    this.maxSteps = config.maxSteps ?? 20;
     this.confidenceThreshold = config.confidenceThreshold ?? 0.6;
+    this.searchSkillLimit = config.searchSkillLimit ?? 5;
     this.onProgress = config.onProgress;
     this.skillRegistry = new SkillRegistry();
   }
@@ -201,37 +204,40 @@ export class DeepAgent {
         }
 
         if (decision.decision === 'continue' && decision.nextSkill) {
-          // 检查是否重复调用完全相同的 Skill + Task
-          const skillTaskKey = `${decision.nextSkill}:${JSON.stringify(decision.skillInput || {})}`;
-          const skillTaskUseCount = state.actions.filter(
-            a => `${a.skillName}:${JSON.stringify(a.input || {})}` === skillTaskKey
-          ).length;
+          if (decision.nextSkill === 'fund-deep-search') {
+            const searchUseCount = state.actions.filter(a => a.skillName === 'fund-deep-search').length;
+            if (searchUseCount >= this.searchSkillLimit) {
+              logger.warn('Search skill limit reached, forcing finalize', {
+                limit: this.searchSkillLimit,
+                searchUseCount,
+              });
 
-          // 只有完全相同的 (skill + input) 调用超过 1 次才阻止
-          if (skillTaskUseCount >= 1) {
-            logger.warn(`Same skill+task ${decision.nextSkill} already executed, forcing finalize`);
+              state.thoughts.push({
+                step: state.step,
+                content: `fund-deep-search 已达到 ${this.searchSkillLimit} 次上限，停止继续搜索`,
+                type: 'decision',
+                timestamp: Date.now(),
+              });
 
-            state.thoughts.push({
-              step: state.step,
-              content: `${decision.nextSkill} 已经执行过相同任务，为避免重复强制结束`,
-              type: 'decision',
-              timestamp: Date.now(),
-            });
+              this.emitProgress({
+                type: 'thinking',
+                step: state.step,
+                message: `fund-deep-search 已达到 ${this.searchSkillLimit} 次上限，进入总结阶段...`,
+                eventDetail: {
+                  eventType: 'thinking',
+                  label: '搜索预算耗尽',
+                  detail: `fund-deep-search 已使用 ${searchUseCount}/${this.searchSkillLimit}`,
+                  metadata: {
+                    skill: decision.nextSkill,
+                    searchUseCount,
+                    searchSkillLimit: this.searchSkillLimit,
+                  }
+                }
+              });
 
-            this.emitProgress({
-              type: 'thinking',
-              step: state.step,
-              message: `${decision.nextSkill} 已执行过，生成最终报告...`,
-              eventDetail: {
-                eventType: 'thinking',
-                label: '避免重复',
-                detail: `相同任务已执行，进入总结阶段`,
-                metadata: { skill: decision.nextSkill }
-              }
-            });
-
-            const result = await this.finalize(state, startTime);
-            return result;
+              const result = await this.finalize(state, startTime, 'fund-deep-search 达到搜索上限');
+              return result;
+            }
           }
 
           // 执行 Skill
@@ -315,6 +321,11 @@ export class DeepAgent {
       availableSkills: this.skillRegistry.getAllNames(),
       dbSchemaSummary,
       dbTaskList,
+      skillUsage: state.context.skillsUsed.reduce((acc, skill) => {
+        acc[skill] = (acc[skill] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+      searchSkillLimit: this.searchSkillLimit,
     };
   }
 
@@ -325,10 +336,7 @@ export class DeepAgent {
     const prompt = buildObservationPrompt(context);
     
     try {
-      const response = await this.llm.invoke(prompt);
-      const content = typeof response.content === 'string' 
-        ? response.content 
-        : JSON.stringify(response.content);
+      const content = await this.streamLLMContent(prompt, `DeepAgent think step ${context.step}`);
 
       const parsed = parseDecision(content);
       
@@ -671,15 +679,41 @@ ${thoughts.map(t => `- ${t.type}: ${t.content.substring(0, 200)}`).join('\n')}
 回答要简洁明了，控制在 300-500 字。直接写回答内容，不要包含 "以下是回答" 这样的前缀。`;
 
     try {
-      const response = await this.llm.invoke(prompt);
-      const content = typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+      const content = await this.streamLLMContent(prompt, 'DeepAgent summary');
       return content.trim();
     } catch (error) {
       logger.error('LLM summary generation failed', { error: String(error) });
       throw error;
     }
+  }
+
+  private async streamLLMContent(prompt: string, label: string): Promise<string> {
+    const startTime = Date.now();
+    let firstChunkAt: number | null = null;
+
+    logger.info(`${label} started`, { promptLength: prompt.length });
+
+    const content = await streamWithCallback(
+      prompt,
+      () => {
+        if (firstChunkAt === null) {
+          firstChunkAt = Date.now() - startTime;
+          logger.info(`${label} first chunk received`, {
+            firstChunkMs: firstChunkAt,
+          });
+        }
+      },
+      0,
+      this.llm
+    );
+
+    logger.info(`${label} completed`, {
+      durationMs: Date.now() - startTime,
+      firstChunkMs: firstChunkAt,
+      outputLength: content.length,
+    });
+
+    return content;
   }
 
   /**

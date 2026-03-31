@@ -22,6 +22,20 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
     // ignore
   }
 
+  const markdownComponents = useMemo(() => ({
+    code({ node, inline, className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '');
+      if (!inline && match && match[1] === 'mermaid') {
+        return <MermaidChart chart={String(children).replace(/\n$/, '')} />;
+      }
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    },
+  }), []);
+
   const getWinnerInfo = () => {
     switch (winner) {
       case 'optimistic':
@@ -74,19 +88,7 @@ export default function DeciderResult({ winner, summary, isStreaming }: DeciderR
         <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto prose prose-slate dark:prose-invert prose-p:my-1 prose-table:my-2 prose-th:px-2 prose-td:px-2 max-w-none">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            components={useMemo(() => ({
-              code({ node, inline, className, children, ...props }: any) {
-                const match = /language-(\w+)/.exec(className || '');
-                if (!inline && match && match[1] === 'mermaid') {
-                  return <MermaidChart chart={String(children).replace(/\n$/, '')} />;
-                }
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              },
-            }), [])}
+            components={markdownComponents}
           >
             {summary}
           </ReactMarkdown>

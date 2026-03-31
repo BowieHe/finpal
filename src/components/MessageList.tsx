@@ -67,9 +67,15 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
     );
   }
 
-  const getStatusText = (status?: string, currentQuery?: string, optimisticAnswer?: string, pessimisticAnswer?: string) => {
+  const getStatusText = (
+    status?: string,
+    currentQuery?: string,
+    optimisticAnswer?: string,
+    pessimisticAnswer?: string,
+    debateHistory?: any[]
+  ) => {
     // 如果有乐观或悲观回答，说明正在辩论阶段
-    const isDebating = optimisticAnswer || pessimisticAnswer;
+    const isDebating = optimisticAnswer || pessimisticAnswer || (debateHistory && debateHistory.length > 0);
     
     switch (status) {
       case 'searching':
@@ -92,44 +98,45 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         {messages.map((message) => {
+          const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
+
           // Build debate messages array (exclude user message - it will be shown separately)
           const debateMessages: TimelineMessage[] = [];
-          
-          // Add optimistic answer (if exists)
-          if (message.optimisticAnswer) {
-            debateMessages.push({
-              role: 'optimistic',
-              content: message.optimisticAnswer,
-              thinking: message.optimisticThinking,
-              timestamp: message.timestamp,
-            });
-          }
-          
-          // Add pessimistic answer (if exists)
-          if (message.pessimisticAnswer) {
-            debateMessages.push({
-              role: 'pessimistic',
-              content: message.pessimisticAnswer,
-              thinking: message.pessimisticThinking,
-              timestamp: message.timestamp,
-            });
-          }
-          
-          // Add rebuttals (if exists)
-          if (message.optimisticRebuttal) {
-            debateMessages.push({
-              role: 'optimistic',
-              content: message.optimisticRebuttal,
-              timestamp: message.timestamp,
-            });
-          }
-          
-          if (message.pessimisticRebuttal) {
-            debateMessages.push({
-              role: 'pessimistic',
-              content: message.pessimisticRebuttal,
-              timestamp: message.timestamp,
-            });
+
+          if (!hasDebateHistory) {
+            if (message.optimisticAnswer) {
+              debateMessages.push({
+                role: 'optimistic',
+                content: message.optimisticAnswer,
+                thinking: message.optimisticThinking,
+                timestamp: message.timestamp,
+              });
+            }
+
+            if (message.pessimisticAnswer) {
+              debateMessages.push({
+                role: 'pessimistic',
+                content: message.pessimisticAnswer,
+                thinking: message.pessimisticThinking,
+                timestamp: message.timestamp,
+              });
+            }
+
+            if (message.optimisticRebuttal) {
+              debateMessages.push({
+                role: 'optimistic',
+                content: message.optimisticRebuttal,
+                timestamp: message.timestamp,
+              });
+            }
+
+            if (message.pessimisticRebuttal) {
+              debateMessages.push({
+                role: 'pessimistic',
+                content: message.pessimisticRebuttal,
+                timestamp: message.timestamp,
+              });
+            }
           }
 
           // Check if we should show real-time search results
@@ -143,7 +150,6 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
           const hasReflections = message.reflections && Object.keys(message.reflections).length > 0;
           const hasAllFindings = message.allFindings && message.allFindings.length > 0;
           const hasEventHistory = message.eventHistory && message.eventHistory.length > 0;
-          const hasDebateHistory = message.debateHistory && message.debateHistory.length > 0;
           const shouldShowResearch = hasSearchResults || hasAllFindings || hasResearchSummary || hasReflections || hasEventHistory || (message.status === 'searching' && message.currentQuery) || message.cioPlanning || hasAgentTasks;
           const totalQueries = message.totalQueries || 0;
           const searchResults = message.searchResults || [];
@@ -172,7 +178,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                         分析中
                       </h3>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer)}
+                        {getStatusText(message.status, message.currentQuery, message.optimisticAnswer, message.pessimisticAnswer, message.debateHistory)}
                       </p>
                     </div>
                   </div>

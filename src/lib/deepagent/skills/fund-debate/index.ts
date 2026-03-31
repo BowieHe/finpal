@@ -7,7 +7,7 @@
  * - 每轮后由 decider 判断是否继续
  */
 
-import { getLLMInstance } from '@/lib/llm/client';
+import { getLLMInstance, streamWithCallback } from '@/lib/llm/client';
 import { createLogger } from '@/lib/logger';
 import {
   ISkill,
@@ -51,6 +51,115 @@ type FinalSynthesis = {
     expectedReturn: number;
   };
 };
+
+type DebateStreamNode =
+  | 'optimistic_initial'
+  | 'pessimistic_initial'
+  | 'optimistic_rebuttal'
+  | 'pessimistic_rebuttal'
+  | 'round_judge'
+  | 'decider';
+
+class JsonContentStreamExtractor {
+  private raw = '';
+  private emittedLength = 0;
+
+  append(chunk: string): string {
+    this.raw += chunk;
+    const content = this.extractContent(this.raw);
+
+    if (content.length <= this.emittedLength) {
+      return '';
+    }
+
+    const delta = content.slice(this.emittedLength);
+    this.emittedLength = content.length;
+    return delta;
+  }
+
+  private extractContent(input: string): string {
+    const keyIndex = input.indexOf('"content"');
+    if (keyIndex === -1) return '';
+
+    const colonIndex = input.indexOf(':', keyIndex);
+    if (colonIndex === -1) return '';
+
+    let startQuote = -1;
+    for (let i = colonIndex + 1; i < input.length; i++) {
+      const char = input[i];
+      if (char === '"') {
+        startQuote = i;
+        break;
+      }
+      if (!/\s/.test(char)) {
+        return '';
+      }
+    }
+    if (startQuote === -1) return '';
+
+    let result = '';
+    let escaping = false;
+
+    for (let i = startQuote + 1; i < input.length; i++) {
+      const char = input[i];
+
+      if (escaping) {
+        switch (char) {
+          case 'n':
+            result += '\n';
+            break;
+          case 'r':
+            result += '\r';
+            break;
+          case 't':
+            result += '\t';
+            break;
+          case '"':
+            result += '"';
+            break;
+          case '\\':
+            result += '\\';
+            break;
+          case '/':
+            result += '/';
+            break;
+          case 'b':
+            result += '\b';
+            break;
+          case 'f':
+            result += '\f';
+            break;
+          case 'u': {
+            const hex = input.slice(i + 1, i + 5);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+              result += String.fromCharCode(parseInt(hex, 16));
+              i += 4;
+            }
+            break;
+          }
+          default:
+            result += char;
+            break;
+        }
+        escaping = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaping = true;
+        continue;
+      }
+
+      if (char === '"') {
+        return result;
+      }
+
+      result += char;
+    }
+
+    return result;
+  }
+}
 
 function extractJson<T>(content: string): T | null {
   try {
@@ -282,6 +391,69 @@ function calculateOverallConfidence(data: FundDebateData): number {
   return (bullConf * 0.3 + bearConf * 0.3 + synthesisConf * 0.4) / 100;
 }
 
+async function streamDebateResponse(
+  llm: Awaited<ReturnType<typeof getLLMInstance>>,
+  prompt: string,
+  options: {
+    node: DebateStreamNode;
+    label: string;
+    step: number;
+    onProgress?: (event: ProgressEvent) => void;
+    emitChunks?: boolean;
+  }
+): Promise<string> {
+  const startTime = Date.now();
+  let firstChunkAt: number | null = null;
+  let outputLength = 0;
+  const contentExtractor = options.emitChunks ? new JsonContentStreamExtractor() : null;
+
+  logger.info(`${options.label} request started`, {
+    node: options.node,
+    promptLength: prompt.length,
+  });
+
+  const content = await streamWithCallback(
+    prompt,
+    (chunk) => {
+      outputLength += chunk.length;
+
+      if (firstChunkAt === null) {
+        firstChunkAt = Date.now() - startTime;
+        logger.info(`${options.label} first chunk received`, {
+          node: options.node,
+          firstChunkMs: firstChunkAt,
+        });
+      }
+
+      if (options.emitChunks) {
+        const visibleChunk = contentExtractor?.append(chunk) || '';
+        if (visibleChunk) {
+          options.onProgress?.({
+            type: 'stream_chunk',
+            step: options.step,
+            message: `${options.label} streaming`,
+            data: {
+              node: options.node,
+              chunk: visibleChunk,
+            },
+          });
+        }
+      }
+    },
+    0,
+    llm
+  );
+
+  logger.info(`${options.label} request completed`, {
+    node: options.node,
+    durationMs: Date.now() - startTime,
+    firstChunkMs: firstChunkAt,
+    outputLength,
+  });
+
+  return content;
+}
+
 export class FundDebateSkill implements ISkill {
   readonly metadata = METADATA;
 
@@ -331,8 +503,17 @@ export class FundDebateSkill implements ISkill {
         }
       });
 
-      const bullResp = await llm.invoke(buildBullInitialPrompt(entity, typedInput.researchData));
-      const bullRaw = typeof bullResp.content === 'string' ? bullResp.content : JSON.stringify(bullResp.content);
+      const bullRaw = await streamDebateResponse(
+        llm,
+        buildBullInitialPrompt(entity, typedInput.researchData),
+        {
+          node: 'optimistic_initial',
+          label: 'Bull round 1',
+          step: 2,
+          onProgress,
+          emitChunks: true,
+        }
+      );
       const bullParsed = extractJson<{ content: string; catalysts?: string[]; confidence?: number }>(bullRaw);
       const bullRound1 = safeMarkdown(bullParsed?.content);
       bullCatalysts = bullParsed?.catalysts?.slice(0, 6) || [];
@@ -372,8 +553,17 @@ export class FundDebateSkill implements ISkill {
         }
       });
 
-      const bearResp = await llm.invoke(buildBearInitialPrompt(entity, typedInput.researchData, bullRound1));
-      const bearRaw = typeof bearResp.content === 'string' ? bearResp.content : JSON.stringify(bearResp.content);
+      const bearRaw = await streamDebateResponse(
+        llm,
+        buildBearInitialPrompt(entity, typedInput.researchData, bullRound1),
+        {
+          node: 'pessimistic_initial',
+          label: 'Bear round 1',
+          step: 3,
+          onProgress,
+          emitChunks: true,
+        }
+      );
       const bearParsed = extractJson<{ content: string; risks?: string[]; confidence?: number }>(bearRaw);
       const bearRound1 = safeMarkdown(bearParsed?.content);
       bearRisks = bearParsed?.risks?.slice(0, 6) || [];
@@ -423,8 +613,17 @@ export class FundDebateSkill implements ISkill {
           }
         });
 
-        const judgeResp = await llm.invoke(buildJudgePrompt(entity, round, latestOptimistic, latestPessimistic));
-        const judgeRaw = typeof judgeResp.content === 'string' ? judgeResp.content : JSON.stringify(judgeResp.content);
+        const judgeRaw = await streamDebateResponse(
+          llm,
+          buildJudgePrompt(entity, round, latestOptimistic, latestPessimistic),
+          {
+            node: 'round_judge',
+            label: `Judge round ${round}`,
+            step: 4 + round,
+            onProgress,
+            emitChunks: true,
+          }
+        );
         const judgeParsed = extractJson<JudgeDecision>(judgeRaw);
         const judge = normalizeJudgeDecision(judgeParsed);
         finalJudge = judge;
@@ -487,12 +686,17 @@ export class FundDebateSkill implements ISkill {
           }
         });
 
-        const bullRebuttalResp = await llm.invoke(
-          buildRebuttalPrompt('optimistic', entity, nextRound, latestOptimistic, latestPessimistic, typedInput.researchData)
+        const bullRebuttalRaw = await streamDebateResponse(
+          llm,
+          buildRebuttalPrompt('optimistic', entity, nextRound, latestOptimistic, latestPessimistic, typedInput.researchData),
+          {
+            node: 'optimistic_rebuttal',
+            label: `Bull rebuttal round ${nextRound}`,
+            step: 8 + nextRound,
+            onProgress,
+            emitChunks: true,
+          }
         );
-        const bullRebuttalRaw = typeof bullRebuttalResp.content === 'string'
-          ? bullRebuttalResp.content
-          : JSON.stringify(bullRebuttalResp.content);
         const bullRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bullRebuttalRaw);
         latestOptimistic = safeMarkdown(bullRebuttalParsed?.content);
 
@@ -518,12 +722,17 @@ export class FundDebateSkill implements ISkill {
           }
         });
 
-        const bearRebuttalResp = await llm.invoke(
-          buildRebuttalPrompt('pessimistic', entity, nextRound, latestPessimistic, latestOptimistic, typedInput.researchData)
+        const bearRebuttalRaw = await streamDebateResponse(
+          llm,
+          buildRebuttalPrompt('pessimistic', entity, nextRound, latestPessimistic, latestOptimistic, typedInput.researchData),
+          {
+            node: 'pessimistic_rebuttal',
+            label: `Bear rebuttal round ${nextRound}`,
+            step: 9 + nextRound,
+            onProgress,
+            emitChunks: true,
+          }
         );
-        const bearRebuttalRaw = typeof bearRebuttalResp.content === 'string'
-          ? bearRebuttalResp.content
-          : JSON.stringify(bearRebuttalResp.content);
         const bearRebuttalParsed = extractJson<{ content: string; confidence?: number }>(bearRebuttalRaw);
         latestPessimistic = safeMarkdown(bearRebuttalParsed?.content);
 
@@ -550,10 +759,17 @@ export class FundDebateSkill implements ISkill {
         });
       }
 
-      const synthesisResp = await llm.invoke(buildFinalSynthesisPrompt(entity, rounds));
-      const synthesisRaw = typeof synthesisResp.content === 'string'
-        ? synthesisResp.content
-        : JSON.stringify(synthesisResp.content);
+      const synthesisRaw = await streamDebateResponse(
+        llm,
+        buildFinalSynthesisPrompt(entity, rounds),
+        {
+          node: 'decider',
+          label: 'Final synthesis',
+          step: 20,
+          onProgress,
+          emitChunks: false,
+        }
+      );
       const synthesisParsed = extractJson<FinalSynthesis>(synthesisRaw);
 
       const synthesis: FundDebateData['synthesis'] = {

@@ -73,8 +73,9 @@ export async function createDeepAgent(
   
   const agent = new DeepAgent({
     llm,
-    maxSteps: config?.maxSteps ?? 10,
+    maxSteps: config?.maxSteps ?? 20,
     confidenceThreshold: config?.confidenceThreshold ?? 0.6,
+    searchSkillLimit: config?.searchSkillLimit ?? 5,
     onProgress: config?.onProgress,
   });
 
@@ -84,8 +85,9 @@ export async function createDeepAgent(
   agent.registerSkill(dbAgentSkill);
 
   logger.info('DeepAgent created with default skills', {
-    maxSteps: config?.maxSteps ?? 10,
+    maxSteps: config?.maxSteps ?? 20,
     confidenceThreshold: config?.confidenceThreshold ?? 0.6,
+    searchSkillLimit: config?.searchSkillLimit ?? 5,
   });
 
   return agent;
@@ -102,12 +104,14 @@ export async function runFundAnalysis(
   options?: {
     maxSteps?: number;
     confidenceThreshold?: number;
+    searchSkillLimit?: number;
     onProgress?: (event: ProgressEvent) => void;
   }
 ): Promise<DeepAgentResult> {
   const agent = await createDeepAgent({
     maxSteps: options?.maxSteps,
     confidenceThreshold: options?.confidenceThreshold,
+    searchSkillLimit: options?.searchSkillLimit,
     onProgress: options?.onProgress,
   });
 
@@ -127,8 +131,9 @@ export async function createCustomAgent(
   
   const agent = new DeepAgent({
     llm,
-    maxSteps: config?.maxSteps ?? 10,
+    maxSteps: config?.maxSteps ?? 20,
     confidenceThreshold: config?.confidenceThreshold ?? 0.6,
+    searchSkillLimit: config?.searchSkillLimit ?? 5,
     onProgress: config?.onProgress,
   });
 

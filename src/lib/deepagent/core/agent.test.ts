@@ -114,10 +114,73 @@ describe("DeepAgent orchestration", () => {
     );
 
     const eventTypes = progressEvents.map((event) => event.type);
-    expect(eventTypes).toContain("db_query");
-    expect(eventTypes).toContain("db_result");
-    expect(eventTypes).toContain("searching");
-    expect(eventTypes).toContain("search_result");
-    expect(eventTypes).toContain("search_complete");
+    expect(eventTypes).toContain("thinking");
+    expect(eventTypes).toContain("acting");
+    expect(eventTypes).toContain("observing");
+    expect(eventTypes).toContain("complete");
+  });
+
+  it("only enforces limits on fund-deep-search and finalizes after the configured search budget", async () => {
+    const decisions = [
+      {
+        thought: "search once",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 1",
+      },
+      {
+        thought: "search twice",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 2",
+      },
+      {
+        thought: "search third time",
+        decision: "continue" as const,
+        nextSkill: "fund-deep-search",
+        skillInput: { entity: "Gold" },
+        reason: "fetch batch 3",
+      },
+    ];
+
+    const fakeLLM = {
+      invoke: vi.fn(async () => {
+        const next = decisions.shift();
+        return { content: JSON.stringify(next) };
+      }),
+    };
+
+    const agent = new DeepAgent({
+      llm: fakeLLM as any,
+      searchSkillLimit: 2,
+      confidenceThreshold: 0.95,
+    });
+
+    const searchSkill = createStubSkill("fund-deep-search", {
+      success: true,
+      confidence: 0.3,
+      completeness: 0.5,
+      gaps: ["need more data"],
+      data: {
+        searchResults: [
+          {
+            title: "result",
+            url: "https://example.com",
+            description: "result",
+          },
+        ],
+      },
+    });
+
+    agent.registerSkill(searchSkill);
+
+    const result = await agent.execute("Analyze gold", "Gold ETF");
+    const searchActions = result.actions.filter((action) => action.skillName === "fund-deep-search");
+
+    expect(result.success).toBe(true);
+    expect(searchActions).toHaveLength(2);
+    expect(result.totalSteps).toBeLessThanOrEqual(2);
   });
 });

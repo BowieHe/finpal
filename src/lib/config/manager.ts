@@ -18,8 +18,7 @@ let cachedConfig: AppConfig | null = null;
 let lastFetchTime: number = 0;
 const CACHE_TTL = 300000; // 5 minutes
 
-// 默认配置（硬编码，仅用于首次启动时数据库为空的情况）
-const defaultConfig: AppConfig = {
+const hardcodedFallbackConfig: AppConfig = {
   apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   modelName: 'qwen-vl-max',
   lightModelName: undefined,
@@ -44,34 +43,37 @@ export async function getConfig(): Promise<AppConfig> {
     const settingsRaw = result.rows[0];
     const settings = settingsRaw ? SettingsSchema.parse(settingsRaw) : null;
 
-    if (settings?.api_key) {
-      // 数据库有值，使用数据库配置
-      cachedConfig = {
-        apiUrl: settings.api_url || defaultConfig.apiUrl,
-        modelName: settings.model_name || defaultConfig.modelName,
-        lightModelName: settings.light_model_name || defaultConfig.lightModelName,
-        apiKey: settings.api_key,
-        dashscopeApiKey: settings.dashscope_api_key || defaultConfig.dashscopeApiKey,
-      };
+    const dbConfig: AppConfig | null = settings?.api_key
+      ? {
+          apiUrl: settings.api_url || hardcodedFallbackConfig.apiUrl,
+          modelName: settings.model_name || hardcodedFallbackConfig.modelName,
+          lightModelName: settings.light_model_name || undefined,
+          apiKey: settings.api_key,
+          dashscopeApiKey: settings.dashscope_api_key || undefined,
+        }
+      : null;
+
+    if (dbConfig) {
+      cachedConfig = dbConfig;
       logger.info('Config loaded from database', {
         hasApiKey: true,
+        source: 'database',
         apiUrl: cachedConfig.apiUrl,
         modelName: cachedConfig.modelName,
       });
     } else {
-      // 数据库无值，使用默认配置（env）
-      cachedConfig = { ...defaultConfig };
-      logger.info('Config loaded from environment (database empty)', {
+      cachedConfig = { ...hardcodedFallbackConfig };
+      logger.info('Config loaded from hardcoded fallback', {
         hasApiKey: !!cachedConfig.apiKey,
-        source: 'environment',
+        source: 'fallback',
       });
     }
     
     lastFetchTime = now;
     return cachedConfig;
   } catch (error) {
-    logger.error('Failed to load config from DB, using env fallback', { error: String(error) });
-    return { ...defaultConfig };
+    logger.error('Failed to load config from DB, using hardcoded fallback', { error: String(error) });
+    return { ...hardcodedFallbackConfig };
   }
 }
 

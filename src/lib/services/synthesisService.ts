@@ -2,7 +2,8 @@ import { query } from '@/lib/db';
 import { KarmaLogSchema, UserProfileSchema } from '@/lib/db-schema';
 import { createLogger } from '@/lib/logger';
 import { KarmaService } from './karmaService';
-import OpenAI from 'openai';
+import { createLLMClient, streamWithCallback } from '@/lib/llm/client';
+import { getConfig } from '@/lib/config/manager';
 const logger = createLogger('SynthesisService');
 
 export class SynthesisService {
@@ -93,17 +94,27 @@ ${evidence}
 }
 `;
 
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || '',
-      baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    const config = await getConfig();
+    const modelToUse = config.lightModelName || config.modelName;
+    const llm = createLLMClient({
+      ...config,
+      modelName: modelToUse,
     });
 
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'qwen-plus',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' }
+    logger.info('Running profile synthesis LLM', {
+      modelName: modelToUse,
+      apiUrl: config.apiUrl,
+      logCount: logs.length,
     });
 
-    return JSON.parse(response.choices[0].message.content || '{}');
+    const response = await streamWithCallback(
+      `${prompt}\n\n只输出 JSON 对象，不要输出 Markdown 代码块。`,
+      () => {},
+      0,
+      llm
+    );
+
+    const cleaned = response.trim().replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    return JSON.parse(cleaned || '{}');
   }
 }

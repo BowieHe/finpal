@@ -44,7 +44,7 @@ export class MCPManager {
       
       if (!dashscopeApiKey) {
         throw new Error(
-          `DASHSCOPE_API_KEY not configured. Please set it in settings or environment variable.`
+          `DashScope API Key not configured. Please set it in the web settings.`
         );
       }
 

@@ -5,6 +5,14 @@ import { FundDeepSearchData } from "./types";
 
 vi.mock("@/lib/llm/client", () => ({
   getLLMInstance: vi.fn(),
+  streamWithCallback: vi.fn(async (prompt: string, onChunk: (chunk: string) => void, _maxRetries: number, llm: any) => {
+    const response = await llm.invoke(prompt);
+    const content = typeof response.content === "string"
+      ? response.content
+      : JSON.stringify(response.content);
+    onChunk(content);
+    return content;
+  }),
 }));
 
 const buildResearchData = (): FundDeepSearchData => ({

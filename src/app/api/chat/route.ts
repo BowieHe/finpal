@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createGraph } from '@/lib/graph/graph';
-import { clearConfigCache, validateConfig } from '@/lib/llm/client';
-import { query } from '@/lib/db';
-import { SettingsSchema } from '@/lib/db-schema';
+import { validateConfig } from '@/lib/llm/client';
 import { createLogger } from '@/lib/logger';
+import { getConfig } from '@/lib/config/manager';
 
 const logger = createLogger('APIChat');
 
@@ -14,7 +13,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { question, config } = body;
+    const { question } = body;
 
     if (!question) {
       return NextResponse.json(
@@ -40,32 +39,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // 使用前端传来的 config
-    if (config?.apiKey) {
-      logger.info('Using custom LLM config from frontend, updating persistent settings', {
-        hasApiKey: true,
-      });
-      
-      const sql = `
-        INSERT INTO settings (id, api_url, model_name, light_model_name, api_key, dashscope_api_key, updated_at)
-        VALUES (1, $1, $2, $3, $4, $5, NOW())
-        ON CONFLICT (id) DO UPDATE SET
-          api_url = EXCLUDED.api_url,
-          model_name = EXCLUDED.model_name,
-          light_model_name = EXCLUDED.light_model_name,
-          api_key = EXCLUDED.api_key,
-          dashscope_api_key = EXCLUDED.dashscope_api_key,
-          updated_at = NOW()
-      `;
-      await query(sql, [config.apiUrl, config.modelName, config.lightModelName, config.apiKey, config.dashscopeApiKey]);
-      clearConfigCache();
-    }
-
     // 存储 dashscopeApiKey 到全局，供 MCP 使用
-    const settingsRes = await query('SELECT dashscope_api_key FROM settings WHERE id = 1');
-    const persistentConfig = settingsRes.rows[0];
-    if (persistentConfig?.dashscope_api_key) {
-      (global as any).DASHSCOPE_API_KEY = persistentConfig.dashscope_api_key;
+    const effectiveConfig = await getConfig();
+    if (effectiveConfig.dashscopeApiKey) {
+      (global as any).DASHSCOPE_API_KEY = effectiveConfig.dashscopeApiKey;
     }
 
     // Check if client accepts SSE

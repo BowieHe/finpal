@@ -57,8 +57,8 @@ export function createLLMClient(config: LLMConfig): ChatOpenAI {
     //temperature: 0.7,
     temperature: 1,
     modelName: config.modelName,
-    maxRetries: 3,
-    timeout: 60000,
+    maxRetries: 1,
+    timeout: 45000,
   });
 
   return client;
@@ -123,7 +123,7 @@ export async function withRetry<T>(
 export async function streamWithCallback(
   prompt: string,
   onChunk: (chunk: string) => void,
-  maxRetries: number = 2,
+  maxRetries: number = 0,
   llmOverride?: ChatOpenAI
 ): Promise<string> {
   let llm: ChatOpenAI;
@@ -138,6 +138,18 @@ export async function streamWithCallback(
   let fullContent = '';
 
   const operation = async () => {
+    if (typeof (llm as any).stream !== 'function') {
+      const response = await (llm as any).invoke(prompt);
+      const content = typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+      if (content) {
+        fullContent += content;
+        onChunk(content);
+      }
+      return fullContent;
+    }
+
     const stream = await llm.stream(prompt);
 
     for await (const chunk of stream) {

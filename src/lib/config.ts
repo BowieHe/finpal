@@ -53,7 +53,7 @@ export function getLLMConfig(): LLMConfig {
   // 默认返回硬编码配置（首次使用时的默认值）
   return {
     apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    modelName: 'qwen-vl-max',
+    modelName: 'qwen3.5-plus',
     apiKey: '',
   };
 }
